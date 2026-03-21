@@ -16,6 +16,7 @@ interface ChatPanelProps {
   apiKeyMissing?: boolean;
   onPreview?: () => void;
   hasCode?: boolean;
+  initialMessage?: string;
 }
 
 type Block =
@@ -78,10 +79,17 @@ export function ChatPanel({
   apiKeyMissing,
   onPreview,
   hasCode,
+  initialMessage,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Pre-fill from template on mount
+  useEffect(() => {
+    if (initialMessage) setInput(initialMessage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on change
   useEffect(() => {
