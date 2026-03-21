@@ -1,43 +1,33 @@
-/**
- * useAIChat.ts
- * Multi-provider AI chat hook.
- * Supports: OpenRouter, Google Gemini (direct), DeepSeek (direct), Auto
- * Chat history persisted per-project in localStorage.
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AIProvider } from "../constants/models";
 import type { ChatMessage } from "./useTermux";
 
 const SYSTEM_PROMPT =
-  "You are an expert app builder. Generate clean React/HTML/CSS/JS code. " +
-  "When asked to build an app, return the complete code inside a single HTML file. " +
+  "You are an expert app builder. Generate clean HTML/CSS/JS code. " +
+  "When asked to build an app, return a complete single HTML file. " +
   "When fixing errors, return the complete corrected code.";
 
-function storageKey(projectName: string) {
-  return `bf_chat_${projectName}`;
+function storageKey(name: string) {
+  return `bf_chat_${name}`;
 }
 
-export function loadChatMessages(projectName: string): ChatMessage[] {
-  if (!projectName) return [];
+export function loadChatMessages(name: string): ChatMessage[] {
+  if (!name) return [];
   try {
-    const raw = localStorage.getItem(storageKey(projectName));
+    const raw = localStorage.getItem(storageKey(name));
     if (raw) return JSON.parse(raw) as ChatMessage[];
   } catch {}
   return [];
 }
 
-function persistMessages(projectName: string, msgs: ChatMessage[]) {
+function persist(name: string, msgs: ChatMessage[]) {
   try {
-    // Keep last 50 messages
-    const trimmed = msgs.slice(-50);
-    localStorage.setItem(storageKey(projectName), JSON.stringify(trimmed));
+    localStorage.setItem(storageKey(name), JSON.stringify(msgs.slice(-50)));
   } catch {}
 }
 
-// ---- Provider call functions ----
-
 async function callOpenRouter(
-  apiKey: string,
+  key: string,
   model: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
@@ -45,7 +35,7 @@ async function callOpenRouter(
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://brainforge-7xn.pages.dev",
       "X-Title": "BrainForge",
@@ -67,43 +57,41 @@ async function callOpenRouter(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    const msg = err?.error?.message || `HTTP ${res.status}`;
     if (res.status === 401) throw new Error("Invalid OpenRouter API key.");
     if (res.status === 429) throw new Error("RATE_LIMITED");
-    throw new Error(msg);
+    throw new Error(err?.error?.message || `OpenRouter HTTP ${res.status}`);
   }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "No response";
 }
 
 async function callGemini(
-  apiKey: string,
+  key: string,
   model: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
 ): Promise<string> {
-  const geminiHistory = history.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: geminiHistory,
+        contents: history.map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        })),
         generationConfig: { maxOutputTokens: 8192 },
       }),
       signal,
     },
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403)
       throw new Error("Invalid Gemini API key.");
     if (res.status === 429) throw new Error("RATE_LIMITED");
+    const err = await res.json().catch(() => ({}));
     throw new Error(err?.error?.message || `Gemini HTTP ${res.status}`);
   }
   const data = await res.json();
@@ -111,7 +99,7 @@ async function callGemini(
 }
 
 async function callDeepSeek(
-  apiKey: string,
+  key: string,
   model: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
@@ -119,7 +107,7 @@ async function callDeepSeek(
   const res = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -130,16 +118,14 @@ async function callDeepSeek(
     signal,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
     if (res.status === 401) throw new Error("Invalid DeepSeek API key.");
     if (res.status === 429) throw new Error("RATE_LIMITED");
+    const err = await res.json().catch(() => ({}));
     throw new Error(err?.error?.message || `DeepSeek HTTP ${res.status}`);
   }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "No response";
 }
-
-// ---- Main hook ----
 
 interface UseAIChatOptions {
   provider: AIProvider;
@@ -163,13 +149,12 @@ export function useAIChat(opts: UseAIChatOptions) {
     deepSeekModel,
     projectName,
   } = opts;
-
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     loadChatMessages(projectName),
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeProvider, setActiveProvider] = useState<string>("");
+  const [activeProvider, setActiveProvider] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const projectRef = useRef(projectName);
 
@@ -186,35 +171,28 @@ export function useAIChat(opts: UseAIChatOptions) {
     async (message: string) => {
       setError(null);
       const userMsg: ChatMessage = { role: "user", content: message };
-      const prevMessages = loadChatMessages(projectName);
-      const nextMessages = [...prevMessages, userMsg];
-      setMessages(nextMessages);
-      persistMessages(projectName, nextMessages);
+      const prev = loadChatMessages(projectName);
+      const next = [...prev, userMsg];
+      setMessages(next);
+      persist(projectName, next);
       setIsLoading(true);
-
       abortRef.current?.abort();
       abortRef.current = new AbortController();
       const signal = abortRef.current.signal;
-
-      const history = nextMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
+      const history = next.map((m) => ({ role: m.role, content: m.content }));
       try {
         let reply = "";
-
         if (provider === "gemini") {
           if (!geminiKey)
             throw new Error(
-              "No Gemini API key. Add it in Settings > AI Settings.",
+              "No Gemini API key. Add it in Settings > API Keys.",
             );
           setActiveProvider("Gemini");
           reply = await callGemini(geminiKey, geminiModel, history, signal);
         } else if (provider === "deepseek") {
           if (!deepSeekKey)
             throw new Error(
-              "No DeepSeek API key. Add it in Settings > AI Settings.",
+              "No DeepSeek API key. Add it in Settings > API Keys.",
             );
           setActiveProvider("DeepSeek");
           reply = await callDeepSeek(
@@ -224,8 +202,8 @@ export function useAIChat(opts: UseAIChatOptions) {
             signal,
           );
         } else if (provider === "auto") {
-          // Try providers in order: OpenRouter -> Gemini -> DeepSeek
-          const attempts: Array<() => Promise<string>> = [];
+          type Attempt = () => Promise<string>;
+          const attempts: Attempt[] = [];
           if (openRouterKey)
             attempts.push(() => {
               setActiveProvider("OpenRouter");
@@ -248,16 +226,14 @@ export function useAIChat(opts: UseAIChatOptions) {
             });
           if (attempts.length === 0)
             throw new Error(
-              "No API keys configured. Add at least one in Settings > AI Settings.",
+              "No API keys configured. Add at least one in Settings > API Keys.",
             );
-
           for (const attempt of attempts) {
             try {
               reply = await attempt();
-              break;
+              if (reply) break;
             } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : "";
-              if (msg === "RATE_LIMITED") { continue; }
+              if (e instanceof Error && e.message === "RATE_LIMITED") continue;
               throw e;
             }
           }
@@ -266,10 +242,9 @@ export function useAIChat(opts: UseAIChatOptions) {
               "All providers rate limited. Try again in a moment.",
             );
         } else {
-          // Default: OpenRouter
           if (!openRouterKey)
             throw new Error(
-              "No OpenRouter API key. Add it in Settings > AI Settings.",
+              "No OpenRouter API key. Add it in Settings > API Keys.",
             );
           setActiveProvider("OpenRouter");
           reply = await callOpenRouter(
@@ -279,20 +254,19 @@ export function useAIChat(opts: UseAIChatOptions) {
             signal,
           );
         }
-
         const replyMsg: ChatMessage = { role: "assistant", content: reply };
-        setMessages((prev) => {
-          const next = [...prev, replyMsg];
-          persistMessages(projectName, next);
-          return next;
+        setMessages((p) => {
+          const n = [...p, replyMsg];
+          persist(projectName, n);
+          return n;
         });
       } catch (e: unknown) {
         if (e instanceof Error && e.name !== "AbortError") {
-          const msg =
+          setError(
             e.message === "RATE_LIMITED"
-              ? "Rate limited. Switching model or try again."
-              : e.message;
-          setError(msg);
+              ? "Rate limited. Try again or switch provider."
+              : e.message,
+          );
         }
         setActiveProvider("");
       } finally {
@@ -313,7 +287,7 @@ export function useAIChat(opts: UseAIChatOptions) {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
-    persistMessages(projectName, []);
+    persist(projectName, []);
     setError(null);
     setActiveProvider("");
   }, [projectName]);
