@@ -1,108 +1,84 @@
-# BrainForge -- CRITICAL REMINDER (Read Every Session)
+# BrainForge -- CRITICAL REMINDER
 
-> ⚠️ The Caffeine workspace RESETS every session. Always restore from GitHub FIRST before making any changes.
-> ⚠️ NEVER change Chat, Preview, or Settings screens unless the user explicitly asks.
+> ⚠️ EVERY SESSION the workspace resets. The local files are ALWAYS wrong.
+> ⚠️ Run the restore command BEFORE doing ANYTHING else -- no exceptions.
+> ⚠️ NEVER change Chat, Preview, or Settings layouts unless user explicitly asks.
 
 ---
 
-## STEP 1 -- Restore files at the start of EVERY session
+## MANDATORY FIRST STEP -- Run this EVERY session before any work
 
 ```bash
 for f in \
   "src/frontend/src/pages/EditorPage.tsx" \
   "src/frontend/src/components/ChatPanel.tsx" \
+  "src/frontend/src/components/PreviewPanel.tsx" \
   "src/frontend/src/pages/SettingsPage.tsx" \
   "src/frontend/src/hooks/useAIChat.ts" \
-  "src/frontend/src/constants/models.ts"; do
+  "src/frontend/src/constants/models.ts" \
+  "src/frontend/src/components/Sidebar.tsx" \
+  "src/frontend/src/components/MatrixOverlay.tsx" \
+  "src/frontend/src/pages/ProjectsPage.tsx" \
+  "src/frontend/src/main.tsx"; do
   curl -s -H "Authorization: token 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" \
     "https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/$f" \
     | python3 -c "import sys,json,base64; d=json.load(sys.stdin); open('/home/ubuntu/workspace/$f','w').write(base64.b64decode(d['content']).decode())"
 done
 ```
 
----
+## MANDATORY VERIFY -- Run this after restore, before any change
 
-## STEP 2 -- Before ANY change, verify these 3 screens look correct
-
-### ✅ CHAT SCREEN (EditorPage.tsx + ChatPanel.tsx)
-
-**What it must look like:**
-- Chat fills the ENTIRE screen (no side-by-side split with preview)
-- Height = `100dvh`
-- Header bar: `[<- Back]` | `[Project name]` | `[provider dot + label]` | `[Preview button]`
-- **Preview button is always visible** on all screen sizes (desktop + mobile)
-- Messages scroll in the middle area with `ScrollArea`
-- User bubbles: `chat-bubble-user ml-6` (right-aligned)
-- AI bubbles: `chat-bubble-ai` (left-aligned)
-- Code blocks: inside bordered `<pre>` with language label
-- Input bar at the bottom:
-  - `<textarea rows={1}>` that auto-grows from 1 line up to 120px
-  - Placeholder: "Enter instruction or question..."
-  - `fontSize: 16px` (prevents mobile zoom)
-  - Resets to 1 line after send
-- After code is generated: "Tap to open preview" shortcut button appears in chat
-
-**Quick verify command:**
 ```bash
 grep -m1 "previewOpen" src/frontend/src/pages/EditorPage.tsx
-# Must output: const [previewOpen, setPreviewOpen] = useState(false);
-grep -m1 "rows={1}" src/frontend/src/components/ChatPanel.tsx
-# Must output: rows={1}
+# MUST print: const [previewOpen, setPreviewOpen] = useState(false);
+
+grep -m1 'rows={1}' src/frontend/src/components/ChatPanel.tsx
+# MUST print: rows={1}
+
+grep -m1 "fixed inset-0 z-50" src/frontend/src/pages/EditorPage.tsx
+# MUST print the overlay div
+
+grep -m1 "HUB_BUTTONS" src/frontend/src/pages/SettingsPage.tsx
+# MUST print: const HUB_BUTTONS = [
+
+grep "sandbox=" src/frontend/src/components/PreviewPanel.tsx
+# MUST print: sandbox="allow-scripts"  (NOT allow-same-origin)
 ```
 
 ---
 
-### ✅ PREVIEW SCREEN
+## LOCKED Screen Layouts (DO NOT CHANGE)
 
-**What it must look like:**
-- Always opens as a `fixed inset-0 z-50` full-screen overlay
-- Works on ALL screen sizes (not just mobile)
-- Header: `[X close button]` | `[Preview -- ProjectName]`
-- Body: sandboxed `<iframe>` using `srcDoc` attribute
-- Closes with X button, returns to chat
+### Chat Screen
+- Chat fills FULL screen -- no split, no side-by-side
+- Height = `100dvh`
+- Header: Back | Project name | Provider dot | Preview button (always visible)
+- Preview button opens full-screen overlay on ALL devices
+- Textarea: `rows={1}`, auto-grows to 120px, resets after send, `fontSize: 16px`
+- Matrix overlay shown when `isLoading`
+- History (clock) button shows when snapshots exist
 
-**Quick verify command:**
-```bash
-grep "fixed inset-0" src/frontend/src/pages/EditorPage.tsx
-# Must output a line with: className="fixed inset-0 z-50 bg-background flex flex-col"
-```
+### Preview Screen
+- `fixed inset-0 z-50` overlay -- full screen on ALL devices
+- Has X button to close and return to chat
+- iframe uses `sandbox="allow-scripts"` ONLY (no allow-same-origin)
+- Download (ZIP) button in preview header
+- Mobile view toggle (phone icon)
 
-**Hard rule:** NEVER use `document.write()` or `doc.open()` for the iframe -- causes cross-origin error.
-
----
-
-### ✅ SETTINGS SCREEN (SettingsPage.tsx)
-
-**What it must look like:**
-- A HUB PAGE with 6 large color-coded buttons (NOT tabs, NOT a vertical list of sections)
-- Background: `oklch(0.07 0.015 265)` (deep indigo)
-- Top: Settings icon + "Settings" title + Active AI status row
-- **6 buttons in a 2-column grid:**
-
-| # | Label | Color | What's inside |
-|---|-------|-------|---------------|
-| 1 | API Keys | Violet | OpenRouter key + Gemini key (NO DeepSeek) |
-| 2 | AI Settings | Blue | Provider selector (Auto/OpenRouter/Gemini) + model |
-| 3 | Termux Brain | Green | Server URL + test button + setup guide |
-| 4 | GitHub & Deploy | Orange | Token + repo + live URLs |
-| 5 | Master AI | Pink | Full-height chat + on/off toggle |
-| 6 | AI Files | Cyan | Memory + rules files per project |
-
-- Each button click opens a full sub-page with `<- back` arrow
-- Each sub-page has its own background color matching its button color
-- AI providers = `auto`, `openrouter`, `gemini` ONLY -- **DeepSeek is permanently removed**
-
-**Quick verify command:**
-```bash
-grep -c "HUB_BUTTONS" src/frontend/src/pages/SettingsPage.tsx
-# Must output: 1 (or more)
-grep "deepseek\|DeepSeek\|deepSeek" src/frontend/src/pages/SettingsPage.tsx
-# Must output nothing (DeepSeek is gone)
-```
+### Settings Screen
+- Hub with 7 color-coded BUTTONS (NOT tabs):
+  1. API Keys -- violet
+  2. AI Settings -- blue (Auto/OpenRouter/Gemini ONLY -- no DeepSeek)
+  3. Termux Brain -- green
+  4. GitHub & Deploy -- orange
+  5. Master AI -- pink (push button has `type="button"`)
+  6. AI Files -- cyan
+  7. Database -- indigo
+- Background: `oklch(0.07 0.015 265)`
 
 ---
 
-## STEP 3 -- Deploy command (always use this)
+## Deploy Command
 
 ```bash
 cd src/frontend && \
@@ -111,28 +87,17 @@ cd src/frontend && \
   npx wrangler pages deploy dist --project-name brainforge
 ```
 
-> Project name is `brainforge` -- NOT `brainforge-7xn`
+> Project name = `brainforge` (NOT `brainforge-7xn`)
 
 ---
 
-## Permanent Rules (never break these)
+## Permanent Rules
 
-1. Chat = full screen. Preview = full-screen overlay. NEVER split side by side.
-2. Settings = 6-button hub. NEVER convert to tabs or accordion sections.
-3. DeepSeek = permanently removed. Never add it back.
-4. Textarea = auto-growing, starts at 1 line. Never make it fixed height.
-5. Preview iframe = always `srcDoc`. Never `document.write()`.
-6. Gemini models = `gemini-2.0-flash` and `gemini-2.0-flash-lite` ONLY. No 1.5 models.
-7. Always restore from GitHub first. Always push to GitHub after changes.
-
----
-
-## Suggested Features (not yet built -- confirm with user before starting)
-
-1. Multi-file project support
-2. Export project as ZIP
-3. Snapshot / version history UI
-4. One-click deploy to Cloudflare Pages from inside BrainForge
-5. Auto error fix loop (AI retries up to 3x)
-6. Template picker when creating a new project
-7. Dark/Light theme toggle in sidebar
+1. ALWAYS restore from GitHub first -- local files are always the old ICP scaffold
+2. Chat = full screen. Preview = overlay. NEVER split side by side.
+3. Settings = 7-button hub. NEVER tabs or accordion.
+4. DeepSeek = removed. Never add back.
+5. Gemini = `gemini-2.0-flash` and `gemini-2.0-flash-lite` ONLY.
+6. Preview iframe = `sandbox="allow-scripts"`. Never add `allow-same-origin`.
+7. Master AI push button must have `type="button"`.
+8. After every build -- push changed files to GitHub.
