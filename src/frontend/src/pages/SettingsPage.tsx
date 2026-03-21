@@ -351,23 +351,26 @@ export function SettingsPage() {
   };
 
   const pushToGitHub = async () => {
-    if (!pendingFile || !githubToken || !githubRepo) {
-      toast.error("GitHub token and repo required");
-      return;
-    }
+    if (!pendingFile) { toast.error("No file to push"); return; }
+    // Read token/repo from state OR directly from localStorage as fallback
+    const savedSettings = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    const token = githubToken || savedSettings.githubToken || "";
+    const repo = githubRepo || savedSettings.githubRepo || "";
+    if (!token) { toast.error("GitHub token not set. Go to GitHub & Deploy settings first."); return; }
+    if (!repo) { toast.error("GitHub repo not set. Go to GitHub & Deploy settings first."); return; }
     setPushing(true);
     try {
       const getRes = await fetch(
-        `https://api.github.com/repos/${githubRepo}/contents/${pendingFile.path}`,
-        { headers: { Authorization: `Bearer ${githubToken}` } },
+        `https://api.github.com/repos/${repo}/contents/${pendingFile.path}`,
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       const sha = getRes.ok ? (await getRes.json()).sha : undefined;
       const putRes = await fetch(
-        `https://api.github.com/repos/${githubRepo}/contents/${pendingFile.path}`,
+        `https://api.github.com/repos/${repo}/contents/${pendingFile.path}`,
         {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${githubToken}`,
+            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -377,8 +380,11 @@ export function SettingsPage() {
           }),
         },
       );
-      if (!putRes.ok) throw new Error(`GitHub push failed: ${putRes.status}`);
-      toast.success("Pushed to GitHub!");
+      if (!putRes.ok) {
+        const errData = await putRes.json().catch(() => ({}));
+        throw new Error(errData?.message || `GitHub push failed: ${putRes.status}`);
+      }
+      toast.success("Pushed to GitHub! Cloudflare will deploy shortly.");
       setPendingFile(null);
     } catch (e: any) {
       toast.error(e.message);
@@ -1054,9 +1060,10 @@ export function SettingsPage() {
                 </div>
                 <div className="flex gap-2">
                   <Button
+                    type="button"
                     size="sm"
                     onClick={pushToGitHub}
-                    disabled={pushing || !githubToken || !githubRepo}
+                    disabled={pushing}
                     className="bg-pink-600 hover:bg-pink-700 text-white flex-1 gap-1"
                     data-ocid="settings.master_ai.confirm_button"
                   >
@@ -1068,6 +1075,7 @@ export function SettingsPage() {
                     Push to GitHub
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     onClick={() => setPendingFile(null)}
