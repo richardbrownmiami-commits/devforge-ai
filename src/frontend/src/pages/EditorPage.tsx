@@ -6,9 +6,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Brain, MessageSquare, Monitor, Trash2 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  ArrowLeft,
+  Brain,
+  Monitor,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ChatPanel } from "../components/ChatPanel";
@@ -23,9 +29,9 @@ export function EditorPage() {
   const navigate = useNavigate();
   const { data: settings } = useSettings();
   const { data: projects = [] } = useProjects();
-  const [mobileTab, setMobileTab] = useState<"chat" | "preview">("chat");
+  const [previewOpen, setPreviewOpen] = useState(false);
 
-  const project = projects.find((p) => p.name === projectName);
+  const project = projects.find((p: any) => p.name === projectName);
   const apiKey = settings?.openRouterApiKey || "";
   const selectedModel = project?.aiModel || settings?.defaultModel || DEFAULT_MODEL_ID;
 
@@ -41,92 +47,123 @@ export function EditorPage() {
 
   const handleClearMemory = async () => {
     await clearMemory();
-    toast.success("AI memory cleared -- fresh start for this project");
+    toast.success("Memory cleared");
   };
 
-  const modelSelector = (
-    <Select value={selectedModel} onValueChange={handleModelChange}>
-      <SelectTrigger className="h-7 text-xs bg-card border-border max-w-[160px] truncate" data-ocid="editor.model.select">
-        <SelectValue placeholder="Model">{shortModelName(selectedModel)}</SelectValue>
-      </SelectTrigger>
-      <SelectContent className="bg-popover border-border">
-        {availableModels.map((m) => <SelectItem key={m.id} value={m.id} className="text-xs">{m.name}</SelectItem>)}
-        {!availableModels.find((m) => m.id === selectedModel) && (
-          <SelectItem value={selectedModel} className="text-xs">{shortModelName(selectedModel)}</SelectItem>
-        )}
-      </SelectContent>
-    </Select>
+  // Check if any code was generated
+  const hasCode = messages.some(
+    (m) => m.role === "assistant" && m.content.includes("```")
   );
 
   return (
-    <div className="flex flex-col h-full" data-ocid="editor.page">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0">
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0"
-          onClick={() => navigate({ to: "/projects" })} data-ocid="editor.back.button">
-          <ArrowLeft className="w-4 h-4" />
-        </Button>
-        <span className="text-sm font-medium text-foreground truncate flex-1">{projectName}</span>
+    <div className="flex flex-col h-full relative" data-ocid="editor.page">
 
-        {/* Memory indicator */}
+      {/* ── Header ── */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={() => navigate({ to: "/projects" })} data-ocid="editor.back.button">
+          <ArrowLeft className="w-3.5 h-3.5" />
+        </Button>
+
+        <span className="text-xs font-medium text-foreground truncate flex-1">{projectName}</span>
+
+        {/* Memory badge */}
         {memoryLoaded && messages.length > 0 && (
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
-            <Brain className="w-3 h-3 text-primary" />
-            <span>{messages.length} msgs</span>
+          <div className="hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded-full">
+            <Brain className="w-2.5 h-2.5 text-primary" />
+            <span>{messages.length}</span>
           </div>
         )}
 
-        {/* Rules conflict indicator */}
-        {rules && (
-          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" title="AI rules active" />
-        )}
+        {/* Rules active dot */}
+        {rules && <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" title="AI rules active" />}
 
-        {modelSelector}
+        {/* Model selector */}
+        <Select value={selectedModel} onValueChange={handleModelChange}>
+          <SelectTrigger className="h-6 text-[11px] bg-card border-border w-[130px] shrink-0" data-ocid="editor.model.select">
+            <SelectValue>{shortModelName(selectedModel)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent className="bg-popover border-border">
+            {availableModels.map((m) => (
+              <SelectItem key={m.id} value={m.id} className="text-xs">{m.name}</SelectItem>
+            ))}
+            {!availableModels.find((m) => m.id === selectedModel) && (
+              <SelectItem value={selectedModel} className="text-xs">{shortModelName(selectedModel)}</SelectItem>
+            )}
+          </SelectContent>
+        </Select>
 
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
-          onClick={handleClearMemory} title="Clear AI memory for this project">
-          <Trash2 className="w-3.5 h-3.5" />
+        {/* Clear memory */}
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+          onClick={handleClearMemory} title="Clear memory">
+          <Trash2 className="w-3 h-3" />
+        </Button>
+
+        {/* Preview button -- always visible in header */}
+        <Button
+          size="sm"
+          onClick={() => setPreviewOpen(true)}
+          className="h-7 px-2.5 text-[11px] gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
+          data-ocid="editor.preview.open_button"
+        >
+          <Monitor className="w-3 h-3" />
+          Preview
         </Button>
       </div>
 
-      {/* Desktop: 50/50 split */}
-      <div className="hidden md:flex flex-1 overflow-hidden">
-        <div className="w-1/2 border-r border-border flex flex-col overflow-hidden">
-          <ChatPanel
-            messages={messages}
-            isLoading={isLoading}
-            error={error}
-            onSend={(msg) => sendMessage(msg)}
-            onClear={clearMessages}
-            apiKeyMissing={!apiKey}
-          />
-        </div>
-        <div className="w-1/2 flex flex-col overflow-hidden">
-          <PreviewPanel messages={messages} termuxUrl="" projectName={projectName} />
-        </div>
+      {/* ── Full-screen Chat ── */}
+      <div className="flex-1 overflow-hidden">
+        <ChatPanel
+          messages={messages}
+          isLoading={isLoading}
+          error={error}
+          onSend={(msg) => sendMessage(msg)}
+          onClear={clearMessages}
+          apiKeyMissing={!apiKey}
+          onPreview={() => setPreviewOpen(true)}
+          hasCode={hasCode}
+        />
       </div>
 
-      {/* Mobile: tabbed */}
-      <div className="md:hidden flex-1 overflow-hidden flex flex-col">
-        <Tabs value={mobileTab} onValueChange={(v) => setMobileTab(v as "chat" | "preview")}
-          className="flex flex-col flex-1 overflow-hidden">
-          <TabsList className="mx-4 mt-2 bg-muted/50 shrink-0 grid grid-cols-2">
-            <TabsTrigger value="chat" className="gap-1.5 text-xs" data-ocid="editor.chat.tab">
-              <MessageSquare className="w-3.5 h-3.5" /> Chat
-            </TabsTrigger>
-            <TabsTrigger value="preview" className="gap-1.5 text-xs" data-ocid="editor.preview.tab">
-              <Monitor className="w-3.5 h-3.5" /> Preview
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="chat" className="flex-1 m-0 mt-2 overflow-hidden flex flex-col">
-            <ChatPanel messages={messages} isLoading={isLoading} error={error}
-              onSend={(msg) => sendMessage(msg)} onClear={clearMessages} apiKeyMissing={!apiKey} />
-          </TabsContent>
-          <TabsContent value="preview" className="flex-1 m-0 mt-2 overflow-hidden flex flex-col">
-            <PreviewPanel messages={messages} termuxUrl="" projectName={projectName} />
-          </TabsContent>
-        </Tabs>
-      </div>
+      {/* ── Full-screen Preview Overlay ── */}
+      <AnimatePresence>
+        {previewOpen && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.18 }}
+            className="absolute inset-0 z-50 flex flex-col bg-background"
+            data-ocid="editor.preview.overlay"
+          >
+            {/* Preview header */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+              <div className="flex items-center gap-2">
+                <Monitor className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs font-medium text-foreground">{projectName} — Preview</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPreviewOpen(false)}
+                className="h-7 px-2.5 text-[11px] gap-1.5 text-muted-foreground hover:text-foreground"
+                data-ocid="editor.preview.close_button"
+              >
+                <X className="w-3 h-3" />
+                Close
+              </Button>
+            </div>
+            {/* Preview content -- full remaining height */}
+            <div className="flex-1 overflow-hidden">
+              <PreviewPanel
+                messages={messages}
+                termuxUrl=""
+                projectName={projectName}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
