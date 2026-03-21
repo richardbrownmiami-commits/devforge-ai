@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeft, Monitor, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChatPanel } from "../components/ChatPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import type { AIProvider } from "../constants/models";
@@ -29,6 +29,14 @@ export function EditorPage() {
   const geminiKey: string = s?.geminiApiKey || "";
   const geminiModel: string = s?.geminiModel || "gemini-2.0-flash";
   const hasAnyKey = !!(openRouterKey || geminiKey);
+
+  // Pre-fill input from template picker (set by ProjectsPage)
+  const [initialMessage, setInitialMessage] = useState<string>(() => {
+    const key = `bf_starter_${projectName}`;
+    const val = localStorage.getItem(key) || "";
+    if (val) localStorage.removeItem(key);
+    return val;
+  });
 
   const {
     messages,
@@ -108,6 +116,7 @@ export function EditorPage() {
           messages={messages as any}
           isLoading={isLoading}
           error={error}
+          initialMessage={initialMessage}
           onSend={sendMessage}
           onClear={clearMessages}
           apiKeyMissing={!hasAnyKey}
