@@ -31,7 +31,11 @@ function extractCode(messages: ChatMessage[]) {
 
 function buildPreviewDoc(html: string, css: string, js: string): string {
   if (!html && !css && !js) return "";
-  return `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n<style>\n* { box-sizing: border-box; }\n${css}\n</style>\n</head>\n<body>\n${html}\n<script>\n${js}\n</script>\n</body>\n</html>`;
+  const errorScript = `<script>
+window.onerror=function(m,s,l){window.parent.postMessage({type:'PREVIEW_ERROR',error:m+' (line '+l+')'},'*');return true;};
+window.addEventListener('unhandledrejection',function(e){window.parent.postMessage({type:'PREVIEW_ERROR',error:String(e.reason)},'*');});
+</script>`;
+  return `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n${errorScript}\n<style>\n* { box-sizing: border-box; }\n${css}\n</style>\n</head>\n<body>\n${html}\n<script>\n${js}\n</script>\n</body>\n</html>`;
 }
 
 const CODE_LANGS = ["html", "css", "js"] as const;
