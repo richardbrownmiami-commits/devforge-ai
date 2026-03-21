@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { AlertCircle, Info, Loader2, Monitor, Send, Trash2 } from "lucide-react";
+import { AlertCircle, Info, Loader2, Monitor, Send } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../hooks/useTermux";
@@ -27,13 +27,13 @@ function parseBlocks(content: string): Block[] {
   const regex = /```(\w*)\n?([\s\S]*?)```/g;
   let last = 0;
   let idx = 0;
-  let result = regex.exec(content);
-  while (result !== null) {
-    if (result.index > last)
-      blocks.push({ type: "text", id: `t-${idx++}`, text: content.slice(last, result.index) });
-    blocks.push({ type: "code", id: `c-${idx++}`, lang: result[1] || "text", code: result[2] });
-    last = result.index + result[0].length;
-    result = regex.exec(content);
+  let m = regex.exec(content);
+  while (m !== null) {
+    if (m.index > last)
+      blocks.push({ type: "text", id: `t-${idx++}`, text: content.slice(last, m.index) });
+    blocks.push({ type: "code", id: `c-${idx++}`, lang: m[1] || "text", code: m[2] });
+    last = m.index + m[0].length;
+    m = regex.exec(content);
   }
   if (last < content.length)
     blocks.push({ type: "text", id: `t-${idx++}`, text: content.slice(last) });
@@ -102,17 +102,16 @@ export function ChatPanel({
     setInput(e.target.value);
     const el = e.target;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 100)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   };
 
   return (
     <div className="flex flex-col h-full" data-ocid="chat.panel">
 
-      {/* Messages area */}
+      {/* Messages */}
       <ScrollArea className="flex-1 px-3">
         <div className="py-3 space-y-3">
 
-          {/* Empty state */}
           {messages.length === 0 && (
             <div className="text-center py-14" data-ocid="chat.empty_state">
               <div className="text-2xl mb-2">⚡</div>
@@ -121,15 +120,13 @@ export function ChatPanel({
             </div>
           )}
 
-          {/* API key notice */}
           {apiKeyMissing && messages.length === 0 && (
             <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg p-2.5" data-ocid="chat.api_key_notice">
               <Info className="w-3 h-3 shrink-0 mt-0.5 text-primary" />
-              <span>Add OpenRouter API key in <a href="/settings" className="text-primary hover:underline">Settings &rsaquo; API</a></span>
+              <span>Add OpenRouter or Gemini API key in <a href="/settings" className="text-primary hover:underline">Settings › API</a></span>
             </div>
           )}
 
-          {/* Messages */}
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => (
               <motion.div
@@ -151,7 +148,6 @@ export function ChatPanel({
             ))}
           </AnimatePresence>
 
-          {/* Loading */}
           {isLoading && (
             <div className="chat-bubble-ai rounded-lg px-3 py-2" data-ocid="chat.loading_state">
               <span className="text-[9px] font-mono text-muted-foreground uppercase block mb-1">ai</span>
@@ -164,7 +160,6 @@ export function ChatPanel({
             </div>
           )}
 
-          {/* Error */}
           {error && (
             <div className="flex items-start gap-2 text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-2.5" data-ocid="chat.error_state">
               <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -172,7 +167,7 @@ export function ChatPanel({
             </div>
           )}
 
-          {/* Preview shortcut -- appears after code is generated */}
+          {/* Shortcut button to open preview after code is generated */}
           {hasCode && !isLoading && onPreview && (
             <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
               <button
@@ -206,8 +201,8 @@ export function ChatPanel({
             placeholder="Enter instruction or question..."
             disabled={disabled || isLoading}
             rows={1}
-            className="resize-none text-[12px] bg-card border border-border rounded-md px-3 py-2 flex-1 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50 leading-relaxed"
-            style={{ fontSize: "16px", minHeight: "38px", maxHeight: "100px" }}
+            className="resize-none bg-card border border-border rounded-md px-3 py-2 flex-1 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50 leading-relaxed overflow-hidden"
+            style={{ fontSize: "16px", minHeight: "38px", maxHeight: "120px" }}
             data-ocid="chat.input"
           />
           <Button
@@ -222,7 +217,7 @@ export function ChatPanel({
               : <Send className="w-3.5 h-3.5" />}
           </Button>
         </div>
-        <p className="text-[9px] text-muted-foreground/30 mt-1 ml-0.5">Enter · send &nbsp;&nbsp; Shift+Enter · new line</p>
+        <p className="text-[9px] text-muted-foreground/30 mt-1 ml-0.5">Enter · send    Shift+Enter · new line</p>
       </div>
     </div>
   );
