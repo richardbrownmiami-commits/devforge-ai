@@ -10,8 +10,6 @@ export const OPENROUTER_MODELS = [
 export const GEMINI_MODELS = [
   { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
   { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite" },
-  { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
-  { id: "gemini-1.5-flash-8b", name: "Gemini 1.5 Flash 8B" },
 ] as const;
 
 export const FREE_MODELS = OPENROUTER_MODELS;
