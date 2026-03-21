@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import {
   Bot,
   ChevronLeft,
+  Database,
   ExternalLink,
   FileText,
   GitBranch,
@@ -52,7 +53,8 @@ type Page =
   | "termux"
   | "github"
   | "master-ai"
-  | "ai-files";
+  | "ai-files"
+  | "database";
 
 const HUB_BUTTONS = [
   {
@@ -108,6 +110,15 @@ const HUB_BUTTONS = [
     gradient: "from-cyan-600/20 to-cyan-600/5",
     border: "border-cyan-500/30 hover:border-cyan-400/60",
     iconColor: "text-cyan-400",
+  },
+  {
+    id: "database" as Page,
+    label: "Database",
+    description: "Projects, memories, D1 sync",
+    icon: Database,
+    gradient: "from-indigo-600/20 to-indigo-600/5",
+    border: "border-indigo-500/30 hover:border-indigo-400/60",
+    iconColor: "text-indigo-400",
   },
 ];
 
@@ -1196,6 +1207,110 @@ export function SettingsPage() {
             </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ---- DATABASE PAGE ----
+  if (page === "database") {
+    const allKeys = Object.keys(localStorage).filter(k => k.startsWith("bf_"));
+    const projectKeys = allKeys.filter(k => k.startsWith("bf_chat_"));
+    const memoryKeys = allKeys.filter(k => k.startsWith("bf_ai_file_") || k.startsWith("bf_snapshots_"));
+    const totalSize = allKeys.reduce((acc, k) => acc + (localStorage.getItem(k) || "").length, 0);
+
+    const exportAll = () => {
+      const data: Record<string, string> = {};
+      for (const k of allKeys) data[k] = localStorage.getItem(k) || "";
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "brainforge-backup.json"; a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target?.result as string);
+          for (const [k, v] of Object.entries(data)) { if (k.startsWith("bf_")) localStorage.setItem(k, v as string); }
+          toast.success("Data imported. Refresh to see changes.");
+        } catch { toast.error("Invalid backup file"); }
+      };
+      reader.readAsText(file);
+    };
+
+    return (
+      <div className="flex flex-col h-full" style={{ background: "oklch(0.07 0.03 260)" }}>
+        <BackHeader title="Database" onBack={() => setPage("hub")} accent="text-indigo-300" />
+        <div className="flex-1 overflow-auto px-4 py-4 space-y-4 max-w-lg">
+          <div className="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5">
+            <p className="text-xs text-indigo-300 font-medium">Local Storage</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{allKeys.length} keys · ~{(totalSize / 1024).toFixed(1)} KB used</p>
+          </div>
+
+          {/* Projects */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Projects ({projectKeys.length})</p>
+            {projectKeys.length === 0 && <p className="text-xs text-muted-foreground">No projects yet</p>}
+            {projectKeys.map(k => {
+              const name = k.replace("bf_chat_", "");
+              const msgs = JSON.parse(localStorage.getItem(k) || "[]").length;
+              const snaps = JSON.parse(localStorage.getItem(`bf_snapshots_${name}`) || "[]").length;
+              return (
+                <div key={k} className="flex items-center justify-between p-2.5 rounded-lg border border-indigo-500/20 bg-black/20">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">{name}</p>
+                    <p className="text-[10px] text-muted-foreground">{msgs} messages · {snaps} snapshots</p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-6 text-[10px] text-destructive hover:text-destructive"
+                    onClick={() => { if (window.confirm(`Clear all data for "${name}"?`)) { localStorage.removeItem(k); localStorage.removeItem(`bf_snapshots_${name}`); toast.success("Cleared"); } }}>
+                    Clear
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Memories */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">AI Memories & Snapshots ({memoryKeys.length})</p>
+            {memoryKeys.length === 0 && <p className="text-xs text-muted-foreground">No memory files yet</p>}
+            {memoryKeys.map(k => {
+              const val = localStorage.getItem(k) || "";
+              return (
+                <div key={k} className="p-2.5 rounded-lg border border-indigo-500/20 bg-black/20">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-mono text-indigo-300 truncate flex-1 mr-2">{k.replace("bf_ai_file_","").replace("bf_snapshots_","snapshots:")}</p>
+                    <Button size="sm" variant="ghost" className="h-5 text-[10px] text-destructive shrink-0"
+                      onClick={() => { localStorage.removeItem(k); toast.success("Cleared"); }}>Clear</Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1 truncate">{val.slice(0, 80)}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sync / Export */}
+          <div className="space-y-2 border-t border-indigo-500/20 pt-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Backup & Sync</p>
+            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-2 text-xs" onClick={exportAll}>
+              <Database className="w-3.5 h-3.5" /> Export All Data as JSON
+            </Button>
+            <label className="block">
+              <span className="sr-only">Import backup</span>
+              <div className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-md border border-indigo-500/30 hover:border-indigo-400/60 bg-black/20 cursor-pointer text-xs text-indigo-300 transition-colors">
+                Import Backup JSON
+              </div>
+              <input type="file" accept=".json" className="hidden" onChange={importData} />
+            </label>
+            {githubRepo && githubToken ? (
+              <p className="text-[10px] text-green-400 flex items-center gap-1">✓ GitHub configured -- use AI Files sync from GitHub &amp; Deploy settings</p>
+            ) : (
+              <p className="text-[10px] text-muted-foreground">Configure GitHub in GitHub &amp; Deploy settings to enable cloud sync</p>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
