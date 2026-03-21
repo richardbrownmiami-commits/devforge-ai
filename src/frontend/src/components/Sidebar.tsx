@@ -1,13 +1,24 @@
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import { FolderOpen, Menu, Settings, Zap } from "lucide-react";
+import { FolderOpen, Menu, Moon, Settings, Sun, Zap } from "lucide-react";
 import { useState } from "react";
 
 function SidebarInner({ onClose }: { onClose?: () => void }) {
   const matchRoute = useMatchRoute();
   const isProjects = !!matchRoute({ to: "/projects" });
   const isSettings = !!matchRoute({ to: "/settings" });
+
+  const [dark, setDark] = useState(
+    () => document.documentElement.classList.contains("dark")
+  );
+
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    localStorage.setItem("bf_theme", next ? "dark" : "light");
+    document.documentElement.classList.toggle("dark", next);
+  };
 
   return (
     <div className="flex flex-col h-full" style={{ background: "oklch(var(--sidebar))" }}>
@@ -46,6 +57,18 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
       </nav>
 
       <div className="px-4 py-4 border-t border-sidebar-border" data-ocid="sidebar.status.panel">
+        {/* Dark / Light toggle */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors mb-3"
+          title={dark ? "Switch to light mode" : "Switch to dark mode"}
+          data-ocid="sidebar.theme.toggle"
+        >
+          {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <span className="text-xs">{dark ? "Light mode" : "Dark mode"}</span>
+        </button>
+
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
           <span className="text-xs text-muted-foreground">Active</span>
