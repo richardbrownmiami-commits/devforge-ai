@@ -1,92 +1,128 @@
-// useBackend.ts -- All data goes to Cloudflare Worker, NOT ICP/Motoko
+/**
+ * useBackend.ts
+ * All data stored in localStorage -- no ICP actor dependency.
+ * Works on Cloudflare Pages and any static host.
+ */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Project, Settings } from "../backend.d";
 
-const WORKER = import.meta.env.VITE_CF_WORKER_URL ||
-  "https://brainforge-api.richard-brown-miami.workers.dev";
+const SETTINGS_KEY = "bf_settings";
+const PROJECTS_KEY = "bf_projects";
 
-const api = {
-  async get(path: string) {
-    const res = await fetch(`${WORKER}${path}`);
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    return res.json();
-  },
-  async post(path: string, body: unknown) {
-    const res = await fetch(`${WORKER}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    return res.json();
-  },
-  async put(path: string, body: unknown) {
-    const res = await fetch(`${WORKER}${path}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    return res.json();
-  },
-  async del(path: string) {
-    const res = await fetch(`${WORKER}${path}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    return res.json();
-  },
-};
+function loadSettings(): Settings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return JSON.parse(raw) as Settings;
+  } catch {}
+  return {
+    openRouterApiKey: "",
+    defaultModel: "qwen/qwen3-coder:free",
+    termuxUrl: "",
+    githubToken: "",
+    githubRepo: "",
+    supabaseUrl: "",
+    supabaseKey: "",
+    cloudflareToken: "",
+    cloudflareAccountId: "",
+    temperature: 0.7,
+    maxTokens: 4096,
+    liveSearch: false,
+    autoFix: true,
+    proactiveAI: false,
+    masterAIEnabled: true,
+    masterAIModel: "deepseek/deepseek-r1:free",
+    // AI provider settings
+    aiProvider: "openrouter",
+    geminiApiKey: "",
+    geminiModel: "gemini-2.0-flash",
+    deepSeekApiKey: "",
+    deepSeekModel: "deepseek-chat",
+  } as unknown as Settings;
+}
 
-// ---- Settings ----
+function saveSettingsToStorage(s: Settings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
+function loadProjects(): Project[] {
+  try {
+    const raw = localStorage.getItem(PROJECTS_KEY);
+    if (raw) return JSON.parse(raw) as Project[];
+  } catch {}
+  return [];
+}
+
+function saveProjectsToStorage(projects: Project[]) {
+  localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+}
+
 export function useSettings() {
-  return useQuery({
+  return useQuery<Settings>({
     queryKey: ["settings"],
-    queryFn: () => api.get("/api/settings"),
-    staleTime: 30_000,
+    queryFn: () => loadSettings(),
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }
 
 export function useSaveSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (settings: Record<string, unknown>) =>
-      api.post("/api/settings", settings),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+    mutationFn: async (patch: Partial<Settings>) => {
+      const current = loadSettings();
+      const updated = { ...current, ...patch };
+      saveSettingsToStorage(updated);
+      return updated;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 }
 
-// ---- Projects ----
 export function useProjects() {
-  return useQuery({
+  return useQuery<Project[]>({
     queryKey: ["projects"],
-    queryFn: () => api.get("/api/projects"),
-    staleTime: 10_000,
-    select: (data: any[]) =>
-      data.map((p) => ({
-        ...p,
-        // Normalise field names
-        name: p.name,
-        aiModel: p.ai_model || "",
-        lastModified: BigInt(0), // keep compatible with existing UI
-      })),
+    queryFn: () => loadProjects(),
+    staleTime: 30_000,
   });
 }
 
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) =>
-      api.post("/api/projects", { name }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+    mutationFn: async (name: string) => {
+      const projects = loadProjects();
+      if (projects.find((p) => p.name === name)) {
+        throw new Error(`Project "${name}" already exists`);
+      }
+      const newProject: Project = {
+        name,
+        code: "",
+        lastModified: BigInt(Date.now() * 1_000_000),
+        aiModel: "",
+        liveLink: "",
+      } as unknown as Project;
+      const updated = [...projects, newProject];
+      saveProjectsToStorage(updated);
+      return newProject;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
   });
 }
 
 export function useDeleteProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) =>
-      api.del(`/api/projects/${encodeURIComponent(name)}`),
+    mutationFn: async (name: string) => {
+      const projects = loadProjects().filter((p) => p.name !== name);
+      saveProjectsToStorage(projects);
+      // Also remove chat history
+      localStorage.removeItem(`bf_chat_${name}`);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
-      qc.invalidateQueries({ queryKey: ["claimedModels"] });
     },
   });
 }
