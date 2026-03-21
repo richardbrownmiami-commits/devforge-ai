@@ -7,13 +7,14 @@ const SYSTEM_PROMPT =
   "When asked to build an app, return a complete single HTML file. " +
   "When fixing errors, return the complete corrected code.";
 
-// Free models tried in order when rate limited -- most reliable first
-const OPENROUTER_FALLBACK_MODELS = [
+// Free OpenRouter models tried in sequence on rate limit
+const OR_FALLBACKS = [
   "meta-llama/llama-3.3-70b-instruct:free",
   "deepseek/deepseek-r1:free",
   "google/gemma-3-27b-it:free",
   "mistralai/mistral-small-3.1-24b-instruct:free",
   "qwen/qwen3-coder:free",
+  "openai/gpt-oss-120b:free",
 ];
 
 function storageKey(name: string) {
@@ -35,7 +36,8 @@ function persist(name: string, msgs: ChatMessage[]) {
   } catch {}
 }
 
-async function callOpenRouterModel(
+// Returns reply string, or throws "RATE_LIMITED" / real error
+async function tryOpenRouter(
   key: string,
   model: string,
   history: { role: string; content: string }[],
@@ -59,7 +61,9 @@ async function callOpenRouterModel(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     if (res.status === 401)
-      throw new Error("Invalid OpenRouter API key. Check Settings > API Keys.");
+      throw new Error(
+        "Invalid OpenRouter API key. Go to Settings \u2192 API Keys to fix it.",
+      );
     if (res.status === 429) throw new Error("RATE_LIMITED");
     throw new Error(err?.error?.message || `OpenRouter error ${res.status}`);
   }
@@ -69,43 +73,33 @@ async function callOpenRouterModel(
   return content;
 }
 
-async function callOpenRouterWithFallback(
+// Try all OpenRouter fallback models in sequence
+async function openRouterWithFallback(
   key: string,
-  preferredModel: string,
+  preferred: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
-  onModelTry: (model: string) => void,
+  onModel: (label: string) => void,
 ): Promise<string> {
-  // Build ordered list: preferred first, then fallbacks (skip duplicates)
   const candidates = [
-    preferredModel,
-    ...OPENROUTER_FALLBACK_MODELS.filter((m) => m !== preferredModel),
+    preferred,
+    ...OR_FALLBACKS.filter((m) => m !== preferred),
   ];
-
-  let lastError = "";
   for (const model of candidates) {
-    if (signal.aborted) throw new Error("AbortError");
-    onModelTry(model.split("/").pop()?.replace(":free", "") ?? model);
+    if (signal.aborted) break;
+    onModel(model.split("/").pop()?.replace(":free", "") ?? model);
     try {
-      return await callOpenRouterModel(key, model, history, signal);
+      return await tryOpenRouter(key, model, history, signal);
     } catch (e: unknown) {
-      if (e instanceof Error) {
-        if (e.name === "AbortError") throw e;
-        if (e.message === "RATE_LIMITED") {
-          lastError = `${model} rate limited`;
-          continue; // try next model
-        }
-        throw e; // non-rate-limit error -- stop
-      }
-      throw e;
+      if (e instanceof Error && e.name === "AbortError") throw e;
+      if (e instanceof Error && e.message === "RATE_LIMITED") continue;
+      throw e; // real error -- stop
     }
   }
-  throw new Error(
-    `All free models are rate limited. ${lastError}. Try again in a few minutes or add a Gemini key in Settings > API Keys.`,
-  );
+  throw new Error("RATE_LIMITED");
 }
 
-async function callGemini(
+async function tryGemini(
   key: string,
   model: string,
   history: { role: string; content: string }[],
@@ -128,17 +122,19 @@ async function callGemini(
     },
   );
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403)
-      throw new Error("Invalid Gemini API key. Check Settings > API Keys.");
-    if (res.status === 429) throw new Error("RATE_LIMITED");
     const err = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403)
+      throw new Error(
+        "Invalid Gemini API key. Go to Settings \u2192 API Keys.",
+      );
+    if (res.status === 429) throw new Error("RATE_LIMITED");
     throw new Error(err?.error?.message || `Gemini error ${res.status}`);
   }
   const data = await res.json();
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
 }
 
-async function callDeepSeek(
+async function tryDeepSeek(
   key: string,
   model: string,
   history: { role: string; content: string }[],
@@ -158,10 +154,12 @@ async function callDeepSeek(
     signal,
   });
   if (!res.ok) {
-    if (res.status === 401)
-      throw new Error("Invalid DeepSeek API key. Check Settings > API Keys.");
-    if (res.status === 429) throw new Error("RATE_LIMITED");
     const err = await res.json().catch(() => ({}));
+    if (res.status === 401)
+      throw new Error(
+        "Invalid DeepSeek API key. Go to Settings \u2192 API Keys.",
+      );
+    if (res.status === 429) throw new Error("RATE_LIMITED");
     throw new Error(err?.error?.message || `DeepSeek error ${res.status}`);
   }
   const data = await res.json();
@@ -229,90 +227,131 @@ export function useAIChat(opts: UseAIChatOptions) {
         let reply = "";
 
         if (provider === "gemini") {
+          // --- Gemini direct ---
           if (!geminiKey)
-            throw new Error("No Gemini key. Add it in Settings > API Keys.");
+            throw new Error(
+              "No Gemini API key. Go to Settings \u2192 API Keys.",
+            );
           setActiveModel("Gemini");
-          reply = await callGemini(geminiKey, geminiModel, history, signal);
-        } else if (provider === "deepseek") {
-          if (!deepSeekKey)
-            throw new Error("No DeepSeek key. Add it in Settings > API Keys.");
-          setActiveModel("DeepSeek");
-          reply = await callDeepSeek(
-            deepSeekKey,
-            deepSeekModel,
-            history,
-            signal,
-          );
-        } else if (provider === "auto") {
-          // Auto: try OpenRouter with full model fallback first, then Gemini, then DeepSeek
-          if (openRouterKey) {
-            try {
-              reply = await callOpenRouterWithFallback(
-                openRouterKey,
-                openRouterModel,
-                history,
-                signal,
-                (m) => setActiveModel(m),
+          try {
+            reply = await tryGemini(geminiKey, geminiModel, history, signal);
+          } catch (e: unknown) {
+            if (e instanceof Error && e.message === "RATE_LIMITED") {
+              throw new Error(
+                "Gemini rate limit reached (15 req/min). Wait about 60 seconds and try again.",
               );
-            } catch (e: unknown) {
-              if (
-                e instanceof Error &&
-                e.message !== "RATE_LIMITED" &&
-                !e.message.includes("All free models")
-              )
-                throw e;
-              // All OpenRouter models exhausted -- try Gemini
-              if (geminiKey) {
-                setActiveModel("Gemini");
-                reply = await callGemini(
-                  geminiKey,
-                  geminiModel,
-                  history,
-                  signal,
-                );
-              } else if (deepSeekKey) {
-                setActiveModel("DeepSeek");
-                reply = await callDeepSeek(
-                  deepSeekKey,
-                  deepSeekModel,
-                  history,
-                  signal,
-                );
-              } else {
-                throw new Error(
-                  "All OpenRouter models rate limited. Add a Gemini key in Settings > API Keys for a reliable fallback.",
-                );
-              }
             }
-          } else if (geminiKey) {
-            setActiveModel("Gemini");
-            reply = await callGemini(geminiKey, geminiModel, history, signal);
-          } else if (deepSeekKey) {
-            setActiveModel("DeepSeek");
-            reply = await callDeepSeek(
+            throw e;
+          }
+        } else if (provider === "deepseek") {
+          // --- DeepSeek direct ---
+          if (!deepSeekKey)
+            throw new Error(
+              "No DeepSeek API key. Go to Settings \u2192 API Keys.",
+            );
+          setActiveModel("DeepSeek");
+          try {
+            reply = await tryDeepSeek(
               deepSeekKey,
               deepSeekModel,
               history,
               signal,
             );
-          } else {
+          } catch (e: unknown) {
+            if (e instanceof Error && e.message === "RATE_LIMITED") {
+              throw new Error(
+                "DeepSeek rate limited. Wait a moment and try again.",
+              );
+            }
+            throw e;
+          }
+        } else if (provider === "auto") {
+          // --- Auto: only use providers that have keys, skip others silently ---
+          // Build list of providers to try (only those with keys)
+          type Provider = { name: string; call: () => Promise<string> };
+          const queue: Provider[] = [];
+
+          if (openRouterKey) {
+            queue.push({
+              name: "OpenRouter",
+              call: () =>
+                openRouterWithFallback(
+                  openRouterKey,
+                  openRouterModel,
+                  history,
+                  signal,
+                  (m) => setActiveModel(m),
+                ),
+            });
+          }
+          if (geminiKey) {
+            queue.push({
+              name: "Gemini",
+              call: () => {
+                setActiveModel("Gemini");
+                return tryGemini(geminiKey, geminiModel, history, signal);
+              },
+            });
+          }
+          if (deepSeekKey) {
+            queue.push({
+              name: "DeepSeek",
+              call: () => {
+                setActiveModel("DeepSeek");
+                return tryDeepSeek(deepSeekKey, deepSeekModel, history, signal);
+              },
+            });
+          }
+
+          if (queue.length === 0) {
             throw new Error(
-              "No API keys set. Add at least one in Settings > API Keys.",
+              "No API keys configured. Go to Settings \u2192 API Keys and add at least one.",
+            );
+          }
+
+          let succeeded = false;
+          const tried: string[] = [];
+          for (const p of queue) {
+            if (signal.aborted) break;
+            tried.push(p.name);
+            try {
+              reply = await p.call();
+              succeeded = true;
+              break;
+            } catch (e: unknown) {
+              if (e instanceof Error && e.name === "AbortError") throw e;
+              if (e instanceof Error && e.message === "RATE_LIMITED") continue; // try next
+              throw e; // real error
+            }
+          }
+
+          if (!succeeded) {
+            throw new Error(
+              `All available providers are rate limited (tried: ${tried.join(", ")}). Wait a minute and try again.`,
             );
           }
         } else {
-          // OpenRouter -- try preferred model, auto-rotate through fallbacks on rate limit
+          // --- OpenRouter with automatic model fallback ---
           if (!openRouterKey)
             throw new Error(
-              "No OpenRouter key. Add it in Settings > API Keys.",
+              "No OpenRouter API key. Go to Settings \u2192 API Keys.",
             );
-          reply = await callOpenRouterWithFallback(
-            openRouterKey,
-            openRouterModel,
-            history,
-            signal,
-            (m) => setActiveModel(m),
-          );
+          try {
+            reply = await openRouterWithFallback(
+              openRouterKey,
+              openRouterModel,
+              history,
+              signal,
+              (m) => setActiveModel(m),
+            );
+          } catch (e: unknown) {
+            if (e instanceof Error && e.message === "RATE_LIMITED") {
+              throw new Error(
+                "All free OpenRouter models are rate limited right now. Switch to Auto in Settings \u2192 AI Settings to also use Gemini as a fallback.",
+              );
+            }
+            throw e;
+          }
         }
 
         const replyMsg: ChatMessage = { role: "assistant", content: reply };
@@ -322,9 +361,7 @@ export function useAIChat(opts: UseAIChatOptions) {
           return n;
         });
       } catch (e: unknown) {
-        if (e instanceof Error && e.name !== "AbortError") {
-          setError(e.message);
-        }
+        if (e instanceof Error && e.name !== "AbortError") setError(e.message);
         setActiveModel("");
       } finally {
         setIsLoading(false);
