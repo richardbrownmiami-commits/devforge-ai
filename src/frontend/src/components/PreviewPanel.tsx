@@ -157,7 +157,7 @@ export function PreviewPanel({ messages, termuxUrl, projectName }: PreviewPanelP
                 <iframe
                   key={previewKey}
                   srcDoc={srcDoc}
-                  sandbox="allow-scripts"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
                   title="Preview"
                   className="w-full h-full border-0 bg-white"
                   data-ocid="preview.canvas_target"
