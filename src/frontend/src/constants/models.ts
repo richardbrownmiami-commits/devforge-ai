@@ -1,4 +1,3 @@
-// OpenRouter free models
 export const OPENROUTER_MODELS = [
   { id: "qwen/qwen3-coder:free", name: "Qwen3 Coder 480B" },
   { id: "openai/gpt-oss-120b:free", name: "GPT-OSS 120B" },
@@ -12,7 +11,6 @@ export const OPENROUTER_MODELS = [
   { id: "openrouter/auto", name: "Auto (Best available)" },
 ] as const;
 
-// Google Gemini direct models (via AI Studio)
 export const GEMINI_MODELS = [
   { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash" },
   { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite" },
@@ -20,19 +18,16 @@ export const GEMINI_MODELS = [
   { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
 ] as const;
 
-// DeepSeek direct models
 export const DEEPSEEK_MODELS = [
   { id: "deepseek-chat", name: "DeepSeek V3 (Chat)" },
   { id: "deepseek-reasoner", name: "DeepSeek R1 (Reasoner)" },
 ] as const;
 
-// Combined for display
 export const FREE_MODELS = OPENROUTER_MODELS;
 
 export type AIProvider = "openrouter" | "gemini" | "deepseek" | "auto";
 
 export const DEFAULT_MODEL_ID = "qwen/qwen3-coder:free";
-export const DEFAULT_PROVIDER: AIProvider = "openrouter";
 
 export function getModelName(id: string): string {
   const all = [...OPENROUTER_MODELS, ...GEMINI_MODELS, ...DEEPSEEK_MODELS];
@@ -41,6 +36,6 @@ export function getModelName(id: string): string {
 
 export function shortModelName(id: string): string {
   const name = getModelName(id);
-  if (name.length > 20) return `${name.slice(0, 18)}…`;
+  if (name.length > 20) return `${name.slice(0, 18)}\u2026`;
   return name;
 }
