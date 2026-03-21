@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Monitor, Play, RefreshCw, Smartphone, Terminal } from "lucide-react";
+import { Download, Loader2, Monitor, Play, RefreshCw, Smartphone, Terminal } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { termuxRunCommand } from "../hooks/useTermux";
 import type { ChatMessage } from "../hooks/useTermux";
@@ -43,9 +43,9 @@ export function PreviewPanel({ messages, termuxUrl, projectName }: PreviewPanelP
   const [running, setRunning] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
   const [mobileView, setMobileView] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const { html, css, js } = extractCode(messages);
-  // Use useMemo so srcDoc only changes when code changes
   const srcDoc = useMemo(() => buildPreviewDoc(html, css, js), [html, css, js]);
 
   const runCommand = async () => {
@@ -56,6 +56,38 @@ export function PreviewPanel({ messages, termuxUrl, projectName }: PreviewPanelP
     setTerminalOutput((prev) => `${prev}${result.output}\n`);
     setRunning(false);
     setTerminalCmd("");
+  };
+
+  const exportZip = async () => {
+    if (!srcDoc) return;
+    setExporting(true);
+    try {
+      // Load JSZip from CDN
+      await new Promise<void>((resolve, reject) => {
+        if ((window as any).JSZip) { resolve(); return; }
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+        s.onload = () => resolve();
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      const JSZip = (window as any).JSZip;
+      const zip = new JSZip();
+      zip.file("index.html", html || "<!-- empty -->");
+      zip.file("style.css", css || "/* empty */");
+      zip.file("script.js", js || "// empty");
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectName || "project"}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Export failed. Check your connection and try again.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const codeForLang = (lang: "html" | "css" | "js") => {
@@ -80,37 +112,48 @@ export function PreviewPanel({ messages, termuxUrl, projectName }: PreviewPanelP
             </TabsTrigger>
           </TabsList>
 
-          {activeTab === "preview" && (
-            <div className="flex items-center gap-1">
-              {/* Mobile/Desktop toggle */}
-              <Button variant={mobileView ? "default" : "ghost"} size="icon"
-                className="h-7 w-7" onClick={() => setMobileView((v) => !v)}
-                title={mobileView ? "Switch to desktop view" : "Switch to mobile view"}>
-                <Smartphone className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1">
+            {/* Export ZIP */}
+            {srcDoc && (
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={exportZip} disabled={exporting}
+                title="Export as ZIP"
+                data-ocid="preview.export.button"
+              >
+                {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
               </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onClick={() => setPreviewKey((k) => k + 1)} data-ocid="preview.refresh.button">
-                <RefreshCw className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          )}
+            )}
+            {activeTab === "preview" && (
+              <>
+                <Button variant={mobileView ? "default" : "ghost"} size="icon"
+                  className="h-7 w-7" onClick={() => setMobileView((v) => !v)}
+                  title={mobileView ? "Desktop view" : "Mobile view"}>
+                  <Smartphone className="w-3.5 h-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={() => setPreviewKey((k) => k + 1)} data-ocid="preview.refresh.button">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         <TabsContent value="preview" className="flex-1 m-0 overflow-hidden bg-zinc-100 dark:bg-zinc-800">
           {srcDoc ? (
-            <div className={`h-full flex items-center justify-center ${mobileView ? "p-4" : "p-0"}` }>
+            <div className={`h-full flex items-center justify-center ${mobileView ? "p-4" : "p-0"}`}>
               <div className={mobileView
                 ? "w-[375px] h-full max-h-[812px] rounded-[2rem] overflow-hidden shadow-2xl border-4 border-zinc-700 bg-white relative"
-                : "w-full h-full"}
-              >
+                : "w-full h-full"}>
                 {mobileView && (
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-zinc-700 rounded-b-xl z-10" />
                 )}
-                {/* Use srcDoc to avoid cross-origin errors */}
+                {/* sandbox WITHOUT allow-same-origin -- prevents cross-origin errors */}
                 <iframe
                   key={previewKey}
                   srcDoc={srcDoc}
-                  sandbox="allow-scripts allow-same-origin"
+                  sandbox="allow-scripts"
                   title="Preview"
                   className="w-full h-full border-0 bg-white"
                   data-ocid="preview.canvas_target"
