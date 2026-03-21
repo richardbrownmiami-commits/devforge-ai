@@ -9,14 +9,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   AlertCircle,
+  ArrowLeft,
   Bot,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   ExternalLink,
   GitBranch,
@@ -31,6 +32,9 @@ import {
   Trash2,
   X,
   Zap,
+  Database,
+  Globe,
+  Shield,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -47,108 +51,104 @@ import {
 } from "../hooks/useModelClaims";
 import { useTermuxStatus } from "../hooks/useTermux";
 
+type SettingsSection = "hub" | "api" | "ai" | "termux" | "github" | "master";
+
 const STEPS = [
-  {
-    num: 1,
-    title: "Install Node.js in Termux",
-    cmd: "pkg install nodejs -y",
-    note: "Open Termux on your Android phone and run the command",
-  },
-  {
-    num: 2,
-    title: "Install dependencies",
-    cmd: "npm install -g express axios cors",
-    note: "Wait ~2 minutes for installation to complete",
-  },
-  {
-    num: 3,
-    title: "Download brain server",
-    cmd: "",
-    note: "Downloads the BrainForge server to your phone",
-  },
-  {
-    num: 4,
-    title: "Start the brain",
-    cmd: "node ~/brain.js YOUR_OPENROUTER_KEY",
-    note: "Replace YOUR_OPENROUTER_KEY with your key from openrouter.ai",
-  },
-  {
-    num: 5,
-    title: "Install ngrok & expose port",
-    cmd: "npm install -g ngrok && ngrok http 3000",
-    note: "ngrok gives your phone a public https URL",
-  },
-  {
-    num: 6,
-    title: "Paste your ngrok URL in the Termux tab",
-    cmd: "https://xxxx-xx-xx-xxx-xx.ngrok-free.app",
-    note: 'Copy the Forwarding URL from ngrok and paste it in the Termux Server URL field',
-  },
+  { num: 1, title: "Install Node.js in Termux", cmd: "pkg install nodejs -y", note: "Open Termux on your Android phone" },
+  { num: 2, title: "Install dependencies", cmd: "npm install -g express axios cors", note: "Wait ~2 minutes" },
+  { num: 3, title: "Download brain server", cmd: "", note: "Downloads the BrainForge server to your phone" },
+  { num: 4, title: "Start the brain", cmd: "node ~/brain.js YOUR_OPENROUTER_KEY", note: "Replace with your OpenRouter key" },
+  { num: 5, title: "Install ngrok & expose port", cmd: "npm install -g ngrok && ngrok http 3000", note: "Gives your phone a public https URL" },
+  { num: 6, title: "Paste your ngrok URL", cmd: "https://xxxx.ngrok-free.app", note: "Copy the Forwarding URL from ngrok" },
 ];
 
 const MASTER_AI_SYSTEM_PROMPT =
-  "You are a code editor for BrainForge. The user will ask you to add, modify or remove features from the BrainForge app. " +
-  "Respond with ONLY the complete updated file content for the file that needs changing. " +
-  "Format your response as: FILE: path/to/file.tsx\n```\n[complete file content]\n```";
+  "You are a code editor for BrainForge. The user will ask you to add, modify or remove features. " +
+  "Respond with ONLY the complete updated file content. " +
+  "Format: FILE: path/to/file.tsx\n```\n[complete file content]\n```";
 
-interface MasterMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+interface MasterMessage { role: "user" | "assistant"; content: string; }
+interface PendingChange { filePath: string; newContent: string; userRequest: string; }
 
-interface PendingChange {
-  filePath: string;
-  newContent: string;
-  userRequest: string;
-}
-
-function parseMasterResponse(
-  response: string,
-): { filePath: string; content: string } | null {
+function parseMasterResponse(response: string): { filePath: string; content: string } | null {
   const fileMatch = response.match(/FILE:\s*([^\n]+)/);
   const codeMatch = response.match(/```(?:[\w.]*)?\n([\s\S]*?)```/);
   if (!fileMatch || !codeMatch) return null;
-  return {
-    filePath: fileMatch[1].trim(),
-    content: codeMatch[1],
-  };
+  return { filePath: fileMatch[1].trim(), content: codeMatch[1] };
 }
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const copy = async () => { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
-    <button
-      type="button"
-      onClick={copy}
-      className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary transition-colors border border-primary/20"
-    >
+    <button type="button" onClick={copy}
+      className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/80 transition-colors border border-white/20">
       {copied ? "Copied!" : "Copy"}
     </button>
   );
 }
 
-function SectionHeader({ icon: Icon, title, description }: { icon: any; title: string; description?: string }) {
-  return (
-    <div className="mb-4">
-      <div className="flex items-center gap-2 mb-1">
-        <Icon className="w-4 h-4 text-primary" />
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-      </div>
-      {description && <p className="text-xs text-muted-foreground">{description}</p>}
-    </div>
-  );
-}
+// Settings section cards for the hub
+const SECTIONS = [
+  {
+    id: "api" as SettingsSection,
+    icon: Key,
+    title: "API Keys",
+    description: "OpenRouter, Supabase, Cloudflare",
+    color: "from-violet-600/20 to-violet-800/10",
+    border: "border-violet-500/30",
+    iconColor: "text-violet-400",
+    badge: null,
+  },
+  {
+    id: "ai" as SettingsSection,
+    icon: Sliders,
+    title: "AI Behaviour",
+    description: "Model, temperature, auto-fix, live search",
+    color: "from-blue-600/20 to-blue-800/10",
+    border: "border-blue-500/30",
+    iconColor: "text-blue-400",
+    badge: null,
+  },
+  {
+    id: "termux" as SettingsSection,
+    icon: Terminal,
+    title: "Termux Brain",
+    description: "Run AI backend on your Android phone",
+    color: "from-green-600/20 to-green-800/10",
+    border: "border-green-500/30",
+    iconColor: "text-green-400",
+    badge: null,
+  },
+  {
+    id: "github" as SettingsSection,
+    icon: Github,
+    title: "GitHub & Deploy",
+    description: "Token, repo, auto-deploy via Cloudflare",
+    color: "from-orange-600/20 to-orange-800/10",
+    border: "border-orange-500/30",
+    iconColor: "text-orange-400",
+    badge: null,
+  },
+  {
+    id: "master" as SettingsSection,
+    icon: Bot,
+    title: "Master AI",
+    description: "App controller -- modify BrainForge itself",
+    color: "from-pink-600/20 to-pink-800/10",
+    border: "border-pink-500/30",
+    iconColor: "text-pink-400",
+    badge: "AI",
+  },
+];
 
 export function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
   const saveSettings = useSaveSettings();
   const claimMasterModel = useClaimMasterModel();
   const masterAvailableModels = useAvailableModels("master");
+
+  const [section, setSection] = useState<SettingsSection>("hub");
 
   const [termuxUrl, setTermuxUrl] = useState("");
   const [openRouterApiKey, setOpenRouterApiKey] = useState("");
@@ -163,9 +163,9 @@ export function SettingsPage() {
   const [aiMaxTokens, setAiMaxTokens] = useState("4096");
   const [liveSearch, setLiveSearch] = useState(true);
   const [autoFix, setAutoFix] = useState(true);
+  const [proactiveAi, setProactiveAi] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
 
-  // Master AI state
   const [masterMessages, setMasterMessages] = useState<MasterMessage[]>([]);
   const [masterInput, setMasterInput] = useState("");
   const [masterLoading, setMasterLoading] = useState(false);
@@ -184,72 +184,48 @@ export function SettingsPage() {
     }
   }, [settings]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on messages change
-  useEffect(() => {
-    masterBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [masterMessages, masterLoading]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll
+  useEffect(() => { masterBottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [masterMessages, masterLoading]);
 
   const { connected, checking, recheck } = useTermuxStatus(termuxUrl);
 
   const handleSave = async () => {
     try {
-      await saveSettings.mutateAsync({
-        termuxUrl,
-        openRouterApiKey,
-        githubToken,
-        githubRepo,
-        defaultModel,
-        masterAiModel,
-      });
+      await saveSettings.mutateAsync({ termuxUrl, openRouterApiKey, githubToken, githubRepo, defaultModel, masterAiModel });
       toast.success("Settings saved");
       recheck();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to save settings");
-    }
+    } catch (e: any) { toast.error(e.message || "Failed to save"); }
   };
 
   const handleMasterModelChange = async (modelId: string) => {
     setMasterAiModel(modelId);
-    try {
-      await claimMasterModel.mutateAsync(modelId);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to claim model");
-    }
+    try { await claimMasterModel.mutateAsync(modelId); } catch (e: any) { toast.error(e.message); }
   };
 
   const handleMasterSend = async () => {
     const text = masterInput.trim();
     if (!text || masterLoading) return;
-    if (!openRouterApiKey) { toast.error("Add your OpenRouter API key first"); return; }
-    if (!masterAiModel) { toast.error("Select a model for Master AI first"); return; }
-
+    if (!openRouterApiKey) { toast.error("Add OpenRouter API key in API settings"); return; }
+    if (!masterAiModel) { toast.error("Select a Master AI model"); return; }
     setMasterInput("");
-    const userMsg: MasterMessage = { role: "user", content: text };
-    setMasterMessages((prev) => [...prev, userMsg]);
+    setMasterMessages((prev) => [...prev, { role: "user", content: text }]);
     setMasterLoading(true);
-
     try {
-      const history = masterMessages.map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${openRouterApiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: masterAiModel,
-          messages: [{ role: "system", content: MASTER_AI_SYSTEM_PROMPT }, ...history, { role: "user", content: text }],
-          stream: false,
+          messages: [{ role: "system", content: MASTER_AI_SYSTEM_PROMPT }, ...masterMessages, { role: "user", content: text }],
         }),
       });
-      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err?.error?.message || `HTTP ${res.status}`); }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.error?.message || `HTTP ${res.status}`); }
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content || "No response";
       setMasterMessages((prev) => [...prev, { role: "assistant", content }]);
       const parsed = parseMasterResponse(content);
       if (parsed) setPendingChange({ filePath: parsed.filePath, newContent: parsed.content, userRequest: text });
-    } catch (e: any) {
-      toast.error(e.message || "Master AI request failed");
-    } finally {
-      setMasterLoading(false);
-    }
+    } catch (e: any) { toast.error(e.message); } finally { setMasterLoading(false); }
   };
 
   const handlePushToGitHub = async () => {
@@ -259,20 +235,16 @@ export function SettingsPage() {
       const { filePath, newContent, userRequest } = pendingChange;
       const getRes = await fetch(`https://api.github.com/repos/${githubRepo}/contents/${filePath}`, { headers: { Authorization: `Bearer ${githubToken}` } });
       let sha: string | undefined;
-      if (getRes.ok) { const fileData = await getRes.json(); sha = fileData.sha; }
+      if (getRes.ok) { sha = (await getRes.json()).sha; }
       const putRes = await fetch(`https://api.github.com/repos/${githubRepo}/contents/${filePath}`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${githubToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({ message: `feat: ${userRequest}`, content: btoa(unescape(encodeURIComponent(newContent))), ...(sha ? { sha } : {}) }),
       });
-      if (!putRes.ok) { const err = await putRes.json().catch(() => ({})); throw new Error(err?.message || `GitHub push failed: ${putRes.status}`); }
-      toast.success("Pushed to GitHub!");
+      if (!putRes.ok) { const e = await putRes.json().catch(() => ({})); throw new Error(e?.message || `GitHub push failed`); }
+      toast.success("Pushed to GitHub! Cloudflare will deploy shortly.");
       setPendingChange(null);
-    } catch (e: any) {
-      toast.error(e.message || "GitHub push failed");
-    } finally {
-      setPushingToGitHub(false);
-    }
+    } catch (e: any) { toast.error(e.message); } finally { setPushingToGitHub(false); }
   };
 
   const downloadCmd = typeof window !== "undefined"
@@ -281,322 +253,403 @@ export function SettingsPage() {
 
   const resolvedSteps = STEPS.map((s) => s.num === 3 ? { ...s, cmd: downloadCmd } : s);
 
+  const currentSection = SECTIONS.find((s) => s.id === section);
+
+  // ── SHARED STYLES ──
+  // Settings page uses a deep slate/indigo background distinct from the app
+  const pageBg = "bg-[#0d0f1a]";
+  const cardBg = "bg-[#141728] border border-white/10";
+  const inputCls = "bg-[#1a1e35] border-white/10 text-white placeholder:text-white/30 focus:border-violet-500/50";
+  const labelCls = "text-xs text-white/50";
+  const saveBtnCls = "bg-violet-600 hover:bg-violet-500 text-white gap-2 w-full";
+
   return (
-    <div className="flex flex-col h-full overflow-hidden" data-ocid="settings.page">
+    <div className={cn("flex flex-col h-full overflow-hidden", pageBg)} data-ocid="settings.page">
+
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border shrink-0">
-        <div className="flex items-center gap-2">
-          <Settings className="w-5 h-5 text-primary" />
-          <h1 className="text-lg font-semibold text-foreground">Settings</h1>
+      <div className="shrink-0 px-6 py-4 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          {section !== "hub" && (
+            <button type="button" onClick={() => setSection("hub")}
+              className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/15 flex items-center justify-center transition-colors">
+              <ArrowLeft className="w-4 h-4 text-white/70" />
+            </button>
+          )}
+          <div>
+            <div className="flex items-center gap-2">
+              {currentSection ? <currentSection.icon className={cn("w-4 h-4", currentSection.iconColor)} /> : <Settings className="w-4 h-4 text-violet-400" />}
+              <h1 className="text-base font-semibold text-white">
+                {section === "hub" ? "Settings" : currentSection?.title}
+              </h1>
+            </div>
+            <p className="text-[11px] text-white/40 mt-0.5">
+              {section === "hub" ? "Choose a category to configure" : currentSection?.description}
+            </p>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5 ml-7">Configure BrainForge connections, AI behaviour and integrations</p>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="api" className="flex flex-col flex-1 overflow-hidden">
-        <div className="px-6 pt-3 shrink-0 border-b border-border">
-          <TabsList className="bg-muted/40 h-9 gap-1">
-            <TabsTrigger value="api" className="text-xs gap-1.5 data-[state=active]:bg-background">
-              <Key className="w-3.5 h-3.5" /> API
-            </TabsTrigger>
-            <TabsTrigger value="ai" className="text-xs gap-1.5 data-[state=active]:bg-background">
-              <Sliders className="w-3.5 h-3.5" /> AI
-            </TabsTrigger>
-            <TabsTrigger value="termux" className="text-xs gap-1.5 data-[state=active]:bg-background">
-              <Terminal className="w-3.5 h-3.5" /> Termux
-            </TabsTrigger>
-            <TabsTrigger value="github" className="text-xs gap-1.5 data-[state=active]:bg-background">
-              <Github className="w-3.5 h-3.5" /> GitHub
-            </TabsTrigger>
-            <TabsTrigger value="master" className="text-xs gap-1.5 data-[state=active]:bg-background">
-              <Bot className="w-3.5 h-3.5" /> Master AI
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      {/* Content */}
+      <div className="flex-1 overflow-auto">
 
-        <div className="flex-1 overflow-auto">
+        {/* ── HUB ── */}
+        {section === "hub" && (
+          <div className="p-6 space-y-3">
+            {SECTIONS.map((s) => (
+              <motion.button
+                key={s.id}
+                type="button"
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                onClick={() => setSection(s.id)}
+                className={cn(
+                  "w-full flex items-center gap-4 p-4 rounded-xl border bg-gradient-to-r text-left transition-all hover:brightness-110",
+                  s.color, s.border
+                )}
+              >
+                <div className={cn("w-11 h-11 rounded-xl bg-black/30 flex items-center justify-center shrink-0")}>
+                  <s.icon className={cn("w-5 h-5", s.iconColor)} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white">{s.title}</span>
+                    {s.badge && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-pink-500/30 text-pink-300 border border-pink-500/30">{s.badge}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-white/40 mt-0.5 truncate">{s.description}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-white/30 shrink-0" />
+              </motion.button>
+            ))}
 
-          {/* ── API Tab ── */}
-          <TabsContent value="api" className="m-0 p-6 space-y-6">
-            <SectionHeader icon={Key} title="API Keys" description="Keys are saved to your backend. Never share them publicly." />
+            {/* Quick status */}
+            <div className={cn("mt-4 p-4 rounded-xl", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 mb-3 uppercase tracking-wider">Quick Status</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-white/50">OpenRouter API</span>
+                  <span className={cn("text-[11px] font-medium", openRouterApiKey ? "text-green-400" : "text-white/30")}>
+                    {openRouterApiKey ? "Connected" : "Not set"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-white/50">GitHub</span>
+                  <span className={cn("text-[11px] font-medium", githubToken && githubRepo ? "text-green-400" : "text-white/30")}>
+                    {githubToken && githubRepo ? githubRepo : "Not configured"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-white/50">Termux Brain</span>
+                  <span className={cn("text-[11px] font-medium flex items-center gap-1",
+                    connected ? "text-green-400" : termuxUrl ? "text-red-400" : "text-white/30")}>
+                    <span className={cn("w-1.5 h-1.5 rounded-full", connected ? "bg-green-400" : termuxUrl ? "bg-red-400" : "bg-white/20")} />
+                    {connected ? "Connected" : termuxUrl ? "Disconnected" : "Not set"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-white/50">Master AI</span>
+                  <span className={cn("text-[11px] font-medium", masterAiModel ? "text-pink-400" : "text-white/30")}>
+                    {masterAiModel ? getModelName(masterAiModel).split(" ")[0] : "Not set"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
-            <div className="space-y-4 max-w-lg">
+        {/* ── API KEYS ── */}
+        {section === "api" && (
+          <div className="p-6 space-y-5 max-w-lg">
+            <div className={cn("p-4 rounded-xl space-y-4", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">AI Provider</p>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">
+                <Label className={labelCls}>
                   OpenRouter API Key{" "}
-                  <a href="https://openrouter.ai" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                  <a href="https://openrouter.ai" target="_blank" rel="noopener noreferrer" className="text-violet-400 hover:underline">
                     openrouter.ai <ExternalLink className="inline w-2.5 h-2.5" />
                   </a>
                 </Label>
                 <Input type="password" value={openRouterApiKey} onChange={(e) => setOpenRouterApiKey(e.target.value)}
-                  placeholder="sk-or-..." className="bg-card border-border" style={{ fontSize: "16px" }}
-                  data-ocid="settings.openrouter_key.input" />
-                <p className="text-[11px] text-muted-foreground">Free models available -- no payment required for basic use</p>
+                  placeholder="sk-or-..." className={inputCls} style={{ fontSize: "16px" }} data-ocid="settings.openrouter_key.input" />
+                <p className="text-[11px] text-white/30">Free models available -- no payment required for basic use</p>
               </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Supabase URL</Label>
-                <Input value={supabaseUrl} onChange={(e) => setSupabaseUrl(e.target.value)}
-                  placeholder="https://xxxx.supabase.co" className="bg-card border-border" style={{ fontSize: "16px" }} />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Supabase Anon Key</Label>
-                <Input type="password" value={supabaseKey} onChange={(e) => setSupabaseKey(e.target.value)}
-                  placeholder="eyJ..." className="bg-card border-border" style={{ fontSize: "16px" }} />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Cloudflare API Token</Label>
-                <Input type="password" value={cloudflareToken} onChange={(e) => setCloudflareToken(e.target.value)}
-                  placeholder="Your Cloudflare API token" className="bg-card border-border" style={{ fontSize: "16px" }} />
-              </div>
-
-              <Button onClick={handleSave} disabled={saveSettings.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 w-full" data-ocid="settings.save.submit_button">
-                {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save API Keys
-              </Button>
             </div>
-          </TabsContent>
 
-          {/* ── AI Tab ── */}
-          <TabsContent value="ai" className="m-0 p-6 space-y-6">
-            <SectionHeader icon={Sliders} title="AI Settings" description="Control how AI generates code and responds to your instructions." />
-
-            <div className="space-y-5 max-w-lg">
+            <div className={cn("p-4 rounded-xl space-y-4", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Supabase (optional backup)</p>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Default AI Model</Label>
-                <p className="text-[11px] text-muted-foreground/70">Used for new projects. All models listed are free.</p>
+                <Label className={labelCls}>Supabase URL</Label>
+                <Input value={supabaseUrl} onChange={(e) => setSupabaseUrl(e.target.value)}
+                  placeholder="https://xxxx.supabase.co" className={inputCls} style={{ fontSize: "16px" }} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className={labelCls}>Supabase Anon Key</Label>
+                <Input type="password" value={supabaseKey} onChange={(e) => setSupabaseKey(e.target.value)}
+                  placeholder="eyJ..." className={inputCls} style={{ fontSize: "16px" }} />
+              </div>
+            </div>
+
+            <div className={cn("p-4 rounded-xl space-y-4", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Cloudflare</p>
+              <div className="space-y-1.5">
+                <Label className={labelCls}>Cloudflare API Token</Label>
+                <Input type="password" value={cloudflareToken} onChange={(e) => setCloudflareToken(e.target.value)}
+                  placeholder="Your Cloudflare API token" className={inputCls} style={{ fontSize: "16px" }} />
+              </div>
+            </div>
+
+            <Button onClick={handleSave} disabled={saveSettings.isPending} className={saveBtnCls}>
+              {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save API Keys
+            </Button>
+          </div>
+        )}
+
+        {/* ── AI BEHAVIOUR ── */}
+        {section === "ai" && (
+          <div className="p-6 space-y-5 max-w-lg">
+            <div className={cn("p-4 rounded-xl space-y-4", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Model</p>
+              <div className="space-y-1.5">
+                <Label className={labelCls}>Default AI Model</Label>
+                <p className="text-[11px] text-white/30">Used for new projects. All listed models are free.</p>
                 <Select value={defaultModel} onValueChange={setDefaultModel}>
-                  <SelectTrigger className="bg-card border-border" data-ocid="settings.default_model.select">
-                    <SelectValue placeholder="Select a model" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-popover border-border">
-                    {FREE_MODELS.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Temperature <span className="text-primary">{aiTemperature}</span></Label>
-                <p className="text-[11px] text-muted-foreground/70">Lower = focused/precise. Higher = creative/varied.</p>
-                <input type="range" min="0" max="1" step="0.1" value={aiTemperature}
-                  onChange={(e) => setAiTemperature(e.target.value)}
-                  className="w-full accent-primary" />
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>0 (Precise)</span><span>1 (Creative)</span>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Max Tokens</Label>
-                <p className="text-[11px] text-muted-foreground/70">Maximum output length per AI response.</p>
-                <Select value={aiMaxTokens} onValueChange={setAiMaxTokens}>
-                  <SelectTrigger className="bg-card border-border">
+                  <SelectTrigger className={cn("bg-[#1a1e35] border-white/10 text-white", "[&>span]:text-white")} data-ocid="settings.default_model.select">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-popover border-border">
-                    <SelectItem value="1024">1024 (short)</SelectItem>
-                    <SelectItem value="2048">2048</SelectItem>
-                    <SelectItem value="4096">4096 (default)</SelectItem>
-                    <SelectItem value="8192">8192 (long)</SelectItem>
-                    <SelectItem value="16384">16384 (max)</SelectItem>
+                  <SelectContent className="bg-[#1a1e35] border-white/10 text-white">
+                    {FREE_MODELS.map((m) => <SelectItem key={m.id} value={m.id} className="text-white focus:bg-white/10">{m.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
+            </div>
 
-              <div className="space-y-3">
-                <Label className="text-xs text-muted-foreground">Features</Label>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-card border border-border rounded-lg">
-                    <div>
-                      <p className="text-xs font-medium">Live Internet Search</p>
-                      <p className="text-[11px] text-muted-foreground">DuckDuckGo search before every AI response</p>
-                    </div>
-                    <Switch checked={liveSearch} onCheckedChange={setLiveSearch} />
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-card border border-border rounded-lg">
-                    <div>
-                      <p className="text-xs font-medium">Auto Error Fix</p>
-                      <p className="text-[11px] text-muted-foreground">AI retries up to 3 times to fix preview errors</p>
-                    </div>
-                    <Switch checked={autoFix} onCheckedChange={setAutoFix} />
-                  </div>
+            <div className={cn("p-4 rounded-xl space-y-4", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Generation</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className={labelCls}>Temperature</Label>
+                  <span className="text-xs text-blue-400 font-mono">{aiTemperature}</span>
+                </div>
+                <input type="range" min="0" max="1" step="0.1" value={aiTemperature}
+                  onChange={(e) => setAiTemperature(e.target.value)}
+                  className="w-full accent-blue-500" />
+                <div className="flex justify-between text-[10px] text-white/30">
+                  <span>Precise</span><span>Creative</span>
                 </div>
               </div>
-
-              <Button onClick={handleSave} disabled={saveSettings.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 w-full">
-                {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save AI Settings
-              </Button>
-            </div>
-          </TabsContent>
-
-          {/* ── Termux Tab ── */}
-          <TabsContent value="termux" className="m-0 p-6 space-y-6">
-            <SectionHeader icon={Terminal} title="Termux Brain Connection" description="Run the AI backend server on your Android phone using Termux + ngrok." />
-
-            <div className="space-y-4 max-w-lg">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Termux Server URL</Label>
+                <Label className={labelCls}>Max Tokens</Label>
+                <Select value={aiMaxTokens} onValueChange={setAiMaxTokens}>
+                  <SelectTrigger className="bg-[#1a1e35] border-white/10 text-white [&>span]:text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1a1e35] border-white/10 text-white">
+                    <SelectItem value="1024" className="text-white focus:bg-white/10">1024 -- Short responses</SelectItem>
+                    <SelectItem value="2048" className="text-white focus:bg-white/10">2048</SelectItem>
+                    <SelectItem value="4096" className="text-white focus:bg-white/10">4096 -- Default</SelectItem>
+                    <SelectItem value="8192" className="text-white focus:bg-white/10">8192 -- Long</SelectItem>
+                    <SelectItem value="16384" className="text-white focus:bg-white/10">16384 -- Maximum</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className={cn("p-4 rounded-xl space-y-3", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Features</p>
+              {([
+                { key: "liveSearch", val: liveSearch, set: setLiveSearch, label: "Live Internet Search", desc: "DuckDuckGo search before every AI response" },
+                { key: "autoFix", val: autoFix, set: setAutoFix, label: "Auto Error Fix", desc: "AI retries up to 3 times to fix preview errors" },
+                { key: "proactive", val: proactiveAi, set: setProactiveAi, label: "Proactive AI", desc: "AI suggests improvements without being asked" },
+              ] as const).map((item) => (
+                <div key={item.key} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
+                  <div>
+                    <p className="text-xs font-medium text-white">{item.label}</p>
+                    <p className="text-[11px] text-white/40">{item.desc}</p>
+                  </div>
+                  <Switch checked={item.val} onCheckedChange={item.set}
+                    className="data-[state=checked]:bg-blue-500" />
+                </div>
+              ))}
+            </div>
+
+            <Button onClick={handleSave} disabled={saveSettings.isPending} className={saveBtnCls}>
+              {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save AI Settings
+            </Button>
+          </div>
+        )}
+
+        {/* ── TERMUX ── */}
+        {section === "termux" && (
+          <div className="p-6 space-y-5 max-w-lg">
+            <div className={cn("p-4 rounded-xl space-y-4", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Connection</p>
+              <div className="space-y-1.5">
+                <Label className={labelCls}>Termux Server URL</Label>
                 <div className="flex gap-2">
                   <Input value={termuxUrl} onChange={(e) => setTermuxUrl(e.target.value)}
                     placeholder="https://xxxx.ngrok-free.app"
-                    className="bg-card border-border flex-1" style={{ fontSize: "16px" }}
-                    data-ocid="settings.termux_url.input" />
+                    className={cn(inputCls, "flex-1")} style={{ fontSize: "16px" }} data-ocid="settings.termux_url.input" />
                   <Button type="button" variant="outline" size="sm" onClick={recheck}
-                    disabled={!termuxUrl || checking} className="shrink-0 border-border">
+                    disabled={!termuxUrl || checking}
+                    className="shrink-0 bg-white/10 border-white/10 text-white hover:bg-white/20">
                     {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Test"}
                   </Button>
                 </div>
                 {termuxUrl && (
-                  <p className={cn("text-xs flex items-center gap-1.5", connected ? "text-primary" : "text-destructive")}>
-                    <span className={cn("inline-block w-1.5 h-1.5 rounded-full", connected ? "bg-primary" : "bg-destructive")} />
+                  <p className={cn("text-xs flex items-center gap-1.5", connected ? "text-green-400" : "text-red-400")}>
+                    <span className={cn("w-1.5 h-1.5 rounded-full", connected ? "bg-green-400 animate-pulse" : "bg-red-400")} />
                     {checking ? "Checking..." : connected ? "Connected to brain" : "Cannot reach brain server"}
                   </p>
                 )}
               </div>
-
-              <Button onClick={handleSave} disabled={saveSettings.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 w-full">
-                {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save Termux Settings
-              </Button>
-
-              {/* Setup Guide */}
-              <div className="border border-border rounded-lg overflow-hidden" data-ocid="settings.guide.section">
-                <button type="button" onClick={() => setGuideOpen((o) => !o)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-medium">Step-by-Step Setup Guide</span>
-                  </div>
-                  {guideOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-                </button>
-
-                <AnimatePresence initial={false}>
-                  {guideOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: "easeInOut" }} className="overflow-hidden">
-                      <div className="border-t border-border px-4 py-4 space-y-4">
-                        {resolvedSteps.map((step) => (
-                          <div key={step.num} className="flex gap-3">
-                            <div className="w-6 h-6 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 mt-0.5">
-                              <span className="text-[10px] font-bold text-primary">{step.num}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-foreground">{step.title}</p>
-                              <div className="mt-1.5 flex items-center gap-2">
-                                <code className="flex-1 font-mono text-[11px] bg-muted/50 border border-border rounded px-2 py-1 text-primary truncate">{step.cmd}</code>
-                                <CopyButton text={step.cmd} />
-                              </div>
-                              <p className="text-[11px] text-muted-foreground mt-1">{step.note}</p>
-                            </div>
-                          </div>
-                        ))}
-                        <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-md p-3">
-                          <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                          <p className="text-xs text-muted-foreground">Once ngrok is running, copy the <strong className="text-foreground">Forwarding</strong> URL and paste it in the Termux Server URL field above.</p>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
             </div>
-          </TabsContent>
 
-          {/* ── GitHub Tab ── */}
-          <TabsContent value="github" className="m-0 p-6 space-y-6">
-            <SectionHeader icon={Github} title="GitHub & Deploy" description="Connect your GitHub repo to enable code push and auto-deploy via Cloudflare Pages." />
+            <Button onClick={handleSave} disabled={saveSettings.isPending} className={cn(saveBtnCls, "bg-green-600 hover:bg-green-500")}>
+              {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Termux Settings
+            </Button>
 
-            <div className="space-y-4 max-w-lg">
+            {/* Setup guide */}
+            <div className={cn("rounded-xl overflow-hidden", cardBg)}>
+              <button type="button" onClick={() => setGuideOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-green-400" />
+                  <span className="text-sm font-medium text-white">Step-by-Step Setup Guide</span>
+                </div>
+                {guideOpen ? <ChevronUp className="w-4 h-4 text-white/30" /> : <ChevronDown className="w-4 h-4 text-white/30" />}
+              </button>
+              <AnimatePresence initial={false}>
+                {guideOpen && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25 }} className="overflow-hidden">
+                    <div className="border-t border-white/10 px-4 py-4 space-y-4">
+                      {resolvedSteps.map((step) => (
+                        <div key={step.num} className="flex gap-3">
+                          <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                            <span className="text-[10px] font-bold text-green-400">{step.num}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-white">{step.title}</p>
+                            <div className="mt-1.5 flex items-center gap-2">
+                              <code className="flex-1 font-mono text-[11px] bg-black/40 border border-white/10 rounded px-2 py-1 text-green-300 truncate">{step.cmd}</code>
+                              <CopyButton text={step.cmd} />
+                            </div>
+                            <p className="text-[11px] text-white/30 mt-1">{step.note}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        )}
+
+        {/* ── GITHUB ── */}
+        {section === "github" && (
+          <div className="p-6 space-y-5 max-w-lg">
+            <div className={cn("p-4 rounded-xl space-y-4", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Repository</p>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">
+                <Label className={labelCls}>
                   GitHub Token{" "}
-                  <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                  <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-orange-400 hover:underline">
                     get token <ExternalLink className="inline w-2.5 h-2.5" />
                   </a>
                 </Label>
                 <Input type="password" value={githubToken} onChange={(e) => setGithubToken(e.target.value)}
-                  placeholder="ghp_..." className="bg-card border-border" style={{ fontSize: "16px" }}
-                  data-ocid="settings.github_token.input" />
-                <p className="text-[11px] text-muted-foreground">Requires <code className="bg-muted px-1 rounded">repo</code> permission scope</p>
+                  placeholder="ghp_..." className={inputCls} style={{ fontSize: "16px" }} data-ocid="settings.github_token.input" />
+                <p className="text-[11px] text-white/30">Requires <code className="bg-white/10 px-1 rounded">repo</code> permission scope</p>
               </div>
-
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                  <GitBranch className="w-3 h-3" /> GitHub Repository
+                <Label className={labelCls + " flex items-center gap-1"}>
+                  <GitBranch className="w-3 h-3" /> Repository Name
                 </Label>
                 <Input value={githubRepo} onChange={(e) => setGithubRepo(e.target.value)}
-                  placeholder="username/repo-name" className="bg-card border-border" style={{ fontSize: "16px" }}
-                  data-ocid="settings.github_repo.input" />
+                  placeholder="username/repo-name" className={inputCls} style={{ fontSize: "16px" }} data-ocid="settings.github_repo.input" />
               </div>
-
               {githubRepo && (
-                <div className="flex items-center gap-2 p-3 bg-card border border-border rounded-lg">
-                  <Github className="w-4 h-4 text-muted-foreground" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">{githubRepo}</p>
-                    <a href={`https://github.com/${githubRepo}`} target="_blank" rel="noopener noreferrer"
-                      className="text-[11px] text-primary hover:underline flex items-center gap-1">
-                      View on GitHub <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  </div>
-                </div>
+                <a href={`https://github.com/${githubRepo}`} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                  <Github className="w-4 h-4 text-orange-400" />
+                  <span className="text-xs text-white flex-1 truncate">{githubRepo}</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-white/30" />
+                </a>
               )}
-
-              <Button onClick={handleSave} disabled={saveSettings.isPending} className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 w-full">
-                {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save GitHub Settings
-              </Button>
             </div>
-          </TabsContent>
 
-          {/* ── Master AI Tab ── */}
-          <TabsContent value="master" className="m-0 p-0 flex flex-col" style={{ height: "calc(100vh - 160px)" }}>
-            <div className="px-6 pt-6 pb-3 shrink-0">
-              <SectionHeader icon={Bot} title="Master AI — App Controller" description="Master AI modifies BrainForge itself. Changes are pushed to your GitHub repo." />
-              <div className="space-y-1.5 max-w-lg">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1">
+            <div className={cn("p-4 rounded-xl space-y-3", cardBg)}>
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider">Deploy Status</p>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/50">Cloudflare Pages</span>
+                <a href="https://brainforge-7xn.pages.dev" target="_blank" rel="noopener noreferrer"
+                  className="text-[11px] text-orange-400 hover:underline flex items-center gap-1">
+                  brainforge-7xn.pages.dev <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/50">Worker API</span>
+                <span className="text-[11px] text-green-400">Online</span>
+              </div>
+            </div>
+
+            <Button onClick={handleSave} disabled={saveSettings.isPending} className={cn(saveBtnCls, "bg-orange-600 hover:bg-orange-500")}>
+              {saveSettings.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save GitHub Settings
+            </Button>
+          </div>
+        )}
+
+        {/* ── MASTER AI ── */}
+        {section === "master" && (
+          <div className="flex flex-col" style={{ height: "calc(100vh - 130px)" }}>
+            <div className="px-6 pt-5 pb-3 shrink-0">
+              <div className={cn("p-4 rounded-xl", cardBg)}>
+                <Label className={labelCls + " flex items-center gap-1 mb-2"}>
                   <Bot className="w-3 h-3" /> Master AI Model
-                  <span className="text-[10px] text-muted-foreground/60">(locked to Master AI only)</span>
+                  <span className="text-[10px] text-white/20 ml-1">(locked to Master AI only)</span>
                 </Label>
                 <Select value={masterAiModel || ""} onValueChange={handleMasterModelChange}>
-                  <SelectTrigger className="bg-card border-border" data-ocid="settings.master_model.select">
+                  <SelectTrigger className="bg-[#1a1e35] border-white/10 text-white [&>span]:text-white" data-ocid="settings.master_model.select">
                     <SelectValue placeholder="Select Master AI model…" />
                   </SelectTrigger>
-                  <SelectContent className="bg-popover border-border">
-                    {masterAvailableModels.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
+                  <SelectContent className="bg-[#1a1e35] border-white/10 text-white">
+                    {masterAvailableModels.map((m) => <SelectItem key={m.id} value={m.id} className="text-white focus:bg-white/10">{m.name}</SelectItem>)}
                     {masterAiModel && !masterAvailableModels.find((m) => m.id === masterAiModel) && (
-                      <SelectItem value={masterAiModel}>{getModelName(masterAiModel)}</SelectItem>
+                      <SelectItem value={masterAiModel} className="text-white focus:bg-white/10">{getModelName(masterAiModel)}</SelectItem>
                     )}
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            {/* Chat fills remaining height */}
-            <div className="flex-1 flex flex-col mx-6 mb-6 border border-border rounded-lg overflow-hidden">
+            <div className={cn("flex-1 flex flex-col mx-6 mb-6 rounded-xl overflow-hidden", cardBg)}>
               <ScrollArea className="flex-1">
                 <div className="p-4 space-y-3">
                   {masterMessages.length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center py-8">Tell Master AI what to add or change in BrainForge</p>
+                    <div className="text-center py-8">
+                      <Bot className="w-8 h-8 mx-auto mb-2 text-pink-400/40" />
+                      <p className="text-xs text-white/30">Tell Master AI what to add or change in BrainForge</p>
+                    </div>
                   )}
                   {masterMessages.map((msg, i) => (
-                    <div key={`master-msg-${i}`}
-                      className={cn("rounded-md p-2.5 text-xs", msg.role === "user" ? "chat-bubble-user ml-6" : "chat-bubble-ai")}>
-                      <span className="font-mono text-[10px] text-muted-foreground uppercase block mb-1">{msg.role === "user" ? "you" : "master ai"}</span>
-                      <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                    <div key={`msg-${i}`} className={cn("rounded-lg p-3 text-xs",
+                      msg.role === "user" ? "bg-violet-600/20 border border-violet-500/20 ml-6" : "bg-white/5 border border-white/10")}>
+                      <span className="font-mono text-[10px] uppercase block mb-1 text-white/40">{msg.role === "user" ? "you" : "master ai"}</span>
+                      <p className="whitespace-pre-wrap leading-relaxed text-white/80">{msg.content}</p>
                     </div>
                   ))}
                   {masterLoading && (
-                    <div className="chat-bubble-ai rounded-md p-2.5">
+                    <div className="bg-white/5 border border-white/10 rounded-lg p-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono text-muted-foreground uppercase">master ai</span>
+                        <span className="text-[10px] font-mono text-white/40 uppercase">master ai</span>
                         <div className="flex gap-1">
-                          {["a", "b", "c"].map((k, i) => (
-                            <span key={k} className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: `${i * 0.15}s` }} />
-                          ))}
+                          {[0,1,2].map((i) => <span key={i} className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-pulse" style={{ animationDelay: `${i * 0.15}s` }} />)}
                         </div>
                       </div>
                     </div>
@@ -607,48 +660,53 @@ export function SettingsPage() {
 
               <AnimatePresence>
                 {pendingChange && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="border-t border-border">
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                    className="border-t border-white/10">
                     <div className="px-3 py-3 space-y-2">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-medium">
-                          <Github className="w-3.5 h-3.5 text-primary" />
-                          <span>Ready to push:</span>
-                          <code className="text-primary bg-primary/10 px-1 rounded text-[11px]">{pendingChange.filePath}</code>
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <Github className="w-3.5 h-3.5 text-pink-400" />
+                          <span className="text-white/70">Ready to push:</span>
+                          <code className="text-pink-300 bg-pink-500/10 px-1 rounded text-[11px]">{pendingChange.filePath}</code>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setPendingChange(null)}><X className="w-3 h-3" /></Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-white/40 hover:text-white" onClick={() => setPendingChange(null)}>
+                          <X className="w-3 h-3" />
+                        </Button>
                       </div>
-                      <pre className="bg-muted/30 rounded border border-border p-2 text-[11px] max-h-24 overflow-auto font-mono">
-                        {pendingChange.newContent.slice(0, 400)}{pendingChange.newContent.length > 400 ? "\n…" : ""}
+                      <pre className="bg-black/40 rounded border border-white/10 p-2 text-[11px] max-h-20 overflow-auto font-mono text-green-300">
+                        {pendingChange.newContent.slice(0, 300)}{pendingChange.newContent.length > 300 ? "\n…" : ""}
                       </pre>
                       <div className="flex gap-2">
                         <Button size="sm" onClick={handlePushToGitHub} disabled={pushingToGitHub || !githubToken || !githubRepo}
-                          className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 flex-1">
+                          className="bg-pink-600 hover:bg-pink-500 text-white gap-1.5 flex-1">
                           {pushingToGitHub ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Github className="w-3.5 h-3.5" />}
                           Push to GitHub
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => setPendingChange(null)} disabled={pushingToGitHub} className="border-border">Cancel</Button>
+                        <Button size="sm" variant="outline" onClick={() => setPendingChange(null)}
+                          className="border-white/10 text-white hover:bg-white/10">Cancel</Button>
                       </div>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              <div className="border-t border-border px-3 py-2 flex gap-2 shrink-0">
+              <div className="border-t border-white/10 px-3 py-2 flex gap-2 shrink-0">
                 <Input value={masterInput} onChange={(e) => setMasterInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleMasterSend()}
-                  placeholder="Tell Master AI what to change in BrainForge…"
-                  disabled={masterLoading} className="text-xs bg-card border-border flex-1 h-9"
+                  placeholder="Tell Master AI what to change…"
+                  disabled={masterLoading}
+                  className="bg-[#1a1e35] border-white/10 text-white placeholder:text-white/30 flex-1 h-9 text-xs"
                   style={{ fontSize: "16px" }} data-ocid="settings.master_ai.input" />
                 <Button size="icon" onClick={handleMasterSend} disabled={!masterInput.trim() || masterLoading}
-                  className="h-9 w-9 bg-primary hover:bg-primary/90 text-primary-foreground shrink-0">
+                  className="h-9 w-9 bg-pink-600 hover:bg-pink-500 text-white shrink-0">
                   {masterLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 </Button>
               </div>
             </div>
-          </TabsContent>
+          </div>
+        )}
 
-        </div>
-      </Tabs>
+      </div>
     </div>
   );
 }
