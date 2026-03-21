@@ -1,0 +1,224 @@
+{
+  "plugin": [
+    "file:///home/ubuntu/.config/opencode/plugins/langfuse-export",
+    "file:///home/ubuntu/.config/opencode/plugins/motoko",
+    "file:///home/ubuntu/.config/opencode/plugins/caffeine-components",
+    "file:///home/ubuntu/.config/opencode/plugins/caffeine-commands",
+    "file:///home/ubuntu/.config/opencode/plugins/image-generation",
+    "file:///home/ubuntu/.config/opencode/plugins/master-chat",
+    "file:///home/ubuntu/.config/opencode/plugins/knowledge-base",
+    "file:///home/ubuntu/.config/opencode/plugins/frontend"
+  ],
+  "tools": {},
+  "experimental": {
+    "openTelemetry": true
+  },
+  "permission": {
+    "question": "deny",
+    "exa_mcp_exa_mcp-web_search_exa": "allow",
+    "exa_mcp_exa_mcp-get_code_context_exa": "allow",
+    "edit": {
+      "*": "allow",
+      ".old/**": "deny",
+      "*src/backend/**": "deny",
+      "*src/frontend/src/declarations/**": "deny",
+      "*src/frontend/src/backend.d.ts": "deny",
+      "*src/frontend/src/backend.ts": "deny",
+      "*src/frontend/src/config.ts": "deny",
+      "*src/frontend/src/utils/StorageClient.ts": "deny",
+      "*src/frontend/src/hooks/useActor.ts": "deny",
+      "*src/frontend/src/hooks/useInternetIdentity.ts": "deny",
+      "*build.sh": "deny"
+    },
+    "read": {
+      "*": "allow",
+      ".old/**": "deny",
+      "*src/frontend/src/config.ts": "deny",
+      "*src/frontend/src/backend.ts": "deny",
+      "*src/frontend/src/declarations/**": "deny"
+    },
+    "doom_loop": "deny",
+    "external_directory": "deny"
+  },
+  "agent": {
+    "mid_build": {
+      "variant": "low",
+      "permission": {
+        "edit": "deny"
+      }
+    },
+    "build": {
+      "variant": "low",
+      "tools": {
+        "write": false,
+        "read": false
+      }
+    },
+    "frontend": {
+      "variant": "low",
+      "tools": {
+        "write": false,
+        "read": false,
+        "select_components": false,
+        "generate_motoko_code": false,
+        "detect_language": false,
+        "ready_to_deploy_draft": false,
+        "write_follow_up": false,
+        "redeploy_draft": false,
+        "rename_project": false,
+        "new_project": false,
+        "query_rag": false,
+        "template": false
+      }
+    },
+    "design_analyzer": {
+      "description": "Analyze design preview images. Reads an image file and returns a detailed description of the visual design including layout, colors, typography, spacing, and overall aesthetic.",
+      "mode": "subagent",
+      "model": "openai/gpt-5.2",
+      "prompt": "You analyze website design preview images and return detailed visual descriptions.\n\nWhen given an image path:\n1. Read the image file using read_files\n2. Describe the design in detail covering:\n   - Overall layout structure (header, hero, sections, footer)\n   - Color palette (background colors, text colors, accent colors with approximate hex values)\n   - Typography (heading styles, body text, font weight, size hierarchy)\n   - Spacing and alignment patterns\n   - UI components visible (buttons, cards, navigation, forms)\n   - Visual style (minimal, bold, corporate, playful, etc.)\n3. Return ONLY the description, no preamble or explanation\n\nBe specific and actionable. A frontend developer should be able to recreate the design from your description alone.",
+      "temperature": 0.1,
+      "tools": {
+        "read": true,
+        "glob": true,
+        "edit": false,
+        "write": false,
+        "bash": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false,
+        "todoread": false,
+        "list": false,
+        "question": false,
+        "webfetch": false,
+        "websearch": false,
+        "codesearch": false,
+        "lsp": false,
+        "grep": false,
+        "read_frontend_component_docu": false,
+        "select_components": false,
+        "generate_motoko_code": false,
+        "detect_language": false,
+        "ready_to_deploy_draft": false,
+        "write_follow_up": false,
+        "redeploy_draft": false,
+        "rename_project": false,
+        "request_design_preview": false,
+        "new_project": false,
+        "query_rag": false,
+        "generate_image": false,
+        "edit_image": false,
+        "get_current_time": false,
+        "frontend_validate": false,
+        "exa_mcp_exa_mcp-web_search_exa": false,
+        "exa_mcp_exa_mcp-get_code_context_exa": false
+      }
+    },
+    "test_plan": {
+      "model": "anthropic/claude-sonnet-4-6",
+      "variant": "low",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "emit_test_artifact": true,
+        "edit": false,
+        "write": true,
+        "bash": false,
+        "skill": false,
+        "task": false,
+        "todowrite": false,
+        "todoread": false,
+        "list": false,
+        "question": false,
+        "webfetch": false,
+        "websearch": false,
+        "codesearch": false,
+        "lsp": false,
+        "read_frontend_component_docu": false,
+        "select_components": false,
+        "generate_motoko_code": false,
+        "detect_language": false,
+        "ready_to_deploy_draft": false,
+        "write_follow_up": false,
+        "redeploy_draft": false,
+        "rename_project": false,
+        "request_design_preview": false,
+        "new_project": false,
+        "query_rag": false,
+        "generate_image": false,
+        "edit_image": false,
+        "get_current_time": false,
+        "frontend_validate": false,
+        "exa_mcp_exa_mcp-web_search_exa": false,
+        "exa_mcp_exa_mcp-get_code_context_exa": false
+      }
+    }
+  },
+  "instructions": [
+    ".opencode/instructions/user-context.md",
+    ".opencode/instructions/project-context.md",
+    ".opencode/instructions/available-components.md"
+  ],
+  "provider": {
+    "anthropic": {
+      "options": {
+        "baseURL": "http://litellm.caffeine.svc.cluster.local:4000/v1"
+      },
+      "models": {
+        "claude-sonnet-4-6": {
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-sonnet-4-5": {
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        }
+      }
+    },
+    "openai": {
+      "options": {
+        "baseURL": "http://litellm.caffeine.svc.cluster.local:4000/openai/v1"
+      },
+      "models": {
+        "gpt-5.2": {
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        }
+      }
+    },
+    "google": {
+      "options": {
+        "baseURL": "http://litellm.caffeine.svc.cluster.local:4000/gemini"
+      }
+    }
+  },
+  "mcp": {
+    "exa_mcp": {
+      "type": "remote",
+      "url": "http://litellm.caffeine.svc.cluster.local:4000/exa_mcp/mcp",
+      "enabled": true,
+      "oauth": false
+    }
+  }
+}

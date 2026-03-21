@@ -1,149 +1,208 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cfApi } from "../lib/cloudflareApi";
 import type { ChatMessage } from "./useTermux";
 
-const SYSTEM_PROMPT =
-  "You are an expert app builder. Generate clean React/HTML/CSS/JS code. " +
-  "When asked to build an app, return the complete code. " +
-  "When fixing errors, return the corrected code.";
+const WORKER_URL = import.meta.env.VITE_CF_WORKER_URL || "https://brainforge-api.richard-brown-miami.workers.dev";
+const MAX_MEMORY_MESSAGES = 50;
 
-const NEEDS_SEARCH_REGEX =
-  /\b(latest|current|new|today|2024|2025|2026|recently|now|update|release)\b/i;
+// Build a fresh system prompt scoped to a specific project
+function buildProjectSystemPrompt(projectName: string, rules: string, memory: string): string {
+  return `You are the dedicated AI builder for project "${projectName}".
+Your ONLY job is to build and improve this specific project.
 
-// Module-level store -- persists across component unmounts/remounts
-// This ensures AI keeps coding even when user navigates away
-const projectLoadingState = new Map<string, boolean>();
-const projectMessageStore = new Map<string, ChatMessage[]>();
+## YOUR RULES
+${rules}
 
-async function searchWeb(query: string): Promise<string> {
+## YOUR MEMORY (what you know about this project)
+${memory || "No memory yet -- this is a fresh project."}
+
+## HOW TO RESPOND
+- Generate clean, complete HTML/CSS/JS or React code
+- When building, return the full code inside a code block
+- When fixing errors, return the corrected full code
+- Keep track of what was built and what changed
+- You do NOT help with other projects`;
+}
+
+async function loadFromWorker(scope: string): Promise<{ memory: string; rules: string; messageCount: number }> {
   try {
-    const res = await fetch(
-      `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`,
-    );
-    const data = await res.json();
-    const results = data.RelatedTopics?.slice(0, 3)
-      .map((t: any) => t.Text)
-      .filter(Boolean)
-      .join("\n");
-    return results ? `\n\n[Web context]:\n${results}` : "";
+    const [memRes, rulesRes] = await Promise.all([
+      fetch(`${WORKER_URL}/api/memory/${encodeURIComponent(scope)}`),
+      fetch(`${WORKER_URL}/api/rules/${encodeURIComponent(scope)}`),
+    ]);
+    const memData = memRes.ok ? await memRes.json() : {};
+    const rulesData = rulesRes.ok ? await rulesRes.json() : {};
+    return {
+      memory: memData.content || "",
+      rules: rulesData.content || "",
+      messageCount: memData.message_count || 0,
+    };
   } catch {
-    return "";
+    return { memory: "", rules: "", messageCount: 0 };
   }
 }
 
-function parseOpenRouterError(status: number, errBody: any): string {
-  const rawMsg: string =
-    errBody?.error?.message ||
-    errBody?.error?.metadata?.raw ||
-    errBody?.message ||
-    `HTTP ${status}`;
-  if (status === 401) return "Invalid API key -- check your OpenRouter key in Settings";
-  if (status === 402) return "Insufficient credits -- use a free model like qwen/qwen3-coder:free";
-  if (status === 429) return "Rate limit reached -- wait a moment or switch models";
-  if (rawMsg.toLowerCase().includes("provider") || rawMsg.toLowerCase().includes("upstream") || rawMsg.toLowerCase().includes("overloaded"))
-    return "AI provider error -- try selecting a different model in the top bar";
-  return rawMsg;
+async function saveMemoryToWorker(scope: string, messages: ChatMessage[], projectName: string) {
+  try {
+    // Build memory summary from messages
+    const recentMessages = messages.slice(-MAX_MEMORY_MESSAGES);
+    const summary = buildMemorySummary(recentMessages, projectName);
+    await fetch(`${WORKER_URL}/api/memory`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope,
+        content: summary,
+        message_count: messages.length,
+      }),
+    });
+  } catch {
+    // Silent fail -- memory save is best effort
+  }
 }
 
-export interface UseOpenRouterChatOptions {
-  onSnapshot?: (code: string) => void;
+function buildMemorySummary(messages: ChatMessage[], projectName: string): string {
+  const now = new Date().toISOString();
+  const userMessages = messages.filter((m) => m.role === "user");
+  const assistantMessages = messages.filter((m) => m.role === "assistant");
+  const lastUserMsg = userMessages[userMessages.length - 1]?.content || "";
+  const lastAiMsg = assistantMessages[assistantMessages.length - 1]?.content || "";
+
+  // Extract code blocks from assistant messages to know what was built
+  const codeBlocks = assistantMessages
+    .map((m) => { const match = m.content.match(/```[\w]*\n([\s\S]{1,200})/); return match ? match[1] : null; })
+    .filter(Boolean);
+
+  return `# Memory for project: ${projectName}
+Last updated: ${now}
+Total messages: ${messages.length}
+
+## What was discussed
+${userMessages.slice(-5).map((m, i) => `- User message ${i + 1}: ${m.content.slice(0, 100)}`).join("\n")}
+
+## What was built
+${codeBlocks.length > 0 ? `${codeBlocks.length} code generation(s) performed` : "No code generated yet"}
+
+## Last exchange
+User: ${lastUserMsg.slice(0, 200)}
+AI: ${lastAiMsg.slice(0, 200)}
+
+## Session history (${messages.length} messages total, showing last ${Math.min(messages.length, MAX_MEMORY_MESSAGES)})
+${messages.slice(-10).map((m) => `[${m.role.toUpperCase()}]: ${m.content.slice(0, 80)}...`).join("\n")}
+`;
 }
 
-export function useOpenRouterChat(
-  apiKey: string,
-  model: string,
-  projectName: string,
-  options: UseOpenRouterChatOptions = {},
-) {
-  const [messages, setMessages] = useState<ChatMessage[]>(
-    () => projectMessageStore.get(projectName) || []
-  );
-  const [isLoading, setIsLoading] = useState(
-    () => projectLoadingState.get(projectName) || false
-  );
+export function useOpenRouterChat(apiKey: string, model: string, projectName: string) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const autoFixCountRef = useRef(0);
-  const mountedRef = useRef(true);
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
+  const [rules, setRules] = useState("");
+  const [memory, setMemory] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scope = `project-${projectName}`;
 
-  // Track mounted state
+  // Load chat history + memory + rules on mount / project change
   useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+    let cancelled = false;
+    async function load() {
+      setMemoryLoaded(false);
+      setMessages([]);
+      try {
+        // Load saved chat messages from D1
+        const msgRes = await fetch(`${WORKER_URL}/api/messages/${encodeURIComponent(projectName)}`);
+        const savedMessages: ChatMessage[] = msgRes.ok ? (await msgRes.json()).map((m: any) => ({ role: m.role, content: m.content })) : [];
 
-  // Load persisted messages from D1 on mount / project change
-  useEffect(() => {
-    if (!projectName) return;
-    // Check module store first (from in-progress request)
-    const cached = projectMessageStore.get(projectName);
-    if (cached && cached.length > 0) {
-      setMessages(cached);
-      setIsLoading(projectLoadingState.get(projectName) || false);
-      return;
-    }
-    // Load from D1
-    cfApi.getMessages(projectName).then((msgs) => {
-      if (msgs.length > 0 && mountedRef.current) {
-        const chatMsgs = msgs.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-        setMessages(chatMsgs);
-        projectMessageStore.set(projectName, chatMsgs);
+        // Load memory + rules
+        const { memory: mem, rules: rul } = await loadFromWorker(scope);
+
+        if (!cancelled) {
+          setMessages(savedMessages);
+          setMemory(mem);
+          setRules(rul);
+          setMemoryLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setMemoryLoaded(true);
       }
-    }).catch(() => {});
-  }, [projectName]);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [projectName, scope]);
+
+  // Auto-save memory after messages change (debounced 3s)
+  useEffect(() => {
+    if (!memoryLoaded || messages.length === 0) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveMemoryToWorker(scope, messages, projectName);
+    }, 3000);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [messages, memoryLoaded, scope, projectName]);
 
   const sendMessage = useCallback(
     async (message: string) => {
       setError(null);
       const userMsg: ChatMessage = { role: "user", content: message };
-
-      // Snapshot before AI responds
-      if (options.onSnapshot) {
-        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-        if (lastAssistant) options.onSnapshot(lastAssistant.content);
-      }
-
-      const newMessages = [...messages, userMsg];
-      setMessages(newMessages);
-      projectMessageStore.set(projectName, newMessages);
-      projectLoadingState.set(projectName, true);
+      setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
 
-      // Persist user message to D1
-      if (projectName) {
-        cfApi.addMessage({ project_id: projectName, role: "user", content: message }).catch(() => {});
+      // Check rules for conflicts before sending
+      if (rules) {
+        const notAllowedMatch = rules.match(/## NOT ALLOWED\n([\s\S]*?)(?:##|$)/);
+        if (notAllowedMatch) {
+          const restrictions = notAllowedMatch[1].toLowerCase();
+          const msgLower = message.toLowerCase();
+          if (
+            (msgLower.includes("brainforge") && msgLower.includes("change")) ||
+            (msgLower.includes("modify") && msgLower.includes("brainforge"))
+          ) {
+            setError("⚠️ Rules conflict: Modifying BrainForge itself is not allowed for project AIs. Use Master AI in Settings instead.");
+            setIsLoading(false);
+            return;
+          }
+        }
       }
 
+      // Save user message to D1
+      fetch(`${WORKER_URL}/api/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectName, role: "user", content: message }),
+      }).catch(() => {});
+
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+
       try {
-        if (!apiKey) throw new Error("No OpenRouter API key set. Go to Settings and add your key.");
+        if (!apiKey) throw new Error("No OpenRouter API key set. Add it in Settings > API.");
 
-        let webContext = "";
-        if (NEEDS_SEARCH_REGEX.test(message)) webContext = await searchWeb(message);
-
-        const history = newMessages.map((m) => ({ role: m.role, content: m.content }));
-        const systemPrompt = webContext ? SYSTEM_PROMPT + webContext : SYSTEM_PROMPT;
+        const systemPrompt = buildProjectSystemPrompt(projectName, rules, memory);
+        const history = messages.slice(-20).map((m) => ({ role: m.role, content: m.content }));
 
         const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": window.location.origin,
+            "HTTP-Referer": "https://brainforge-7xn.pages.dev",
             "X-Title": "BrainForge",
           },
           body: JSON.stringify({
             model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              ...history,
-              { role: "user", content: message },
-            ],
+            messages: [{ role: "system", content: systemPrompt }, ...history, { role: "user", content: message }],
             stream: false,
           }),
+          signal: abortRef.current.signal,
         });
 
         if (!res.ok) {
-          const errBody = await res.json().catch(() => ({}));
-          throw new Error(parseOpenRouterError(res.status, errBody));
+          const err = await res.json().catch(() => ({}));
+          const msg = err?.error?.message || `HTTP ${res.status}`;
+          if (res.status === 401) throw new Error("Invalid OpenRouter API key. Check Settings > API.");
+          if (res.status === 402) throw new Error("OpenRouter quota exceeded. Try a free model.");
+          if (res.status === 429) throw new Error("Rate limited. Wait a moment and try again.");
+          throw new Error(msg);
         }
 
         const data = await res.json();
@@ -151,47 +210,40 @@ export function useOpenRouterChat(
           role: "assistant",
           content: data.choices?.[0]?.message?.content || "No response",
         };
+        setMessages((prev) => [...prev, reply]);
 
-        const finalMessages = [...newMessages, reply];
-        projectMessageStore.set(projectName, finalMessages);
-        autoFixCountRef.current = 0;
+        // Save AI reply to D1
+        fetch(`${WORKER_URL}/api/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project_id: projectName, role: "assistant", content: reply.content }),
+        }).catch(() => {});
 
-        // Always update state -- React 18 ignores setState on unmounted components safely
-        setMessages(finalMessages);
+        // Immediate memory save after AI responds
+        setTimeout(() => {
+          saveMemoryToWorker(scope, [...messages, userMsg, reply], projectName);
+        }, 500);
 
-        // Persist AI reply to D1
-        if (projectName) {
-          cfApi.addMessage({ project_id: projectName, role: "assistant", content: reply.content }).catch(() => {});
-        }
       } catch (e: any) {
-        if (mountedRef.current) setError(e.message || "Request failed");
+        if (e.name !== "AbortError") setError(e.message || "Request failed");
       } finally {
-        projectLoadingState.set(projectName, false);
-        if (mountedRef.current) setIsLoading(false);
+        setIsLoading(false);
       }
     },
-    [apiKey, model, messages, options, projectName],
+    [apiKey, model, messages, projectName, rules, memory, scope],
   );
 
-  const autoFixError = useCallback(
-    async (previewError: string) => {
-      if (autoFixCountRef.current >= 3) {
-        setError(`Auto-fix failed after 3 attempts. Error: ${previewError}`);
-        return;
-      }
-      autoFixCountRef.current += 1;
-      await sendMessage(`Fix this error: ${previewError}`);
-    },
-    [sendMessage],
-  );
-
-  const clearMessages = useCallback(() => {
+  const clearMessages = useCallback(async () => {
     setMessages([]);
     setError(null);
-    autoFixCountRef.current = 0;
-    projectMessageStore.delete(projectName);
-    projectLoadingState.delete(projectName);
+    // Clear from D1
+    await fetch(`${WORKER_URL}/api/messages/${encodeURIComponent(projectName)}`, { method: "DELETE" }).catch(() => {});
   }, [projectName]);
 
-  return { messages, isLoading, error, sendMessage, autoFixError, clearMessages };
+  const clearMemory = useCallback(async () => {
+    setMemory("");
+    await fetch(`${WORKER_URL}/api/memory/${encodeURIComponent(scope)}`, { method: "DELETE" }).catch(() => {});
+  }, [scope]);
+
+  return { messages, isLoading, error, sendMessage, clearMessages, clearMemory, memoryLoaded, rules, memory };
 }

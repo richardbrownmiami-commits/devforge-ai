@@ -1,7 +1,0 @@
-name = "ara-telegram-bot"
-main = "src/index.js"
-compatibility_date = "2024-01-01"
-[[d1_databases]]
-binding = "DB"
-database_name = "brainforge-db"
-database_id = "3814a86b-7054-465c-ae64-8bf99019cf6b"

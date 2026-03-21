@@ -1,0 +1,8 @@
+{
+  "features": {
+    "email": false
+  },
+  "rolloutFlags": {
+    "enableElectricExports": true
+  }
+}

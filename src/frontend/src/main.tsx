@@ -1,8 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
 import ReactDOM from "react-dom/client";
-import App from "./App";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import App from "./App";
 import "./index.css";
 
 BigInt.prototype.toJSON = function () {
@@ -19,10 +18,8 @@ const queryClient = new QueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-      <InternetIdentityProvider>
-        <App />
-      </InternetIdentityProvider>
-    </ThemeProvider>
+    <InternetIdentityProvider>
+      <App />
+    </InternetIdentityProvider>
   </QueryClientProvider>,
 );
