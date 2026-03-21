@@ -1222,9 +1222,13 @@ export function SettingsPage() {
   // ---- DATABASE PAGE ----
   if (page === "database") {
     const allKeys = Object.keys(localStorage).filter(k => k.startsWith("bf_"));
-    const projectKeys = allKeys.filter(k => k.startsWith("bf_chat_"));
-    const memoryKeys = allKeys.filter(k => k.startsWith("bf_ai_file_") || k.startsWith("bf_snapshots_"));
-    const totalSize = allKeys.reduce((acc, k) => acc + (localStorage.getItem(k) || "").length, 0);
+    // Use bf_projects as source of truth
+    const projectList: { name: string }[] = JSON.parse(localStorage.getItem("bf_projects") || "[]");
+    const memoryKeys = allKeys.filter(k => k.startsWith("bf_ai_file_"));
+    const totalBytes = allKeys.reduce((acc, k) => acc + (localStorage.getItem(k) || "").length * 2, 0);
+    const maxBytes = 5 * 1024 * 1024;
+    const usedPct = Math.min(100, (totalBytes / maxBytes) * 100);
+    const meterColor = usedPct > 90 ? "bg-red-500" : usedPct > 70 ? "bg-yellow-500" : "bg-green-500";
 
     const exportAll = () => {
       const data: Record<string, string> = {};
@@ -1252,78 +1256,101 @@ export function SettingsPage() {
       <div className="flex flex-col h-full" style={{ background: "oklch(0.07 0.03 260)" }}>
         <BackHeader title="Database" onBack={() => setPage("hub")} accent="text-indigo-300" />
         <div className="flex-1 overflow-auto px-4 py-4 space-y-4 max-w-lg">
-          <div className="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5">
-            <p className="text-xs text-indigo-300 font-medium">Local Storage</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">{allKeys.length} keys · ~{(totalSize / 1024).toFixed(1)} KB used</p>
+
+          {/* Storage meter */}
+          <div className="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-indigo-300 font-medium">Local Storage</p>
+              <p className="text-[11px] text-muted-foreground">{(totalBytes / 1024).toFixed(1)} KB / ~5 MB</p>
+            </div>
+            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${meterColor}`} style={{ width: `${usedPct}%` }} />
+            </div>
+            <p className="text-[10px] text-muted-foreground">{allKeys.length} keys · {usedPct.toFixed(1)}% used</p>
           </div>
 
-          {/* Projects */}
+          {/* Project folders from bf_projects */}
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Projects ({projectKeys.length})</p>
-            {projectKeys.length === 0 && <p className="text-xs text-muted-foreground">No projects yet</p>}
-            {projectKeys.map(k => {
-              const name = k.replace("bf_chat_", "");
-              const msgs = JSON.parse(localStorage.getItem(k) || "[]").length;
-              const snaps = JSON.parse(localStorage.getItem(`bf_snapshots_${name}`) || "[]").length;
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Project Files ({projectList.length})
+            </p>
+            {projectList.length === 0 && (
+              <p className="text-xs text-muted-foreground">No projects yet. Create one from the Projects page.</p>
+            )}
+            {projectList.map((p) => {
+              const msgs = JSON.parse(localStorage.getItem(`bf_chat_${p.name}`) || "[]").length;
+              const snaps = JSON.parse(localStorage.getItem(`bf_snapshots_${p.name}`) || "[]").length;
+              const deployUrl = localStorage.getItem(`bf_deploy_url_${p.name}`) || "";
               return (
-                <div key={k} className="flex items-center justify-between p-2.5 rounded-lg border border-indigo-500/20 bg-black/20">
-                  <div>
-                    <p className="text-xs font-medium text-foreground">{name}</p>
-                    <p className="text-[10px] text-muted-foreground">{msgs} messages · {snaps} snapshots</p>
-                  </div>
-                  <Button size="sm" variant="ghost" className="h-6 text-[10px] text-destructive hover:text-destructive"
-                    onClick={() => { if (window.confirm(`Clear all data for "${name}"?`)) { localStorage.removeItem(k); localStorage.removeItem(`bf_snapshots_${name}`); toast.success("Cleared"); } }}>
-                    Clear
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Memories */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">AI Memories & Snapshots ({memoryKeys.length})</p>
-            {memoryKeys.length === 0 && <p className="text-xs text-muted-foreground">No memory files yet</p>}
-            {memoryKeys.map(k => {
-              const val = localStorage.getItem(k) || "";
-              return (
-                <div key={k} className="p-2.5 rounded-lg border border-indigo-500/20 bg-black/20">
+                <div key={p.name} className="p-2.5 rounded-lg border border-indigo-500/20 bg-black/20 space-y-1">
                   <div className="flex items-center justify-between">
-                    <p className="text-[11px] font-mono text-indigo-300 truncate flex-1 mr-2">{k.replace("bf_ai_file_","").replace("bf_snapshots_","snapshots:")}</p>
-                    <Button size="sm" variant="ghost" className="h-5 text-[10px] text-destructive shrink-0"
-                      onClick={() => { localStorage.removeItem(k); toast.success("Cleared"); }}>Clear</Button>
+                    <p className="text-xs font-medium text-foreground">{p.name}</p>
+                    <Button size="sm" variant="ghost" className="h-5 text-[10px] text-destructive hover:text-destructive"
+                      onClick={() => {
+                        if (!window.confirm(`Clear all data for "${p.name}"?`)) return;
+                        [`bf_chat_${p.name}`, `bf_snapshots_${p.name}`, `bf_deploy_url_${p.name}`]
+                          .forEach(k => localStorage.removeItem(k));
+                        toast.success("Cleared");
+                      }}>Clear</Button>
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-1 truncate">{val.slice(0, 80)}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {msgs} messages · {snaps} snapshots
+                  </p>
+                  {deployUrl && (
+                    <a href={deployUrl} target="_blank" rel="noopener noreferrer"
+                      className="text-[10px] text-green-400 hover:underline block truncate">
+                      🌐 {deployUrl}
+                    </a>
+                  )}
                 </div>
               );
             })}
           </div>
 
-          {/* Sync / Export */}
+          {/* AI Memories */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              AI Memory Files ({memoryKeys.length})
+            </p>
+            {memoryKeys.length === 0 && <p className="text-xs text-muted-foreground">No memory files yet</p>}
+            {memoryKeys.map(k => (
+              <div key={k} className="p-2.5 rounded-lg border border-indigo-500/20 bg-black/20">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-mono text-indigo-300 truncate flex-1 mr-2">
+                    {k.replace("bf_ai_file_", "")}
+                  </p>
+                  <Button size="sm" variant="ghost" className="h-5 text-[10px] text-destructive shrink-0"
+                    onClick={() => { localStorage.removeItem(k); toast.success("Cleared"); }}>Clear</Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1 truncate">
+                  {(localStorage.getItem(k) || "").slice(0, 80)}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Backup */}
           <div className="space-y-2 border-t border-indigo-500/20 pt-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Backup & Sync</p>
-            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-2 text-xs" onClick={exportAll}>
+            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-2 text-xs h-8" onClick={exportAll}>
               <Database className="w-3.5 h-3.5" /> Export All Data as JSON
             </Button>
-            <label className="block">
-              <span className="sr-only">Import backup</span>
-              <div className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-md border border-indigo-500/30 hover:border-indigo-400/60 bg-black/20 cursor-pointer text-xs text-indigo-300 transition-colors">
+            <label className="block cursor-pointer">
+              <div className="w-full flex items-center justify-center py-2 px-3 rounded-md border border-indigo-500/30 hover:border-indigo-400/60 bg-black/20 text-xs text-indigo-300 transition-colors">
                 Import Backup JSON
               </div>
               <input type="file" accept=".json" className="hidden" onChange={importData} />
             </label>
-            {githubRepo && githubToken ? (
-              <p className="text-[10px] text-green-400 flex items-center gap-1">✓ GitHub configured -- use AI Files sync from GitHub &amp; Deploy settings</p>
-            ) : (
-              <p className="text-[10px] text-muted-foreground">Configure GitHub in GitHub &amp; Deploy settings to enable cloud sync</p>
-            )}
+            {githubToken && githubRepo
+              ? <p className="text-[10px] text-green-400">✓ GitHub configured -- deploy links sync automatically</p>
+              : <p className="text-[10px] text-muted-foreground">Set GitHub token + repo to enable deploy sync</p>}
           </div>
         </div>
       </div>
     );
   }
 
-  // ---- HUB ----
+    // ---- HUB ----
   const s = settings as any;
   const currentProvider: AIProvider = s?.aiProvider || "auto";
   const providerLabel =
