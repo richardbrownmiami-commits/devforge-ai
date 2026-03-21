@@ -1,8 +1,7 @@
 /**
  * SettingsPage.tsx
- * Hub-style settings: each section opens its own full page.
- * NO tab layout. Color-coded sub-pages.
- * Includes AI provider settings: OpenRouter, Gemini (direct), DeepSeek (direct).
+ * Hub-style settings. Single AI setting applies globally to all projects + Master AI.
+ * Per-project isolation is memory/rules files only, not model selection.
  */
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,23 +33,17 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   type AIProvider,
   DEEPSEEK_MODELS,
   DEFAULT_MODEL_ID,
-  FREE_MODELS,
   GEMINI_MODELS,
   OPENROUTER_MODELS,
-  getModelName,
 } from "../constants/models";
 import { useProjects, useSaveSettings, useSettings } from "../hooks/useBackend";
-import {
-  useAvailableModels,
-  useClaimMasterModel,
-} from "../hooks/useModelClaims";
 import { useTermuxStatus } from "../hooks/useTermux";
 
 type Page =
@@ -75,7 +68,7 @@ const HUB_BUTTONS = [
   {
     id: "ai" as Page,
     label: "AI Settings",
-    description: "Provider, model, behaviour",
+    description: "One setting for all projects",
     icon: Zap,
     gradient: "from-blue-600/20 to-blue-600/5",
     border: "border-blue-500/30 hover:border-blue-400/60",
@@ -111,7 +104,7 @@ const HUB_BUTTONS = [
   {
     id: "ai-files" as Page,
     label: "AI Files",
-    description: "Memory & rules for all AIs",
+    description: "Memory & rules per project",
     icon: FileText,
     gradient: "from-cyan-600/20 to-cyan-600/5",
     border: "border-cyan-500/30 hover:border-cyan-400/60",
@@ -119,9 +112,8 @@ const HUB_BUTTONS = [
   },
 ];
 
-const MASTER_SYSTEM_PROMPT =
-  "You are the Master AI controller for BrainForge. " +
-  "When asked to modify the app, return the complete updated file. " +
+const MASTER_SYSTEM =
+  "You are the Master AI for BrainForge. When asked to modify the app, return the complete updated file. " +
   "Format: FILE: path/to/file.tsx\n```\n[content]\n```";
 
 function BackHeader({
@@ -186,8 +178,6 @@ export function SettingsPage() {
   const { data: settings } = useSettings();
   const saveSettings = useSaveSettings();
   const { data: projects = [] } = useProjects();
-  const claimMasterModel = useClaimMasterModel();
-  const masterAvailableModels = useAvailableModels("master");
 
   // Form state
   const [openRouterApiKey, setOpenRouterApiKey] = useState("");
@@ -196,16 +186,14 @@ export function SettingsPage() {
   const [termuxUrl, setTermuxUrl] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [githubRepo, setGithubRepo] = useState("");
-  const [aiProvider, setAiProvider] = useState<AIProvider>("openrouter");
+  const [aiProvider, setAiProvider] = useState<AIProvider>("auto");
   const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL_ID);
   const [geminiModel, setGeminiModel] = useState("gemini-2.0-flash");
   const [deepSeekModel, setDeepSeekModel] = useState("deepseek-chat");
-  const [masterAiModel, setMasterAiModel] = useState("");
-  const [masterEnabled, setMasterEnabled] = useState(true);
   const [autoFix, setAutoFix] = useState(true);
-  const [proactiveAI, setProactiveAI] = useState(false);
+  const [masterEnabled, setMasterEnabled] = useState(true);
 
-  // Master AI
+  // Master AI chat
   const [masterMsgs, setMasterMsgs] = useState<
     { role: string; content: string }[]
   >([]);
@@ -236,17 +224,15 @@ export function SettingsPage() {
     setTermuxUrl(s.termuxUrl || "");
     setGithubToken(s.githubToken || "");
     setGithubRepo(s.githubRepo || "");
-    setAiProvider(s.aiProvider || "openrouter");
+    setAiProvider(s.aiProvider || "auto");
     setDefaultModel(s.defaultModel || DEFAULT_MODEL_ID);
     setGeminiModel(s.geminiModel || "gemini-2.0-flash");
     setDeepSeekModel(s.deepSeekModel || "deepseek-chat");
-    setMasterAiModel(s.masterAiModel || "");
-    setMasterEnabled(s.masterAIEnabled !== false);
     setAutoFix(s.autoFix !== false);
-    setProactiveAI(!!s.proactiveAI);
+    setMasterEnabled(s.masterAIEnabled !== false);
   }, [settings]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll effect
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new messages
   useEffect(() => {
     masterEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [masterMsgs, masterLoading]);
@@ -266,10 +252,8 @@ export function SettingsPage() {
         defaultModel,
         geminiModel,
         deepSeekModel,
-        masterAiModel,
-        masterAIEnabled: masterEnabled,
         autoFix,
-        proactiveAI,
+        masterAIEnabled: masterEnabled,
         ...extra,
       } as any);
       toast.success("Saved");
@@ -278,47 +262,105 @@ export function SettingsPage() {
     }
   };
 
+  // Get AI key+model for Master AI (uses same global setting)
+  const masterAiKey =
+    aiProvider === "gemini"
+      ? geminiApiKey
+      : aiProvider === "deepseek"
+        ? deepSeekApiKey
+        : openRouterApiKey;
+
   const handleMasterSend = async () => {
     const text = masterInput.trim();
-    if (!text || masterLoading) return;
-    const key = openRouterApiKey;
-    const model = masterAiModel;
-    if (!key) {
-      toast.error("Add OpenRouter key in API Keys first");
-      return;
-    }
-    if (!model) {
-      toast.error("Select a Master AI model first");
+    if (!text || masterLoading || !masterEnabled) return;
+    if (!masterAiKey && aiProvider !== "auto") {
+      toast.error("Add an API key in API Keys first");
       return;
     }
     setMasterInput("");
     setMasterMsgs((p) => [...p, { role: "user", content: text }]);
     setMasterLoading(true);
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://brainforge-7xn.pages.dev",
-          "X-Title": "BrainForge Master AI",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: MASTER_SYSTEM_PROMPT },
-            ...masterMsgs.map((m) => ({ role: m.role, content: m.content })),
-            { role: "user", content: text },
-          ],
-          stream: false,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content || "No response";
-      setMasterMsgs((p) => [...p, { role: "assistant", content }]);
-      const fileM = content.match(/FILE:\s*([^\n]+)/);
-      const codeM = content.match(/```(?:[\w.]*)?\n([\s\S]*?)```/);
+      let reply = "";
+      // Use global AI provider
+      const useKey = openRouterApiKey || geminiApiKey || deepSeekApiKey;
+      if (!useKey)
+        throw new Error(
+          "No API key configured. Add one in Settings > API Keys.",
+        );
+
+      if (aiProvider === "gemini" && geminiApiKey) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiApiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: MASTER_SYSTEM }] },
+            contents: [
+              ...masterMsgs.map((m) => ({
+                role: m.role === "assistant" ? "model" : "user",
+                parts: [{ text: m.content }],
+              })),
+              { role: "user", parts: [{ text }] },
+            ],
+          }),
+        });
+        if (!res.ok) throw new Error(`Gemini error ${res.status}`);
+        const d = await res.json();
+        reply = d.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
+      } else if (aiProvider === "deepseek" && deepSeekApiKey) {
+        const res = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${deepSeekApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: deepSeekModel,
+            messages: [
+              { role: "system", content: MASTER_SYSTEM },
+              ...masterMsgs,
+              { role: "user", content: text },
+            ],
+            stream: false,
+          }),
+        });
+        if (!res.ok) throw new Error(`DeepSeek error ${res.status}`);
+        const d = await res.json();
+        reply = d.choices?.[0]?.message?.content || "No response";
+      } else {
+        // OpenRouter (default / auto fallback)
+        const key = openRouterApiKey;
+        if (!key) throw new Error("No OpenRouter key. Add it in API Keys.");
+        const res = await fetch(
+          "https://openrouter.ai/api/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${key}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://brainforge-7xn.pages.dev",
+              "X-Title": "BrainForge Master AI",
+            },
+            body: JSON.stringify({
+              model: defaultModel,
+              messages: [
+                { role: "system", content: MASTER_SYSTEM },
+                ...masterMsgs,
+                { role: "user", content: text },
+              ],
+              stream: false,
+            }),
+          },
+        );
+        if (!res.ok) throw new Error(`OpenRouter error ${res.status}`);
+        const d = await res.json();
+        reply = d.choices?.[0]?.message?.content || "No response";
+      }
+
+      setMasterMsgs((p) => [...p, { role: "assistant", content: reply }]);
+      const fileM = reply.match(/FILE:\s*([^\n]+)/);
+      const codeM = reply.match(/```(?:[\w.]*)?\n([\s\S]*?)```/);
       if (fileM && codeM)
         setPendingFile({ path: fileM[1].trim(), content: codeM[1], req: text });
     } catch (e: any) {
@@ -369,32 +411,32 @@ export function SettingsPage() {
     return [
       {
         key: "master-memory",
-        label: "Master AI — Memory",
+        label: "Master AI \u2014 Memory",
         content:
           localStorage.getItem("bf_ai_file_master-memory") ||
           `# Master AI Memory\nLast updated: ${new Date().toISOString()}\n\n## BrainForge State\n- Live: https://brainforge-7xn.pages.dev\n- GitHub: ${githubRepo || "(not set)"}\n`,
       },
       {
         key: "master-rules",
-        label: "Master AI — Rules",
+        label: "Master AI \u2014 Rules",
         content:
           localStorage.getItem("bf_ai_file_master-rules") ||
-          "# Master AI Rules\n\n## ALLOWED\n- Read/write BrainForge files via GitHub\n- Deploy to Cloudflare\n- Update memory files\n\n## NOT ALLOWED\n- Help with user projects (role separation)\n- Changes without showing diff first\n- Delete files without confirmation\n",
+          "# Master AI Rules\n\n## ALLOWED\n- Read/write BrainForge source via GitHub\n- Deploy to Cloudflare\n- Update memory files\n\n## NOT ALLOWED\n- Modify individual user projects (that is project AI's job)\n- Make changes without showing diff first\n- Delete files without confirmation\n",
       },
       ...projects.flatMap((p) => [
         {
           key: `project-${p.name}-memory`,
-          label: `${p.name} — Memory`,
+          label: `${p.name} \u2014 Memory`,
           content:
             localStorage.getItem(`bf_ai_file_project-${p.name}-memory`) ||
-            `# ${p.name} Memory\n\nNo memory yet.\n`,
+            `# ${p.name} Memory\n\nNo memory yet. Chat with this project to build context.\n`,
         },
         {
           key: `project-${p.name}-rules`,
-          label: `${p.name} — Rules`,
+          label: `${p.name} \u2014 Rules`,
           content:
             localStorage.getItem(`bf_ai_file_project-${p.name}-rules`) ||
-            `# ${p.name} Rules\n\n## ALLOWED\n- Generate code for this project\n- Fix errors\n\n## NOT ALLOWED\n- Access other projects\n- Modify BrainForge itself\n`,
+            `# ${p.name} Rules\n\n## ALLOWED\n- Generate and improve code for this project\n- Fix preview errors\n- Suggest improvements\n\n## NOT ALLOWED\n- Access or modify other projects\n- Modify BrainForge itself (that is Master AI's job)\n`,
         },
       ]),
     ];
@@ -414,118 +456,128 @@ export function SettingsPage() {
         />
         <div className="flex-1 overflow-auto px-5 py-5 space-y-4 max-w-lg">
           <p className="text-xs text-muted-foreground">
-            Add keys for the AI providers you want to use. All stored locally on
-            your device.
+            Add keys for the providers you want. All stored locally on your
+            device only.
           </p>
 
-          <div className="p-3 rounded-lg border border-violet-500/20 bg-violet-500/5 space-y-3">
-            <p className="text-xs font-semibold text-violet-300 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5" /> OpenRouter{" "}
-              <span className="text-[10px] text-muted-foreground font-normal">
-                (100+ free models)
-              </span>
-            </p>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">
-                API Key{" "}
-                <a
-                  href="https://openrouter.ai/keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-violet-400 hover:underline"
-                >
-                  openrouter.ai <ExternalLink className="inline w-2.5 h-2.5" />
-                </a>
-              </Label>
-              <Input
-                type="password"
-                value={openRouterApiKey}
-                onChange={(e) => setOpenRouterApiKey(e.target.value)}
-                placeholder="sk-or-..."
-                className="bg-black/30 border-violet-500/30"
-                style={{ fontSize: "16px" }}
-                data-ocid="settings.openrouter_key.input"
-              />
-            </div>
-            {openRouterApiKey && (
-              <p className="text-[10px] flex items-center gap-1 text-green-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key
-                set
+          <div className="p-3 rounded-lg border border-violet-500/20 bg-violet-500/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-violet-300 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5" /> OpenRouter
               </p>
-            )}
+              <span className="text-[10px] text-muted-foreground">
+                100+ free models
+              </span>
+            </div>
+            <Input
+              type="password"
+              value={openRouterApiKey}
+              onChange={(e) => setOpenRouterApiKey(e.target.value)}
+              placeholder="sk-or-..."
+              className="bg-black/30 border-violet-500/30"
+              style={{ fontSize: "16px" }}
+              data-ocid="settings.openrouter_key.input"
+            />
+            <div className="flex items-center justify-between">
+              {openRouterApiKey ? (
+                <p className="text-[10px] text-green-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key
+                  set
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  Get free key at{" "}
+                  <a
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-violet-400 underline"
+                  >
+                    openrouter.ai{" "}
+                    <ExternalLink className="inline w-2.5 h-2.5" />
+                  </a>
+                </p>
+              )}
+            </div>
           </div>
 
-          <div className="p-3 rounded-lg border border-blue-500/20 bg-blue-500/5 space-y-3">
-            <p className="text-xs font-semibold text-blue-300 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" /> Google Gemini{" "}
-              <span className="text-[10px] text-muted-foreground font-normal">
-                (free tier: 1M tokens/day)
-              </span>
-            </p>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">
-                API Key{" "}
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:underline"
-                >
-                  AI Studio <ExternalLink className="inline w-2.5 h-2.5" />
-                </a>
-              </Label>
-              <Input
-                type="password"
-                value={geminiApiKey}
-                onChange={(e) => setGeminiApiKey(e.target.value)}
-                placeholder="AIza..."
-                className="bg-black/30 border-blue-500/30"
-                style={{ fontSize: "16px" }}
-              />
-            </div>
-            {geminiApiKey && (
-              <p className="text-[10px] flex items-center gap-1 text-green-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key
-                set
+          <div className="p-3 rounded-lg border border-blue-500/20 bg-blue-500/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-blue-300 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" /> Google Gemini
               </p>
-            )}
+              <span className="text-[10px] text-muted-foreground">
+                1M tokens/day free
+              </span>
+            </div>
+            <Input
+              type="password"
+              value={geminiApiKey}
+              onChange={(e) => setGeminiApiKey(e.target.value)}
+              placeholder="AIza..."
+              className="bg-black/30 border-blue-500/30"
+              style={{ fontSize: "16px" }}
+            />
+            <div className="flex items-center justify-between">
+              {geminiApiKey ? (
+                <p className="text-[10px] text-green-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key
+                  set
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  Get free key at{" "}
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 underline"
+                  >
+                    AI Studio <ExternalLink className="inline w-2.5 h-2.5" />
+                  </a>
+                </p>
+              )}
+            </div>
           </div>
 
-          <div className="p-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 space-y-3">
-            <p className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
-              <Bot className="w-3.5 h-3.5" /> DeepSeek{" "}
-              <span className="text-[10px] text-muted-foreground font-normal">
-                (very cheap, ~$0.001/1M tokens)
-              </span>
-            </p>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">
-                API Key{" "}
-                <a
-                  href="https://platform.deepseek.com/api_keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-cyan-400 hover:underline"
-                >
-                  platform.deepseek.com{" "}
-                  <ExternalLink className="inline w-2.5 h-2.5" />
-                </a>
-              </Label>
-              <Input
-                type="password"
-                value={deepSeekApiKey}
-                onChange={(e) => setDeepSeekApiKey(e.target.value)}
-                placeholder="sk-..."
-                className="bg-black/30 border-cyan-500/30"
-                style={{ fontSize: "16px" }}
-              />
-            </div>
-            {deepSeekApiKey && (
-              <p className="text-[10px] flex items-center gap-1 text-green-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key
-                set
+          <div className="p-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                <Bot className="w-3.5 h-3.5" /> DeepSeek
               </p>
-            )}
+              <span className="text-[10px] text-muted-foreground">
+                Very cheap direct API
+              </span>
+            </div>
+            <Input
+              type="password"
+              value={deepSeekApiKey}
+              onChange={(e) => setDeepSeekApiKey(e.target.value)}
+              placeholder="sk-..."
+              className="bg-black/30 border-cyan-500/30"
+              style={{ fontSize: "16px" }}
+            />
+            <div className="flex items-center justify-between">
+              {deepSeekApiKey ? (
+                <p className="text-[10px] text-green-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key
+                  set
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground">
+                  Get key at{" "}
+                  <a
+                    href="https://platform.deepseek.com/api_keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-cyan-400 underline"
+                  >
+                    platform.deepseek.com{" "}
+                    <ExternalLink className="inline w-2.5 h-2.5" />
+                  </a>
+                </p>
+              )}
+            </div>
           </div>
 
           <SaveBtn
@@ -550,95 +602,120 @@ export function SettingsPage() {
           accent="text-blue-300"
         />
         <div className="flex-1 overflow-auto px-5 py-5 space-y-5 max-w-lg">
-          {/* Provider switch */}
+          <div className="p-3 rounded-lg border border-blue-500/20 bg-blue-500/5">
+            <p className="text-xs text-blue-300 font-medium mb-1">
+              This setting applies to all projects and Master AI.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Choose your preferred provider. Auto tries them in order and
+              switches automatically on rate limits.
+            </p>
+          </div>
+
+          {/* Provider choice */}
           <div className="space-y-2">
-            <Label className="text-xs text-blue-300 font-semibold">
+            <Label className="text-xs text-muted-foreground font-semibold">
               AI Provider
             </Label>
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
                   {
-                    id: "openrouter",
-                    label: "OpenRouter",
-                    sub: "100+ models",
-                    color: "border-violet-500/50 bg-violet-500/10",
-                    active: "border-violet-400 bg-violet-500/20",
-                    dot: "bg-violet-400",
-                    available: !!openRouterApiKey,
-                  },
-                  {
-                    id: "gemini",
-                    label: "Gemini",
-                    sub: "Google AI",
-                    color: "border-blue-500/50 bg-blue-500/10",
-                    active: "border-blue-400 bg-blue-500/20",
-                    dot: "bg-blue-400",
-                    available: !!geminiApiKey,
-                  },
-                  {
-                    id: "deepseek",
-                    label: "DeepSeek",
-                    sub: "Direct API",
-                    color: "border-cyan-500/50 bg-cyan-500/10",
-                    active: "border-cyan-400 bg-cyan-500/20",
-                    dot: "bg-cyan-400",
-                    available: !!deepSeekApiKey,
-                  },
-                  {
                     id: "auto",
                     label: "Auto",
-                    sub: "Best available",
-                    color: "border-green-500/50 bg-green-500/10",
-                    active: "border-green-400 bg-green-500/20",
+                    sub: "Tries all, best available",
                     dot: "bg-green-400",
+                    activeBorder: "border-green-400",
+                    activeBg: "bg-green-500/15",
                     available: !!(
                       openRouterApiKey ||
                       geminiApiKey ||
                       deepSeekApiKey
                     ),
                   },
+                  {
+                    id: "openrouter",
+                    label: "OpenRouter",
+                    sub: "100+ free models",
+                    dot: "bg-violet-400",
+                    activeBorder: "border-violet-400",
+                    activeBg: "bg-violet-500/15",
+                    available: !!openRouterApiKey,
+                  },
+                  {
+                    id: "gemini",
+                    label: "Gemini",
+                    sub: "Google AI direct",
+                    dot: "bg-blue-400",
+                    activeBorder: "border-blue-400",
+                    activeBg: "bg-blue-500/15",
+                    available: !!geminiApiKey,
+                  },
+                  {
+                    id: "deepseek",
+                    label: "DeepSeek",
+                    sub: "Direct API",
+                    dot: "bg-cyan-400",
+                    activeBorder: "border-cyan-400",
+                    activeBg: "bg-cyan-500/15",
+                    available: !!deepSeekApiKey,
+                  },
                 ] as const
-              ).map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setAiProvider(p.id as AIProvider)}
-                  className={cn(
-                    "flex items-center gap-2 p-3 rounded-lg border transition-all text-left",
-                    aiProvider === p.id ? p.active : p.color,
-                  )}
-                >
-                  <span
+              ).map((p) => {
+                const isActive = aiProvider === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setAiProvider(p.id as AIProvider)}
                     className={cn(
-                      "w-2 h-2 rounded-full shrink-0",
-                      p.available ? p.dot : "bg-muted-foreground/30",
+                      "flex items-start gap-2.5 p-3 rounded-lg border transition-all text-left",
+                      isActive
+                        ? `${p.activeBorder} ${p.activeBg}`
+                        : "border-white/10 bg-white/5 hover:bg-white/10",
                     )}
-                  />
-                  <div>
-                    <p className="text-xs font-medium text-foreground">
-                      {p.label}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">{p.sub}</p>
-                  </div>
-                  {aiProvider === p.id && (
-                    <span className="ml-auto text-[10px] text-primary">✓</span>
-                  )}
-                </button>
-              ))}
+                  >
+                    <span
+                      className={cn(
+                        "w-2 h-2 rounded-full mt-0.5 shrink-0",
+                        p.available ? p.dot : "bg-muted-foreground/30",
+                      )}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-foreground">
+                        {p.label}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {p.sub}
+                      </p>
+                    </div>
+                    {isActive && (
+                      <span className="text-primary text-xs">✓</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             {!openRouterApiKey && !geminiApiKey && !deepSeekApiKey && (
-              <p className="text-[11px] text-yellow-400">
-                ⚠ No API keys set. Go to API Keys to add one.
+              <p className="text-[11px] text-yellow-400 flex items-center gap-1">
+                ⚠️ No API keys set. Go to{" "}
+                <button
+                  type="button"
+                  onClick={() => setPage("api")}
+                  className="underline text-violet-400"
+                >
+                  API Keys
+                </button>{" "}
+                to add one.
               </p>
             )}
           </div>
 
-          {/* Model for selected provider */}
+          {/* Model for selected provider (shown only when not auto) */}
           {aiProvider === "openrouter" && (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">
-                Default OpenRouter Model
+                OpenRouter Model
               </Label>
               <Select value={defaultModel} onValueChange={setDefaultModel}>
                 <SelectTrigger
@@ -696,65 +773,67 @@ export function SettingsPage() {
             </div>
           )}
           {aiProvider === "auto" && (
-            <div className="p-3 rounded-lg border border-green-500/20 bg-green-500/5 space-y-1">
+            <div className="p-3 rounded-lg border border-green-500/20 bg-green-500/5 space-y-2">
               <p className="text-xs text-green-300 font-medium">
-                Auto mode order:
+                Auto tries in this order:
               </p>
-              <div className="space-y-1">
-                {[
-                  { label: "1. OpenRouter", available: !!openRouterApiKey },
-                  { label: "2. Gemini", available: !!geminiApiKey },
-                  { label: "3. DeepSeek", available: !!deepSeekApiKey },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex items-center gap-2 text-xs"
+              {[
+                {
+                  label: "OpenRouter",
+                  available: !!openRouterApiKey,
+                  dot: "bg-violet-400",
+                },
+                {
+                  label: "Gemini",
+                  available: !!geminiApiKey,
+                  dot: "bg-blue-400",
+                },
+                {
+                  label: "DeepSeek",
+                  available: !!deepSeekApiKey,
+                  dot: "bg-cyan-400",
+                },
+              ].map((item, i) => (
+                <div
+                  key={item.label}
+                  className="flex items-center gap-2 text-xs"
+                >
+                  <span className="text-muted-foreground w-3">{i + 1}.</span>
+                  <span
+                    className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      item.available ? item.dot : "bg-muted-foreground/30",
+                    )}
+                  />
+                  <span
+                    className={
+                      item.available
+                        ? "text-foreground"
+                        : "text-muted-foreground"
+                    }
                   >
-                    <span
-                      className={cn(
-                        "w-1.5 h-1.5 rounded-full",
-                        item.available
-                          ? "bg-green-400"
-                          : "bg-muted-foreground/30",
-                      )}
-                    />
-                    <span
-                      className={
-                        item.available
-                          ? "text-foreground"
-                          : "text-muted-foreground"
-                      }
-                    >
-                      {item.label}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {item.available ? "ready" : "no key"}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                    {item.label}
+                  </span>
+                  <span className="text-[10px] ml-auto">
+                    {item.available ? (
+                      <span className="text-green-400">ready</span>
+                    ) : (
+                      <span className="text-muted-foreground">no key</span>
+                    )}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
 
-          <div className="space-y-3 pt-2 border-t border-white/10">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-foreground">Auto Fix Errors</p>
-                <p className="text-xs text-muted-foreground">
-                  AI retries up to 3x
-                </p>
-              </div>
-              <Switch checked={autoFix} onCheckedChange={setAutoFix} />
+          <div className="flex items-center justify-between py-2 border-t border-white/10">
+            <div>
+              <p className="text-sm text-foreground">Auto Fix Errors</p>
+              <p className="text-xs text-muted-foreground">
+                AI retries failed code up to 3x
+              </p>
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-foreground">Proactive AI</p>
-                <p className="text-xs text-muted-foreground">
-                  AI suggests improvements
-                </p>
-              </div>
-              <Switch checked={proactiveAI} onCheckedChange={setProactiveAI} />
-            </div>
+            <Switch checked={autoFix} onCheckedChange={setAutoFix} />
           </div>
 
           <SaveBtn
@@ -781,7 +860,7 @@ export function SettingsPage() {
         cmd:
           typeof window !== "undefined"
             ? `curl -L ${window.location.origin}/brain.js -o ~/brain.js`
-            : "curl -L [url]/brain.js -o ~/brain.js",
+            : "",
       },
       {
         n: 4,
@@ -790,7 +869,7 @@ export function SettingsPage() {
       },
       {
         n: 5,
-        title: "Install ngrok",
+        title: "Get public URL",
         cmd: "npm install -g ngrok && ngrok http 3000",
       },
     ];
@@ -853,7 +932,7 @@ export function SettingsPage() {
             pending={saveSettings.isPending}
             color="bg-green-700 hover:bg-green-800"
           />
-          <div className="space-y-2 mt-2">
+          <div className="space-y-3 mt-2">
             <p className="text-xs font-semibold text-green-300">Setup Guide</p>
             {steps.map((s) => (
               <div key={s.n} className="flex gap-3">
@@ -868,7 +947,7 @@ export function SettingsPage() {
                     <code className="flex-1 text-[10px] font-mono bg-black/30 border border-green-500/20 rounded px-2 py-1 text-green-300 truncate">
                       {s.cmd}
                     </code>
-                    <CopyBtn text={s.cmd} />
+                    {s.cmd && <CopyBtn text={s.cmd} />}
                   </div>
                 </div>
               </div>
@@ -981,35 +1060,14 @@ export function SettingsPage() {
         />
         <div className="flex-1 overflow-hidden flex flex-col gap-3 px-4 py-4">
           <div className="flex items-center justify-between shrink-0">
-            <Select
-              value={masterAiModel || ""}
-              onValueChange={(v) => {
-                setMasterAiModel(v);
-                claimMasterModel.mutate(v);
-              }}
-            >
-              <SelectTrigger
-                className="bg-black/30 border-pink-500/30 w-52"
-                data-ocid="settings.master_model.select"
-              >
-                <SelectValue placeholder="Select model…" />
-              </SelectTrigger>
-              <SelectContent className="bg-popover border-border">
-                {masterAvailableModels.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-                {masterAiModel &&
-                  !masterAvailableModels.find(
-                    (m) => m.id === masterAiModel,
-                  ) && (
-                    <SelectItem value={masterAiModel}>
-                      {getModelName(masterAiModel)}
-                    </SelectItem>
-                  )}
-              </SelectContent>
-            </Select>
+            <div>
+              <p className="text-xs font-medium text-pink-300">
+                BrainForge app controller
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                Uses your global AI setting ({aiProvider})
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Enabled</span>
               <Switch
@@ -1026,7 +1084,11 @@ export function SettingsPage() {
               <div className="p-4 space-y-3">
                 {masterMsgs.length === 0 && (
                   <p className="text-xs text-muted-foreground text-center py-8">
-                    Tell Master AI what to add or change in BrainForge
+                    Tell Master AI what to change in BrainForge.
+                    <br />
+                    <span className="text-[10px] text-muted-foreground/60">
+                      It uses your selected AI provider ({aiProvider})
+                    </span>
                   </p>
                 )}
                 {masterMsgs.map((msg, i) => (
@@ -1115,7 +1177,7 @@ export function SettingsPage() {
                 onKeyDown={(e) =>
                   e.key === "Enter" && !e.shiftKey && handleMasterSend()
                 }
-                placeholder="Tell Master AI what to change…"
+                placeholder="Tell Master AI what to change in BrainForge…"
                 disabled={masterLoading || !masterEnabled}
                 className="text-xs bg-black/30 border-pink-500/30 flex-1 h-8"
                 style={{ fontSize: "16px" }}
@@ -1209,7 +1271,8 @@ export function SettingsPage() {
         ) : (
           <div className="flex-1 overflow-auto px-4 py-4">
             <p className="text-xs text-muted-foreground mb-3">
-              Memory and rules files for all AI instances. Tap to view or edit.
+              Each project and Master AI has isolated memory and rules. Tap to
+              read or edit.
             </p>
             <div className="space-y-2">
               {files.map((f) => (
@@ -1240,14 +1303,25 @@ export function SettingsPage() {
     );
   }
 
-  // ---- HUB PAGE ----
+  // ---- HUB ----
   const s = settings as any;
-  const hasOR = !!s?.openRouterApiKey;
-  const hasGem = !!s?.geminiApiKey;
-  const hasDS = !!s?.deepSeekApiKey;
-  const hasTx = !!s?.termuxUrl;
-  const hasGH = !!s?.githubToken;
-  const currentProvider: AIProvider = s?.aiProvider || "openrouter";
+  const currentProvider: AIProvider = s?.aiProvider || "auto";
+  const providerLabel =
+    currentProvider === "auto"
+      ? "Auto"
+      : currentProvider === "gemini"
+        ? "Google Gemini"
+        : currentProvider === "deepseek"
+          ? "DeepSeek"
+          : "OpenRouter";
+  const providerColor =
+    currentProvider === "auto"
+      ? "text-green-400"
+      : currentProvider === "gemini"
+        ? "text-blue-400"
+        : currentProvider === "deepseek"
+          ? "text-cyan-400"
+          : "text-violet-400";
 
   return (
     <div
@@ -1260,64 +1334,56 @@ export function SettingsPage() {
           <Settings className="w-5 h-5 text-primary" />
           <h1 className="text-lg font-semibold">Settings</h1>
         </div>
-        {/* Status row */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
-          {[
-            { label: "OpenRouter", ok: hasOR, dot: "bg-violet-400" },
-            { label: "Gemini", ok: hasGem, dot: "bg-blue-400" },
-            { label: "DeepSeek", ok: hasDS, dot: "bg-cyan-400" },
-            { label: "GitHub", ok: hasGH, dot: "bg-orange-400" },
-            { label: "Termux", ok: hasTx, dot: "bg-green-400" },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center gap-1.5 text-xs">
-              <span
-                className={cn(
-                  "w-1.5 h-1.5 rounded-full",
-                  item.ok ? item.dot : "bg-muted-foreground/30",
-                )}
-              />
-              <span
-                className={
-                  item.ok ? "text-foreground" : "text-muted-foreground"
-                }
+
+        {/* Active AI + status */}
+        <div className="mt-3 p-3 rounded-lg border border-white/10 bg-white/5 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Active AI</span>
+            <button
+              type="button"
+              onClick={() => setPage("ai")}
+              className="text-[10px] text-primary hover:underline"
+            >
+              change
+            </button>
+          </div>
+          <p className={`text-sm font-semibold ${providerColor}`}>
+            {providerLabel}
+          </p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {[
+              {
+                label: "OpenRouter",
+                ok: !!s?.openRouterApiKey,
+                dot: "bg-violet-400",
+              },
+              { label: "Gemini", ok: !!s?.geminiApiKey, dot: "bg-blue-400" },
+              {
+                label: "DeepSeek",
+                ok: !!s?.deepSeekApiKey,
+                dot: "bg-cyan-400",
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center gap-1 text-[10px]"
               >
-                {item.label}
-              </span>
-            </div>
-          ))}
-        </div>
-        {/* Active provider */}
-        <div className="mt-2 flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">
-            Active provider:
-          </span>
-          <span
-            className={cn(
-              "text-[11px] font-medium",
-              currentProvider === "openrouter"
-                ? "text-violet-400"
-                : currentProvider === "gemini"
-                  ? "text-blue-400"
-                  : currentProvider === "deepseek"
-                    ? "text-cyan-400"
-                    : "text-green-400",
-            )}
-          >
-            {currentProvider === "auto"
-              ? "Auto"
-              : currentProvider === "gemini"
-                ? "Google Gemini"
-                : currentProvider === "deepseek"
-                  ? "DeepSeek"
-                  : "OpenRouter"}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage("ai")}
-            className="text-[10px] text-primary hover:underline ml-1"
-          >
-            change
-          </button>
+                <span
+                  className={cn(
+                    "w-1.5 h-1.5 rounded-full",
+                    item.ok ? item.dot : "bg-muted-foreground/20",
+                  )}
+                />
+                <span
+                  className={
+                    item.ok ? "text-foreground" : "text-muted-foreground/50"
+                  }
+                >
+                  {item.label}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1337,11 +1403,11 @@ export function SettingsPage() {
               )}
               data-ocid={`settings.${btn.id}.button`}
             >
-              <Icon className={cn("w-6 h-6 mb-2", btn.iconColor)} />
+              <Icon className={cn("w-5 h-5 mb-2", btn.iconColor)} />
               <p className="text-sm font-semibold text-foreground">
                 {btn.label}
               </p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
                 {btn.description}
               </p>
             </motion.button>
