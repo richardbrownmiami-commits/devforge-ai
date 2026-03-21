@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Clock, Monitor, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, Clock, ExternalLink, Loader2, Monitor, Rocket, RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ChatPanel } from "../components/ChatPanel";
 import { MatrixOverlay } from "../components/MatrixOverlay";
@@ -53,6 +53,10 @@ export function EditorPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(() => loadSnapshots(projectName));
+  const [deploying, setDeploying] = useState(false);
+  const [deployUrl, setDeployUrl] = useState<string>(
+    () => localStorage.getItem(`bf_deploy_url_${projectName}`) || ""
+  );
   const autoFixCount = useRef(0);
   const prevLoadingRef = useRef(false);
 
@@ -65,7 +69,6 @@ export function EditorPage() {
   const hasAnyKey = !!(openRouterKey || geminiKey);
   const autoFix: boolean = s?.autoFix !== false;
 
-  // Template starter prompt
   const [initialMessage] = useState<string>(() => {
     const key = `bf_starter_${projectName}`;
     const val = localStorage.getItem(key) || "";
@@ -79,7 +82,6 @@ export function EditorPage() {
 
   const hasCode = messages.some((m) => m.role === "assistant" && m.content.includes("```"));
 
-  // Save snapshot when AI finishes responding
   useEffect(() => {
     if (prevLoadingRef.current && !isLoading && messages.length > 0) {
       saveSnapshot(projectName, messages);
@@ -88,20 +90,18 @@ export function EditorPage() {
     prevLoadingRef.current = isLoading;
   }, [isLoading, messages, projectName]);
 
-  // Auto error fix: listen for postMessage errors from preview iframe
   useEffect(() => {
     if (!autoFix) return;
     const handler = (e: MessageEvent) => {
       if (e.data?.type !== "PREVIEW_ERROR") return;
       if (isLoading || autoFixCount.current >= 3) return;
       autoFixCount.current += 1;
-      sendMessage(`Fix this JavaScript error in the code (auto-fix attempt ${autoFixCount.current}/3): ${e.data.error}`);
+      sendMessage(`Fix this JavaScript error (auto-fix ${autoFixCount.current}/3): ${e.data.error}`);
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, [autoFix, isLoading, sendMessage]);
 
-  // Reset auto-fix counter when user sends a manual message
   const handleSend = (msg: string) => {
     autoFixCount.current = 0;
     saveSnapshot(projectName, messages);
@@ -109,27 +109,81 @@ export function EditorPage() {
   };
 
   const restoreSnapshot = (snap: Snapshot) => {
-    // Persist restored messages
     localStorage.setItem(`bf_chat_${projectName}`, JSON.stringify(snap.messages));
     setHistoryOpen(false);
     window.location.reload();
   };
 
+  // Deploy generated app to GitHub + serve via raw.githack.com
+  const deployApp = async () => {
+    const saved = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    const token = (s?.githubToken || saved.githubToken || "").trim();
+    const repo = (s?.githubRepo || saved.githubRepo || "").trim();
+    if (!token) { alert("Add your GitHub token in Settings \u2192 GitHub & Deploy first."); return; }
+    if (!repo) { alert("Add your GitHub repo in Settings \u2192 GitHub & Deploy first."); return; }
+
+    let html = ""; let css = ""; let js = "";
+    for (const m of messages as any[]) {
+      if (m.role !== "assistant") continue;
+      const re = /```(html|css|javascript|js)\n?([\s\S]*?)```/gi;
+      let match = re.exec(m.content);
+      while (match) {
+        const lang = match[1].toLowerCase();
+        if (lang === "html") html = match[2];
+        else if (lang === "css") css = match[2];
+        else if (lang === "javascript" || lang === "js") js = match[2];
+        match = re.exec(m.content);
+      }
+    }
+    if (!html && !js) { alert("No code found to deploy. Ask the AI to generate an app first."); return; }
+
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}${css}</style></head><body>${html}<script>${js}<\/script></body></html>`;
+
+    setDeploying(true);
+    try {
+      const path = `public/projects/${projectName}/index.html`;
+      const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+      const getRes = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}` } });
+      const existingSha = getRes.ok ? (await getRes.json()).sha : undefined;
+      const putRes = await fetch(apiUrl, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `deploy: ${projectName}`,
+          content: btoa(unescape(encodeURIComponent(fullHtml))),
+          ...(existingSha ? { sha: existingSha } : {}),
+        }),
+      });
+      if (!putRes.ok) {
+        const err = await putRes.json().catch(() => ({}));
+        throw new Error(err?.message || `Deploy failed: ${putRes.status}`);
+      }
+      const url = `https://raw.githack.com/${repo}/main/${path}`;
+      setDeployUrl(url);
+      localStorage.setItem(`bf_deploy_url_${projectName}`, url);
+      // Save URL on project record
+      const projects = JSON.parse(localStorage.getItem("bf_projects") || "[]");
+      localStorage.setItem("bf_projects", JSON.stringify(
+        projects.map((p: any) => p.name === projectName ? { ...p, deployUrl: url } : p)
+      ));
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
   return (
     <div className="flex flex-col" style={{ height: "100dvh" }} data-ocid="editor.page">
-      {/* Matrix overlay when AI is coding */}
       <MatrixOverlay visible={isLoading} />
 
-      {/* Header */}
+      {/* Header -- LOCKED, do not change */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
           onClick={() => navigate({ to: "/projects" })} data-ocid="editor.back.button">
           <ArrowLeft className="w-4 h-4" />
         </Button>
-
         <span className="text-sm font-medium text-foreground truncate flex-1">{projectName}</span>
-
-        {/* Provider dot */}
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className={`w-1.5 h-1.5 rounded-full ${
             hasAnyKey ? (PROVIDER_DOT[provider] ?? "bg-green-400") : "bg-muted-foreground/30"
@@ -138,23 +192,19 @@ export function EditorPage() {
             ? <span className="text-[10px] font-mono">{activeProvider}</span>
             : <span className="text-[10px]">{provider === "auto" ? "Auto AI" : provider}</span>}
         </div>
-
-        {/* History button */}
         {snapshots.length > 0 && (
           <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={() => setHistoryOpen(true)} title="Version history" data-ocid="editor.history.button">
             <Clock className="w-3.5 h-3.5" />
           </Button>
         )}
-
-        {/* Preview button */}
         <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs border-border shrink-0"
           onClick={() => setPreviewOpen(true)} data-ocid="editor.preview.open_button">
           <Monitor className="w-3.5 h-3.5" /> Preview
         </Button>
       </div>
 
-      {/* Chat full screen */}
+      {/* Chat -- full screen, LOCKED */}
       <div className="flex-1 overflow-hidden">
         <ChatPanel
           messages={messages as any}
@@ -169,17 +219,37 @@ export function EditorPage() {
         />
       </div>
 
-      {/* Full-screen preview overlay */}
+      {/* Preview overlay -- full screen, LOCKED */}
       {previewOpen && (
         <div className="fixed inset-0 z-50 bg-background flex flex-col"
           style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
           data-ocid="editor.preview.overlay">
+          {/* Preview header with Deploy button */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
               onClick={() => setPreviewOpen(false)}>
               <X className="w-4 h-4" />
             </Button>
-            <span className="text-sm font-medium text-foreground flex-1">Preview — {projectName}</span>
+            <span className="text-sm font-medium text-foreground truncate flex-1">
+              Preview — {projectName}
+            </span>
+            {deployUrl && (
+              <a href={deployUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[11px] text-green-400 hover:underline shrink-0 mr-1">
+                <ExternalLink className="w-3 h-3" /> Live
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={deployApp}
+              disabled={deploying || !hasCode}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-medium shrink-0 disabled:opacity-40 transition-colors"
+              data-ocid="editor.deploy.button"
+            >
+              {deploying
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Deploying...</>
+                : <><Rocket className="w-3 h-3" /> Deploy</>}
+            </button>
           </div>
           <div className="flex-1 overflow-hidden">
             <PreviewPanel messages={messages as any} termuxUrl="" projectName={projectName} />
@@ -207,7 +277,7 @@ export function EditorPage() {
                     className="p-3 rounded-lg border border-border bg-background hover:border-primary/40 transition-colors">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-muted-foreground">{relativeTime(snap.timestamp)}</span>
-                      <span className="text-[10px] text-muted-foreground">{snap.messages.length} messages</span>
+                      <span className="text-[10px] text-muted-foreground">{snap.messages.length} msgs</span>
                     </div>
                     <p className="text-[11px] text-foreground truncate mb-2">
                       {snap.messages.filter(m => m.role === "user").slice(-1)[0]?.content.slice(0, 60) || "Empty"}
