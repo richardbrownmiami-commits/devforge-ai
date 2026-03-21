@@ -6,12 +6,11 @@ import { ChatPanel } from "../components/ChatPanel";
 import { PreviewPanel } from "../components/PreviewPanel";
 import type { AIProvider } from "../constants/models";
 import { useAIChat } from "../hooks/useAIChat";
-import { useProjects, useSettings } from "../hooks/useBackend";
+import { useSettings } from "../hooks/useBackend";
 
 const PROVIDER_DOT: Record<string, string> = {
   openrouter: "bg-violet-400",
   gemini: "bg-blue-400",
-  deepseek: "bg-cyan-400",
   auto: "bg-green-400",
 };
 
@@ -22,14 +21,14 @@ export function EditorPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const s = settings as any;
-  const provider: AIProvider = s?.aiProvider || "auto";
+  const provider: AIProvider =
+    s?.aiProvider === "deepseek" ? "auto" : s?.aiProvider || "auto";
   const openRouterKey: string = s?.openRouterApiKey || "";
-  const openRouterModel: string = s?.defaultModel || "qwen/qwen3-coder:free";
+  const openRouterModel: string =
+    s?.defaultModel || "meta-llama/llama-3.3-70b-instruct:free";
   const geminiKey: string = s?.geminiApiKey || "";
   const geminiModel: string = s?.geminiModel || "gemini-2.0-flash";
-  const deepSeekKey: string = s?.deepSeekApiKey || "";
-  const deepSeekModel: string = s?.deepSeekModel || "deepseek-chat";
-  const hasAnyKey = !!(openRouterKey || geminiKey || deepSeekKey);
+  const hasAnyKey = !!(openRouterKey || geminiKey);
 
   const {
     messages,
@@ -44,10 +43,12 @@ export function EditorPage() {
     openRouterModel,
     geminiKey,
     geminiModel,
-    deepSeekKey,
-    deepSeekModel,
     projectName,
   });
+
+  const hasCode = messages.some(
+    (m) => m.role === "assistant" && m.content.includes("```"),
+  );
 
   return (
     <div
@@ -55,7 +56,7 @@ export function EditorPage() {
       style={{ height: "100dvh" }}
       data-ocid="editor.page"
     >
-      {/* Header -- clean, no model picker */}
+      {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
         <Button
           variant="ghost"
@@ -71,10 +72,14 @@ export function EditorPage() {
           {projectName}
         </span>
 
-        {/* Provider status dot + label */}
+        {/* Provider dot + label */}
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
-            className={`w-1.5 h-1.5 rounded-full ${hasAnyKey ? (PROVIDER_DOT[provider] ?? "bg-green-400") : "bg-muted-foreground/30"}`}
+            className={`w-1.5 h-1.5 rounded-full ${
+              hasAnyKey
+                ? (PROVIDER_DOT[provider] ?? "bg-green-400")
+                : "bg-muted-foreground/30"
+            }`}
           />
           {isLoading && activeProvider ? (
             <span className="text-[10px] font-mono">{activeProvider}</span>
@@ -85,6 +90,7 @@ export function EditorPage() {
           )}
         </div>
 
+        {/* Preview button -- always visible on all screen sizes */}
         <Button
           variant="outline"
           size="sm"
@@ -96,19 +102,21 @@ export function EditorPage() {
         </Button>
       </div>
 
-      {/* Chat fills full height */}
+      {/* Chat fills full screen */}
       <div className="flex-1 overflow-hidden">
         <ChatPanel
           messages={messages as any}
           isLoading={isLoading}
           error={error}
-          onSend={(msg) => sendMessage(msg)}
+          onSend={sendMessage}
           onClear={clearMessages}
           apiKeyMissing={!hasAnyKey}
+          hasCode={hasCode}
+          onPreview={() => setPreviewOpen(true)}
         />
       </div>
 
-      {/* Full-screen preview overlay */}
+      {/* Full-screen preview overlay -- all screen sizes */}
       {previewOpen && (
         <div
           className="fixed inset-0 z-50 bg-background flex flex-col"
