@@ -38,7 +38,6 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   type AIProvider,
-  DEEPSEEK_MODELS,
   DEFAULT_MODEL_ID,
   GEMINI_MODELS,
   OPENROUTER_MODELS,
@@ -59,7 +58,7 @@ const HUB_BUTTONS = [
   {
     id: "api" as Page,
     label: "API Keys",
-    description: "OpenRouter, Gemini, DeepSeek",
+    description: "OpenRouter, Gemini",
     icon: Key,
     gradient: "from-violet-600/20 to-violet-600/5",
     border: "border-violet-500/30 hover:border-violet-400/60",
@@ -182,14 +181,12 @@ export function SettingsPage() {
   // Form state
   const [openRouterApiKey, setOpenRouterApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
-  const [deepSeekApiKey, setDeepSeekApiKey] = useState("");
   const [termuxUrl, setTermuxUrl] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [githubRepo, setGithubRepo] = useState("");
   const [aiProvider, setAiProvider] = useState<AIProvider>("auto");
   const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL_ID);
   const [geminiModel, setGeminiModel] = useState("gemini-2.0-flash");
-  const [deepSeekModel, setDeepSeekModel] = useState("deepseek-chat");
   const [autoFix, setAutoFix] = useState(true);
   const [masterEnabled, setMasterEnabled] = useState(true);
 
@@ -220,14 +217,12 @@ export function SettingsPage() {
     const s = settings as any;
     setOpenRouterApiKey(s.openRouterApiKey || "");
     setGeminiApiKey(s.geminiApiKey || "");
-    setDeepSeekApiKey(s.deepSeekApiKey || "");
     setTermuxUrl(s.termuxUrl || "");
     setGithubToken(s.githubToken || "");
     setGithubRepo(s.githubRepo || "");
-    setAiProvider(s.aiProvider || "auto");
+    setAiProvider((s.aiProvider === "deepseek" ? "auto" : s.aiProvider) || "auto");
     setDefaultModel(s.defaultModel || DEFAULT_MODEL_ID);
     setGeminiModel(s.geminiModel || "gemini-2.0-flash");
-    setDeepSeekModel(s.deepSeekModel || "deepseek-chat");
     setAutoFix(s.autoFix !== false);
     setMasterEnabled(s.masterAIEnabled !== false);
   }, [settings]);
@@ -244,14 +239,12 @@ export function SettingsPage() {
       await saveSettings.mutateAsync({
         openRouterApiKey,
         geminiApiKey,
-        deepSeekApiKey,
         termuxUrl,
         githubToken,
         githubRepo,
         aiProvider,
         defaultModel,
         geminiModel,
-        deepSeekModel,
         autoFix,
         masterAIEnabled: masterEnabled,
         ...extra,
@@ -264,11 +257,7 @@ export function SettingsPage() {
 
   // Get AI key+model for Master AI (uses same global setting)
   const masterAiKey =
-    aiProvider === "gemini"
-      ? geminiApiKey
-      : aiProvider === "deepseek"
-        ? deepSeekApiKey
-        : openRouterApiKey;
+    aiProvider === "gemini" ? geminiApiKey : openRouterApiKey;
 
   const handleMasterSend = async () => {
     const text = masterInput.trim();
@@ -283,7 +272,7 @@ export function SettingsPage() {
     try {
       let reply = "";
       // Use global AI provider
-      const useKey = openRouterApiKey || geminiApiKey || deepSeekApiKey;
+      const useKey = openRouterApiKey || geminiApiKey;
       if (!useKey)
         throw new Error(
           "No API key configured. Add one in Settings > API Keys.",
@@ -308,26 +297,6 @@ export function SettingsPage() {
         if (!res.ok) throw new Error(`Gemini error ${res.status}`);
         const d = await res.json();
         reply = d.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
-      } else if (aiProvider === "deepseek" && deepSeekApiKey) {
-        const res = await fetch("https://api.deepseek.com/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${deepSeekApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: deepSeekModel,
-            messages: [
-              { role: "system", content: MASTER_SYSTEM },
-              ...masterMsgs,
-              { role: "user", content: text },
-            ],
-            stream: false,
-          }),
-        });
-        if (!res.ok) throw new Error(`DeepSeek error ${res.status}`);
-        const d = await res.json();
-        reply = d.choices?.[0]?.message?.content || "No response";
       } else {
         // OpenRouter (default / auto fallback)
         const key = openRouterApiKey;
@@ -540,45 +509,6 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="p-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
-                <Bot className="w-3.5 h-3.5" /> DeepSeek
-              </p>
-              <span className="text-[10px] text-muted-foreground">
-                Very cheap direct API
-              </span>
-            </div>
-            <Input
-              type="password"
-              value={deepSeekApiKey}
-              onChange={(e) => setDeepSeekApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="bg-black/30 border-cyan-500/30"
-              style={{ fontSize: "16px" }}
-            />
-            <div className="flex items-center justify-between">
-              {deepSeekApiKey ? (
-                <p className="text-[10px] text-green-400 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key
-                  set
-                </p>
-              ) : (
-                <p className="text-[10px] text-muted-foreground">
-                  Get key at{" "}
-                  <a
-                    href="https://platform.deepseek.com/api_keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-cyan-400 underline"
-                  >
-                    platform.deepseek.com{" "}
-                    <ExternalLink className="inline w-2.5 h-2.5" />
-                  </a>
-                </p>
-              )}
-            </div>
-          </div>
 
           <SaveBtn
             onClick={() => save()}
@@ -629,8 +559,7 @@ export function SettingsPage() {
                     activeBg: "bg-green-500/15",
                     available: !!(
                       openRouterApiKey ||
-                      geminiApiKey ||
-                      deepSeekApiKey
+                      geminiApiKey
                     ),
                   },
                   {
@@ -650,15 +579,6 @@ export function SettingsPage() {
                     activeBorder: "border-blue-400",
                     activeBg: "bg-blue-500/15",
                     available: !!geminiApiKey,
-                  },
-                  {
-                    id: "deepseek",
-                    label: "DeepSeek",
-                    sub: "Direct API",
-                    dot: "bg-cyan-400",
-                    activeBorder: "border-cyan-400",
-                    activeBg: "bg-cyan-500/15",
-                    available: !!deepSeekApiKey,
                   },
                 ] as const
               ).map((p) => {
@@ -696,7 +616,7 @@ export function SettingsPage() {
                 );
               })}
             </div>
-            {!openRouterApiKey && !geminiApiKey && !deepSeekApiKey && (
+            {!openRouterApiKey && !geminiApiKey && (
               <p className="text-[11px] text-yellow-400 flex items-center gap-1">
                 ⚠️ No API keys set. Go to{" "}
                 <button
@@ -753,25 +673,6 @@ export function SettingsPage() {
               </Select>
             </div>
           )}
-          {aiProvider === "deepseek" && (
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                DeepSeek Model
-              </Label>
-              <Select value={deepSeekModel} onValueChange={setDeepSeekModel}>
-                <SelectTrigger className="bg-black/30 border-cyan-500/30">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  {DEEPSEEK_MODELS.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
           {aiProvider === "auto" && (
             <div className="p-3 rounded-lg border border-green-500/20 bg-green-500/5 space-y-2">
               <p className="text-xs text-green-300 font-medium">
@@ -788,11 +689,7 @@ export function SettingsPage() {
                   available: !!geminiApiKey,
                   dot: "bg-blue-400",
                 },
-                {
-                  label: "DeepSeek",
-                  available: !!deepSeekApiKey,
-                  dot: "bg-cyan-400",
-                },
+
               ].map((item, i) => (
                 <div
                   key={item.label}
@@ -1311,17 +1208,13 @@ export function SettingsPage() {
       ? "Auto"
       : currentProvider === "gemini"
         ? "Google Gemini"
-        : currentProvider === "deepseek"
-          ? "DeepSeek"
-          : "OpenRouter";
+        : "OpenRouter";
   const providerColor =
     currentProvider === "auto"
       ? "text-green-400"
       : currentProvider === "gemini"
         ? "text-blue-400"
-        : currentProvider === "deepseek"
-          ? "text-cyan-400"
-          : "text-violet-400";
+        : "text-violet-400";
 
   return (
     <div
@@ -1358,12 +1251,7 @@ export function SettingsPage() {
                 dot: "bg-violet-400",
               },
               { label: "Gemini", ok: !!s?.geminiApiKey, dot: "bg-blue-400" },
-              {
-                label: "DeepSeek",
-                ok: !!s?.deepSeekApiKey,
-                dot: "bg-cyan-400",
-              },
-            ].map((item) => (
+                          ].map((item) => (
               <div
                 key={item.label}
                 className="flex items-center gap-1 text-[10px]"
@@ -1417,3 +1305,4 @@ export function SettingsPage() {
     </div>
   );
 }
+
