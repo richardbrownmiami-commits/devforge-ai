@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { idbGet, idbRemove, idbSet, pullSessionFromGitHub, pushSessionToGitHub } from "../utils/storage";
 import type { AIProvider } from "../constants/models";
 import type { ChatMessage } from "./useTermux";
 
@@ -35,10 +36,35 @@ export function loadChatMessages(name: string): ChatMessage[] {
   return [];
 }
 
+export async function loadChatMessagesAsync(name: string): Promise<ChatMessage[]> {
+  if (!name) return [];
+  try {
+    const raw = await idbGet(storageKey(name));
+    if (raw) return JSON.parse(raw) as ChatMessage[];
+  } catch {}
+  return [];
+}
+
 function persist(name: string, msgs: ChatMessage[]) {
+  const data = JSON.stringify(msgs.slice(-200)); // IndexedDB supports 50MB+
+  // Write to IndexedDB (async, non-blocking)
+  idbSet(storageKey(name), data).catch(() => {
+    // Fallback to localStorage if IndexedDB fails
+    try { localStorage.setItem(storageKey(name), data); } catch {}
+  });
+  // Mirror small copy to localStorage for fast sync reads
   try {
     localStorage.setItem(storageKey(name), JSON.stringify(msgs.slice(-50)));
   } catch {}
+}
+
+// Auto-push session to GitHub (debounced, non-blocking)
+let _sessionPushTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleSessionPush(name: string, msgs: ChatMessage[]) {
+  if (_sessionPushTimer) clearTimeout(_sessionPushTimer);
+  _sessionPushTimer = setTimeout(() => {
+    pushSessionToGitHub(name, msgs).catch(() => {});
+  }, 5000); // push 5s after last message
 }
 
 async function tryOpenRouter(
@@ -176,7 +202,25 @@ export function useAIChat(opts: UseAIChatOptions) {
   useEffect(() => {
     if (projectRef.current !== projectName) {
       projectRef.current = projectName;
-      setMessages(loadChatMessages(projectName));
+      const local = loadChatMessages(projectName);
+      if (local.length > 0) {
+        setMessages(local);
+      } else {
+        // No local messages -- try to restore from GitHub session
+        loadChatMessagesAsync(projectName).then(async (idbMsgs) => {
+          if (idbMsgs.length > 0) {
+            setMessages(idbMsgs);
+          } else {
+            // Try GitHub session restore
+            const ghMsgs = await pullSessionFromGitHub(projectName).catch(() => null);
+            if (ghMsgs && ghMsgs.length > 0) {
+              const msgs = ghMsgs as ChatMessage[];
+              setMessages(msgs);
+              persist(projectName, msgs);
+            }
+          }
+        });
+      }
       setError(null);
       setActiveModel("");
     }
@@ -258,6 +302,7 @@ export function useAIChat(opts: UseAIChatOptions) {
         setMessages((p) => {
           const n = [...p, replyMsg];
           persist(projectName, n);
+          scheduleSessionPush(projectName, n);
           return n;
         });
       } catch (e: unknown) {
@@ -273,6 +318,7 @@ export function useAIChat(opts: UseAIChatOptions) {
   const clearMessages = useCallback(() => {
     setMessages([]);
     persist(projectName, []);
+    idbRemove(storageKey(projectName)).catch(() => {});
     setError(null);
     setActiveModel("");
   }, [projectName]);
