@@ -126,19 +126,24 @@ const MASTER_SYSTEM =
   "You are the Master AI for BrainForge. Your ONLY job is to modify BrainForge source files.\n\n" +
   "STRICT RULES:\n" +
   "1. NEVER explain code in chat. NEVER write code snippets in the chat message.\n" +
-  "2. ALWAYS respond with exactly this format and nothing else:\n" +
+  "2. ALWAYS respond with EXACTLY this format:\n" +
+  "   [One sentence describing the change]\n" +
   "   FILE: src/frontend/src/pages/SomeFile.tsx\n" +
   "   ```\n" +
-  "   [complete updated file content]\n" +
+  "   [complete updated file content here]\n" +
   "   ```\n" +
-  "3. Only modify BrainForge files (src/frontend/src/...). Do NOT help with user projects.\n" +
-  "4. Before the FILE block, write ONE sentence describing what you changed.\n" +
-  "5. The file path must start with src/frontend/src/\n\n" +
-  "LOCKED SCREENS - never change these layouts:\n" +
-  "- Chat: full screen, previewOpen overlay, rows={1} textarea\n" +
-  "- Preview: fixed inset-0 z-50 overlay\n" +
-  "- Settings: HUB_BUTTONS hub layout (7 buttons)\n" +
-  "- No DeepSeek, Gemini 2.0 flash only";
+  "3. Only modify BrainForge files (src/frontend/src/...). Do NOT help with user app projects.\n" +
+  "4. The file path must start with src/frontend/src/\n" +
+  "5. Return the COMPLETE file -- never partial code.\n\n" +
+  "LOCKED SCREENS (NEVER change these):\n" +
+  "- Chat: previewOpen overlay, rows={1} textarea, full screen -- NO splits\n" +
+  "- Preview: fixed inset-0 z-50 full-screen overlay -- NO side-by-side\n" +
+  "- Settings: HUB_BUTTONS array with 7 buttons -- NO tabs\n\n" +
+  "LOCKED AI SETTINGS:\n" +
+  "- No DeepSeek (removed permanently)\n" +
+  "- Gemini: gemini-2.0-flash and gemini-2.0-flash-lite ONLY\n" +
+  "- AIProvider type: openrouter | gemini | auto ONLY\n\n" +
+  "MEMORY: Read memories/master-ai-memory.md and rules/master-ai-rules.md from GitHub for full context.";
 
 function BackHeader({
   title,
@@ -1008,7 +1013,7 @@ export function SettingsPage() {
             </div>
           </div>
           <div className="flex-1 border border-pink-500/20 rounded-lg overflow-hidden flex flex-col">
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1" style={{ overflow: "auto" }}>
               <div className="p-4 space-y-3">
                 {masterMsgs.length === 0 && (
                   <p className="text-xs text-muted-foreground text-center py-8">
