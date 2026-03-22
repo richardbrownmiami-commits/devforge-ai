@@ -1,8 +1,20 @@
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download, Loader2, Monitor, Play, RefreshCw, Smartphone, Terminal } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-import { termuxRunCommand } from "../hooks/useTermux";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+import {
+  ChevronRight,
+  Code2,
+  Download,
+  ExternalLink,
+  FileCode,
+  FileText,
+  Loader2,
+  Monitor,
+  RefreshCw,
+  Rocket,
+  Smartphone,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 import type { ChatMessage } from "../hooks/useTermux";
 
 interface PreviewPanelProps {
@@ -11,6 +23,14 @@ interface PreviewPanelProps {
   projectName: string;
 }
 
+interface CodeFile {
+  name: string;
+  language: string;
+  content: string;
+  icon: React.ReactNode;
+}
+
+/** Extract latest HTML/CSS/JS blocks from AI messages */
 function extractCode(messages: ChatMessage[]) {
   let html = "";
   let css = "";
@@ -20,53 +40,102 @@ function extractCode(messages: ChatMessage[]) {
     const blocks = msg.content.matchAll(/```(html|css|javascript|js)\n?([\s\S]*?)```/gi);
     for (const m of blocks) {
       const lang = m[1].toLowerCase();
-      const code = m[2];
-      if (lang === "html") html = code;
-      else if (lang === "css") css = code;
-      else if (lang === "javascript" || lang === "js") js = code;
+      if (lang === "html") html = m[2];
+      else if (lang === "css") css = m[2];
+      else if (lang === "javascript" || lang === "js") js = m[2];
     }
   }
   return { html, css, js };
 }
 
-function buildPreviewDoc(html: string, css: string, js: string): string {
+/**
+ * Build a safe preview document.
+ * Injects a script that overrides window.parent and window.top
+ * to point back to the iframe window itself -- permanently fixes
+ * the cross-origin 'document' error caused by AI-generated apps
+ * that try to access window.parent.document.
+ */
+function buildSafeDoc(html: string, css: string, js: string): string {
   if (!html && !css && !js) return "";
-  const errorScript = `<script>
-window.onerror=function(m,s,l){window.parent.postMessage({type:'PREVIEW_ERROR',error:m+' (line '+l+')'},'*');return true;};
-window.addEventListener('unhandledrejection',function(e){window.parent.postMessage({type:'PREVIEW_ERROR',error:String(e.reason)},'*');});
+  const safetyScript = `<script>
+// Safety: prevent cross-origin errors from AI-generated code
+try {
+  Object.defineProperty(window, 'parent', { get: function() { return window; }, configurable: true });
+  Object.defineProperty(window, 'top', { get: function() { return window; }, configurable: true });
+} catch(e) {}
+// Error reporter for auto-fix
+window.onerror = function(m,s,l) {
+  try { window.parent.postMessage({type:'PREVIEW_ERROR',error:m+' (line '+l+')'},'*'); } catch(e) {}
+  return true;
+};
+window.addEventListener('unhandledrejection',function(e){
+  try { window.parent.postMessage({type:'PREVIEW_ERROR',error:String(e.reason)},'*'); } catch(e2) {}
+});
 </script>`;
-  return `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n${errorScript}\n<style>\n* { box-sizing: border-box; }\n${css}\n</style>\n</head>\n<body>\n${html}\n<script>\n${js}\n</script>\n</body>\n</html>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+${safetyScript}
+<style>
+* { box-sizing: border-box; }
+${css}
+</style>
+</head>
+<body>
+${html}
+<script>
+${js}
+</scr` + `ipt>
+</body>
+</html>`;
 }
 
-const CODE_LANGS = ["html", "css", "js"] as const;
-
-export function PreviewPanel({ messages, termuxUrl, projectName }: PreviewPanelProps) {
-  const [activeTab, setActiveTab] = useState<"preview" | "html" | "css" | "js" | "terminal">("preview");
-  const [terminalOutput, setTerminalOutput] = useState("");
-  const [terminalCmd, setTerminalCmd] = useState("");
-  const [running, setRunning] = useState(false);
+export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
+  const [view, setView] = useState<"preview" | "files">("preview");
+  const [selectedFile, setSelectedFile] = useState<string>("index.html");
   const [previewKey, setPreviewKey] = useState(0);
-  const [mobileView, setMobileView] = useState(false);
+  const [mobileFrame, setMobileFrame] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deployUrl, setDeployUrl] = useState<string>(
+    () => localStorage.getItem(`bf_deploy_url_${projectName}`) || ""
+  );
 
   const { html, css, js } = extractCode(messages);
-  const srcDoc = useMemo(() => buildPreviewDoc(html, css, js), [html, css, js]);
+  const srcDoc = useMemo(() => buildSafeDoc(html, css, js), [html, css, js]);
+  const hasCode = !!(html || css || js);
 
-  const runCommand = async () => {
-    if (!terminalCmd.trim() || !termuxUrl) return;
-    setRunning(true);
-    setTerminalOutput((prev) => `${prev}\n$ ${terminalCmd}\n`);
-    const result = await termuxRunCommand(termuxUrl, terminalCmd, projectName);
-    setTerminalOutput((prev) => `${prev}${result.output}\n`);
-    setRunning(false);
-    setTerminalCmd("");
-  };
+  // Code folder files
+  const files: CodeFile[] = [
+    {
+      name: "index.html",
+      language: "html",
+      content: html || "<!-- No HTML generated yet -->",
+      icon: <FileText className="w-3.5 h-3.5 text-orange-400" />,
+    },
+    {
+      name: "style.css",
+      language: "css",
+      content: css || "/* No CSS generated yet */",
+      icon: <FileCode className="w-3.5 h-3.5 text-blue-400" />,
+    },
+    {
+      name: "script.js",
+      language: "javascript",
+      content: js || "// No JavaScript generated yet",
+      icon: <FileCode className="w-3.5 h-3.5 text-yellow-400" />,
+    },
+  ];
+
+  const activeFile = files.find((f) => f.name === selectedFile) || files[0];
 
   const exportZip = async () => {
-    if (!srcDoc) return;
+    if (!hasCode) return;
     setExporting(true);
     try {
-      // Load JSZip from CDN
       await new Promise<void>((resolve, reject) => {
         if ((window as any).JSZip) { resolve(); return; }
         const s = document.createElement("script");
@@ -75,11 +144,10 @@ export function PreviewPanel({ messages, termuxUrl, projectName }: PreviewPanelP
         s.onerror = reject;
         document.head.appendChild(s);
       });
-      const JSZip = (window as any).JSZip;
-      const zip = new JSZip();
-      zip.file("index.html", html || "<!-- empty -->");
-      zip.file("style.css", css || "/* empty */");
-      zip.file("script.js", js || "// empty");
+      const zip = new (window as any).JSZip();
+      zip.file("index.html", html || "");
+      zip.file("style.css", css || "");
+      zip.file("script.js", js || "");
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -88,120 +156,227 @@ export function PreviewPanel({ messages, termuxUrl, projectName }: PreviewPanelP
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Export failed. Check your connection and try again.");
+      alert("Export failed. Try again.");
     } finally {
       setExporting(false);
     }
   };
 
-  const codeForLang = (lang: "html" | "css" | "js") => {
-    if (lang === "html") return html || "<!-- No HTML generated yet -->";
-    if (lang === "css") return css || "/* No CSS generated yet */";
-    return js || "// No JS generated yet";
+  const deployApp = async () => {
+    const saved = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    const token = saved.githubToken || "";
+    const repo = saved.githubRepo || "";
+    if (!token) { alert("Add GitHub token in Settings \u2192 GitHub & Deploy."); return; }
+    if (!repo) { alert("Add GitHub repo in Settings \u2192 GitHub & Deploy."); return; }
+    if (!hasCode) { alert("No code to deploy yet. Ask the AI to build something first."); return; }
+
+    const fullHtml = buildSafeDoc(html, css, js);
+    setDeploying(true);
+    try {
+      const path = `public/projects/${projectName}/index.html`;
+      const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+      const getRes = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}` } });
+      const existingSha = getRes.ok ? (await getRes.json()).sha : undefined;
+      const putRes = await fetch(apiUrl, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `deploy: ${projectName}`,
+          content: btoa(unescape(encodeURIComponent(fullHtml))),
+          ...(existingSha ? { sha: existingSha } : {}),
+        }),
+      });
+      if (!putRes.ok) {
+        const err = await putRes.json().catch(() => ({}));
+        throw new Error(err?.message || `Deploy failed: ${putRes.status}`);
+      }
+      const url = `https://raw.githack.com/${repo}/main/${path}`;
+      setDeployUrl(url);
+      localStorage.setItem(`bf_deploy_url_${projectName}`, url);
+      const projects = JSON.parse(localStorage.getItem("bf_projects") || "[]");
+      localStorage.setItem("bf_projects", JSON.stringify(
+        projects.map((p: any) => p.name === projectName ? { ...p, deployUrl: url } : p)
+      ));
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setDeploying(false);
+    }
   };
 
   return (
-    <div className="flex flex-col h-full" data-ocid="preview.panel">
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="flex flex-col h-full">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
-          <TabsList className="bg-muted/50 h-8">
-            <TabsTrigger value="preview" className="h-6 text-xs gap-1" data-ocid="preview.tab">
-              <Monitor className="w-3 h-3" /> Preview
-            </TabsTrigger>
-            <TabsTrigger value="html" className="h-6 text-xs" data-ocid="preview.html.tab">HTML</TabsTrigger>
-            <TabsTrigger value="css" className="h-6 text-xs" data-ocid="preview.css.tab">CSS</TabsTrigger>
-            <TabsTrigger value="js" className="h-6 text-xs" data-ocid="preview.js.tab">JS</TabsTrigger>
-            <TabsTrigger value="terminal" className="h-6 text-xs gap-1" data-ocid="preview.terminal.tab">
-              <Terminal className="w-3 h-3" /> Term
-            </TabsTrigger>
-          </TabsList>
-
-          <div className="flex items-center gap-1">
-            {/* Export ZIP */}
-            {srcDoc && (
-              <Button
-                variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onClick={exportZip} disabled={exporting}
-                title="Export as ZIP"
-                data-ocid="preview.export.button"
-              >
-                {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              </Button>
+    <div className="flex flex-col h-full bg-background" data-ocid="preview.panel">
+      {/* Toolbar */}
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border shrink-0">
+        {/* View toggle: Preview / Code */}
+        <div className="flex items-center rounded-md border border-border overflow-hidden shrink-0">
+          <button
+            type="button"
+            onClick={() => setView("preview")}
+            className={cn(
+              "flex items-center gap-1 px-2.5 py-1 text-[11px] transition-colors",
+              view === "preview"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             )}
-            {activeTab === "preview" && (
+            data-ocid="preview.tab"
+          >
+            <Monitor className="w-3 h-3" /> Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("files")}
+            className={cn(
+              "flex items-center gap-1 px-2.5 py-1 text-[11px] border-l border-border transition-colors",
+              view === "files"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            )}
+            data-ocid="preview.files.tab"
+          >
+            <Code2 className="w-3 h-3" /> Code
+          </button>
+        </div>
+
+        <div className="flex-1" />
+
+        {/* Action buttons */}
+        {hasCode && (
+          <>
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={exportZip} disabled={exporting} title="Export as ZIP"
+              data-ocid="preview.export.button"
+            >
+              {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            </Button>
+            {view === "preview" && (
               <>
-                <Button variant={mobileView ? "default" : "ghost"} size="icon"
-                  className="h-7 w-7" onClick={() => setMobileView((v) => !v)}
-                  title={mobileView ? "Desktop view" : "Mobile view"}>
+                <Button
+                  variant={mobileFrame ? "default" : "ghost"} size="icon"
+                  className="h-7 w-7" onClick={() => setMobileFrame(v => !v)}
+                  title={mobileFrame ? "Desktop view" : "Mobile view"}
+                >
                   <Smartphone className="w-3.5 h-3.5" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={() => setPreviewKey((k) => k + 1)} data-ocid="preview.refresh.button">
+                <Button
+                  variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={() => setPreviewKey(k => k + 1)} title="Refresh"
+                  data-ocid="preview.refresh.button"
+                >
                   <RefreshCw className="w-3.5 h-3.5" />
                 </Button>
               </>
             )}
-          </div>
-        </div>
+            {deployUrl && (
+              <a href={deployUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[11px] text-green-400 hover:underline shrink-0"
+                title="Open live app">
+                <ExternalLink className="w-3 h-3" /> Live
+              </a>
+            )}
+            <button
+              type="button" onClick={deployApp} disabled={deploying}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-medium shrink-0 disabled:opacity-50 transition-colors"
+              data-ocid="preview.deploy.button"
+            >
+              {deploying
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Deploying...</>
+                : <><Rocket className="w-3 h-3" /> Deploy</>}
+            </button>
+          </>
+        )}
+      </div>
 
-        <TabsContent value="preview" className="flex-1 m-0 overflow-hidden bg-zinc-100 dark:bg-zinc-800">
+      {/* Preview view */}
+      {view === "preview" && (
+        <div className="flex-1 overflow-hidden bg-zinc-100 dark:bg-zinc-800">
           {srcDoc ? (
-            <div className={`h-full flex items-center justify-center ${mobileView ? "p-4" : "p-0"}`}>
-              <div className={mobileView
-                ? "w-[375px] h-full max-h-[812px] rounded-[2rem] overflow-hidden shadow-2xl border-4 border-zinc-700 bg-white relative"
-                : "w-full h-full"}>
-                {mobileView && (
+            <div className={cn("h-full flex items-center justify-center", mobileFrame ? "p-4" : "p-0")}>
+              <div className={cn(
+                mobileFrame
+                  ? "w-[375px] h-full max-h-[812px] rounded-[2rem] overflow-hidden shadow-2xl border-4 border-zinc-700 bg-white relative"
+                  : "w-full h-full"
+              )}>
+                {mobileFrame && (
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-zinc-700 rounded-b-xl z-10" />
                 )}
-                {/* sandbox WITHOUT allow-same-origin -- prevents cross-origin errors */}
                 <iframe
                   key={previewKey}
                   srcDoc={srcDoc}
                   sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
-                  title="Preview"
+                  title="App Preview"
                   className="w-full h-full border-0 bg-white"
                   data-ocid="preview.canvas_target"
                 />
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground" data-ocid="preview.empty_state">
-              <Monitor className="w-12 h-12 mb-4 opacity-20" />
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3" data-ocid="preview.empty_state">
+              <Monitor className="w-10 h-10 opacity-20" />
               <p className="text-sm">Preview will appear here</p>
-              <p className="text-xs opacity-60 mt-1">Ask AI to build something</p>
+              <p className="text-xs opacity-50">Ask AI to build something in chat</p>
             </div>
           )}
-        </TabsContent>
+        </div>
+      )}
 
-        {CODE_LANGS.map((lang) => (
-          <TabsContent key={lang} value={lang} className="flex-1 m-0 overflow-auto">
-            <pre className="code-editor p-4 text-xs text-foreground h-full" style={{ background: "oklch(0.08 0 0)" }}>
-              <code>{codeForLang(lang)}</code>
-            </pre>
-          </TabsContent>
-        ))}
+      {/* Code folder view */}
+      {view === "files" && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* File tree sidebar */}
+          <div className="w-40 shrink-0 border-r border-border bg-muted/20 flex flex-col">
+            <div className="px-3 py-2 border-b border-border">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Code Files</p>
+            </div>
+            <div className="flex-1 py-1">
+              {files.map((file) => (
+                <button
+                  key={file.name}
+                  type="button"
+                  onClick={() => setSelectedFile(file.name)}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-3 py-1.5 text-[11px] transition-colors text-left",
+                    selectedFile === file.name
+                      ? "bg-primary/15 text-foreground font-medium border-r-2 border-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                  )}
+                  data-ocid={`preview.file.${file.name}`}
+                >
+                  {file.icon}
+                  <span className="truncate font-mono">{file.name}</span>
+                  {selectedFile === file.name && <ChevronRight className="w-3 h-3 ml-auto shrink-0" />}
+                </button>
+              ))}
+            </div>
+            <div className="px-3 py-2 border-t border-border">
+              <p className="text-[9px] text-muted-foreground/50">
+                {hasCode ? "\u2705 Code ready" : "\u23f3 Waiting for AI"}
+              </p>
+            </div>
+          </div>
 
-        <TabsContent value="terminal" className="flex-1 m-0 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-auto p-4 font-mono text-xs"
-            style={{ background: "oklch(0.07 0 0)", color: "oklch(0.8 0.1 145)" }}
-            data-ocid="preview.editor">
-            <div className="whitespace-pre-wrap">{terminalOutput || "Terminal ready. Enter a command below."}</div>
+          {/* File content */}
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/10 shrink-0">
+              {activeFile.icon}
+              <span className="text-[11px] font-mono text-foreground">{activeFile.name}</span>
+              <span className="text-[10px] text-muted-foreground ml-auto">
+                {activeFile.content.split("\n").length} lines
+              </span>
+            </div>
+            <ScrollArea className="flex-1">
+              <pre
+                className="p-3 text-[11px] font-mono leading-relaxed text-foreground"
+                style={{ background: "oklch(0.08 0 0)", minHeight: "100%" }}
+                data-ocid="preview.editor"
+              >
+                <code>{activeFile.content}</code>
+              </pre>
+            </ScrollArea>
           </div>
-          <div className="flex gap-2 p-3 border-t border-border bg-card shrink-0">
-            <span className="font-mono text-xs text-primary self-center">$</span>
-            <input type="text" value={terminalCmd} onChange={(e) => setTerminalCmd(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && runCommand()}
-              placeholder={termuxUrl ? "Enter command..." : "Connect Termux in Settings"}
-              disabled={!termuxUrl || running}
-              className="flex-1 bg-transparent text-xs font-mono text-foreground outline-none placeholder:text-muted-foreground"
-              style={{ fontSize: "16px" }} data-ocid="preview.terminal.input" />
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={runCommand}
-              disabled={!termuxUrl || !terminalCmd.trim() || running} data-ocid="preview.terminal.submit_button">
-              {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-            </Button>
-          </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }
