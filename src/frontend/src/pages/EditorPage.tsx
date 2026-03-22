@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Clock, ExternalLink, Loader2, Monitor, Rocket, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, Clock, Monitor, RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ChatPanel } from "../components/ChatPanel";
 import { MatrixOverlay } from "../components/MatrixOverlay";
@@ -53,10 +53,6 @@ export function EditorPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(() => loadSnapshots(projectName));
-  const [deploying, setDeploying] = useState(false);
-  const [deployUrl, setDeployUrl] = useState<string>(
-    () => localStorage.getItem(`bf_deploy_url_${projectName}`) || ""
-  );
   const autoFixCount = useRef(0);
   const prevLoadingRef = useRef(false);
 
@@ -114,65 +110,6 @@ export function EditorPage() {
     window.location.reload();
   };
 
-  // Deploy generated app to GitHub + serve via raw.githack.com
-  const deployApp = async () => {
-    const saved = JSON.parse(localStorage.getItem("bf_settings") || "{}");
-    const token = (s?.githubToken || saved.githubToken || "").trim();
-    const repo = (s?.githubRepo || saved.githubRepo || "").trim();
-    if (!token) { alert("Add your GitHub token in Settings \u2192 GitHub & Deploy first."); return; }
-    if (!repo) { alert("Add your GitHub repo in Settings \u2192 GitHub & Deploy first."); return; }
-
-    let html = ""; let css = ""; let js = "";
-    for (const m of messages as any[]) {
-      if (m.role !== "assistant") continue;
-      const re = /```(html|css|javascript|js)\n?([\s\S]*?)```/gi;
-      let match = re.exec(m.content);
-      while (match) {
-        const lang = match[1].toLowerCase();
-        if (lang === "html") html = match[2];
-        else if (lang === "css") css = match[2];
-        else if (lang === "javascript" || lang === "js") js = match[2];
-        match = re.exec(m.content);
-      }
-    }
-    if (!html && !js) { alert("No code found to deploy. Ask the AI to generate an app first."); return; }
-
-    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}${css}</style></head><body>${html}<script>${js}<\/script></body></html>`;
-
-    setDeploying(true);
-    try {
-      const path = `public/projects/${projectName}/index.html`;
-      const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
-      const getRes = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}` } });
-      const existingSha = getRes.ok ? (await getRes.json()).sha : undefined;
-      const putRes = await fetch(apiUrl, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: `deploy: ${projectName}`,
-          content: btoa(unescape(encodeURIComponent(fullHtml))),
-          ...(existingSha ? { sha: existingSha } : {}),
-        }),
-      });
-      if (!putRes.ok) {
-        const err = await putRes.json().catch(() => ({}));
-        throw new Error(err?.message || `Deploy failed: ${putRes.status}`);
-      }
-      const url = `https://raw.githack.com/${repo}/main/${path}`;
-      setDeployUrl(url);
-      localStorage.setItem(`bf_deploy_url_${projectName}`, url);
-      // Save URL on project record
-      const projects = JSON.parse(localStorage.getItem("bf_projects") || "[]");
-      localStorage.setItem("bf_projects", JSON.stringify(
-        projects.map((p: any) => p.name === projectName ? { ...p, deployUrl: url } : p)
-      ));
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setDeploying(false);
-    }
-  };
-
   return (
     <div className="flex flex-col" style={{ height: "100dvh" }} data-ocid="editor.page">
       <MatrixOverlay visible={isLoading} />
@@ -224,32 +161,15 @@ export function EditorPage() {
         <div className="fixed inset-0 z-50 bg-background flex flex-col"
           style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
           data-ocid="editor.preview.overlay">
-          {/* Preview header with Deploy button */}
+          {/* Preview header -- clean, no duplicate deploy button */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
               onClick={() => setPreviewOpen(false)}>
               <X className="w-4 h-4" />
             </Button>
-            <span className="text-sm font-medium text-foreground truncate flex-1">
+            <span className="text-sm font-medium text-foreground flex-1">
               Preview — {projectName}
             </span>
-            {deployUrl && (
-              <a href={deployUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[11px] text-green-400 hover:underline shrink-0 mr-1">
-                <ExternalLink className="w-3 h-3" /> Live
-              </a>
-            )}
-            <button
-              type="button"
-              onClick={deployApp}
-              disabled={deploying || !hasCode}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-medium shrink-0 disabled:opacity-40 transition-colors"
-              data-ocid="editor.deploy.button"
-            >
-              {deploying
-                ? <><Loader2 className="w-3 h-3 animate-spin" /> Deploying...</>
-                : <><Rocket className="w-3 h-3" /> Deploy</>}
-            </button>
           </div>
           <div className="flex-1 overflow-hidden">
             <PreviewPanel messages={messages as any} termuxUrl="" projectName={projectName} />
