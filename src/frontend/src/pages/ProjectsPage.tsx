@@ -37,6 +37,15 @@ function formatTime(ts: bigint): string {
   }
 }
 
+
+const TEMPLATES = [
+  { id: "blank", icon: "⚡", label: "Blank", desc: "Start from scratch", prompt: "" },
+  { id: "landing", icon: "🌐", label: "Landing Page", desc: "Hero, features, CTA", prompt: "Build a modern landing page with a hero section, features section, and call-to-action button. Use a dark design with gradient accents and smooth animations." },
+  { id: "dashboard", icon: "📊", label: "Dashboard", desc: "Stats, charts, tables", prompt: "Build an analytics dashboard with stat cards at the top, a bar chart, a line chart, and a data table. Dark professional theme." },
+  { id: "game", icon: "🎮", label: "Game", desc: "Interactive browser game", prompt: "Build a fun browser game using HTML canvas. Include a start screen, game loop with score, and game over screen." },
+  { id: "chat", icon: "💬", label: "Chat App", desc: "Messaging UI", prompt: "Build a chat app UI with a contacts sidebar, message bubbles, and a message input. Dark theme, mobile-friendly." },
+] as const;
+
 export function ProjectsPage() {
   const navigate = useNavigate();
   const { data: projects = [], isLoading, error } = useProjects();
@@ -45,6 +54,8 @@ export function ProjectsPage() {
   const [newName, setNewName] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [pendingName, setPendingName] = useState("");
 
   const handleCreate = async () => {
     const name = newName.trim();
@@ -53,11 +64,18 @@ export function ProjectsPage() {
       await createProject.mutateAsync(name);
       setNewName("");
       setDialogOpen(false);
-      toast.success(`Project "${name}" created`);
-      navigate({ to: "/editor/$projectName", params: { projectName: name } });
+      setPendingName(name);
+      setTemplateOpen(true);
     } catch (e: any) {
       toast.error(e.message || "Failed to create project");
     }
+  };
+
+  const handleTemplateSelect = (prompt: string) => {
+    setTemplateOpen(false);
+    if (prompt) localStorage.setItem(`bf_starter_${pendingName}`, prompt);
+    toast.success(`Project "${pendingName}" created`);
+    navigate({ to: "/editor/$projectName", params: { projectName: pendingName } });
   };
 
   const handleDelete = async () => {
@@ -132,6 +150,30 @@ export function ProjectsPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Template Picker Dialog */}
+      <Dialog open={templateOpen} onOpenChange={(o) => { if (!o) handleTemplateSelect(""); }}>
+        <DialogContent className="bg-card border-border max-w-md" data-ocid="projects.template.dialog">
+          <DialogHeader>
+            <DialogTitle>Choose a starting template</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-1">Pick a template or choose Blank to start fresh.</p>
+          <div className="grid gap-2 mt-1">
+            {TEMPLATES.map((t) => (
+              <button key={t.id} type="button"
+                onClick={() => handleTemplateSelect(t.prompt)}
+                className="flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-left"
+                data-ocid={`projects.template.${t.id}`}>
+                <span className="text-2xl shrink-0">{t.icon}</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">{t.label}</p>
+                  <p className="text-xs text-muted-foreground">{t.desc}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 py-6">
