@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { AlertCircle, Info, Loader2, Monitor, Send } from "lucide-react";
+import { AlertCircle, Info, Loader2, Monitor, Send, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../hooks/useTermux";
@@ -55,7 +55,7 @@ function CodeBlock({ content }: { content: string }) {
                 {b.lang}
               </div>
             )}
-            <pre className="code-editor px-3 py-2 text-[11px] overflow-x-auto bg-[oklch(0.1_0_0)] leading-relaxed">
+            <pre className="code-editor px-3 py-2 text-[11px] overflow-x-scroll bg-[oklch(0.1_0_0)] leading-relaxed whitespace-pre">
               <code>{b.code}</code>
             </pre>
           </div>
@@ -117,8 +117,9 @@ export function ChatPanel({
     <div className="flex flex-col h-full" data-ocid="chat.panel">
 
       {/* Messages */}
-      <ScrollArea className="flex-1 px-3">
-        <div className="py-3 space-y-3">
+      {/* Scrolls vertically AND horizontally for long code blocks/content */}
+      <ScrollArea className="flex-1 px-3" style={{ overflowX: "auto" }}>
+        <div className="py-3 space-y-3 min-w-0">
 
           {messages.length === 0 && (
             <div className="text-center py-14" data-ocid="chat.empty_state">
@@ -195,6 +196,19 @@ export function ChatPanel({
 
       {/* Input bar */}
       <div className="px-3 py-2.5 border-t border-border shrink-0 bg-background">
+        {/* Clear chat button -- top of input bar */}
+        {messages.length > 0 && (
+          <div className="flex justify-end mb-1">
+            <button
+              type="button"
+              onClick={onClear}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-destructive transition-colors"
+              title="Clear chat"
+            >
+              <Trash2 className="w-2.5 h-2.5" /> Clear
+            </button>
+          </div>
+        )}
         <div className="flex gap-2 items-end">
           <textarea
             ref={textareaRef}
