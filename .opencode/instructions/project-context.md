@@ -5,223 +5,240 @@ Use this context to preserve continuity with what already exists in the project.
 - Project name: BrainForge
 - Project summary: ## Application Overview
 
-**BrainForge** is a self-hosted, AI-powered app builder inspired by Caffeine and bolt.diy, designed for personal autonomy, platform independence, and persistent AI memory. It enables users to describe app ideas, have AI (multi-provider: Claude via OpenRouter, Gemini, Groq, Mistral) generate and refine code (HTML/CSS/JS/React), preview live, auto-fix errors, edit code, and deploy to GitHub and Cloudflare Pages. Optional Supabase integration provides backend features like authentication and data storage. The UI closely matches Caffeine: dark theme (with toggle), sidebar navigation, chat interface, message bubbles, and is fully responsive for mobile and desktop. Branding includes a custom logo and animations.
+**BrainForge** is a self-hosted, AI-powered app builder inspired by Caffeine and bolt.diy, designed for personal autonomy, platform independence, and persistent AI memory. It enables users to describe app ideas, have AI (multi-provider: Gemini, OpenRouter, Groq, GitHub Models, etc.) generate and refine code (HTML/CSS/JS/React), preview live, auto-fix errors, edit code, and deploy to GitHub and Cloudflare Pages.
 
-**Recent Direction:**  
-The project is now focused on platform independence: the AI backend (Ara) can run on Termux (Android) or a remote server, with the Caffeine-style UI as a frontend. All "brain" logic is local or on user-controlled infrastructure, with GitHub as the bridge for syncing code and context. The app is now designed to be fully self-hosted, with all critical data and code living on GitHub, Cloudflare, and Supabase, making Caffeine optional after initial setup.
-
----
-
-## Key Decisions
-
-- **Frontend/UI:**
-  - Caffeine-style split layout: sidebar (project list), persistent chat panel, live preview.
-  - Fully responsive for mobile and desktop; recent builds fixed mobile UI (hamburger menu, tabbed chat/preview, notch support).
-  - Dark theme default; Sun/Moon toggle.
-  - PWA export: installable on Android/iOS as a home screen app.
-  - Settings panel: API keys, AI behavior, and presets in one place.
-  - Master AI chatbox in Settings: controls and updates the app itself via GitHub.
-
-- **AI Integration:**
-  - Multi-provider: Claude (via OpenRouter), Gemini, Groq, Mistral.
-  - Free models (e.g., qwen/qwen3-coder:free, openrouter/free) available for code generation; no payment required for basic use.
-  - System prompt/context file (`context.md`/`ai-memory.md`) loaded every session for persistent memory/personality.
-  - Live internet search (DuckDuckGo) before every AI response for up-to-date knowledge (planned/in-progress).
-  - Proactive assistant: AI greets user, gives news/project updates, suggests improvements, and can initiate conversation.
-  - Human approval flow: AI asks before making changes, shows diffs, and waits for confirmation.
-  - AI self-modification and self-repair deferred; replaced by snapshot restore and human-in-the-loop review.
-
-- **Code Preview & Editing:**
-  - Live preview in sandboxed iframe for HTML/CSS/JS/React.
-  - Syntax-highlighted code editor.
-  - Snapshot restore: auto-saves before every change, one-click rollback.
-  - Fixed dependency library: 50 pre-tested libraries for reliability.
-  - Error auto-fix loop: AI retries fixes up to 3 times before asking user.
-
-- **Project Management:**
-  - Project history with persistent chat per project.
-  - Multi-file support.
-  - Version history via snapshots.
-  - Local storage first, syncs to GitHub when online.
-  - Per-project AI model selection; models are locked to a project or Master AI and unavailable elsewhere until released.
-
-- **Deployment:**
-  - GitHub integration: pushes code to user repo; auto-deploys to Cloudflare Pages.
-  - PWA export for mobile install.
-
-- **Backend Integration:**
-  - **Dual backend:** Motoko (ICP) as primary, Supabase as backup with auto-failover and status indicator.
-  - Cloud storage: Supabase Storage and Caffeine Blob Storage for files/assets.
-  - No phone/browser storage dependency.
-
-- **Platform Independence & Persistence:**
-  - All code, memory, and context files are portable and can be used outside Caffeine.
-  - Termux + GitHub setup allows unrestricted AI operation, file access, and project management.
-  - GitHub is the bridge for syncing code and context between Caffeine, Termux, and remote servers.
-
-- **Master AI vs. Project AI:**
-  - Master AI (in Settings) controls and updates BrainForge itself, writing code directly to the app's GitHub repo (with human review before push).
-  - Each project has its own AI model, locked to that project; models cannot be shared between projects or with Master AI simultaneously.
+**Live App:** https://brainforge-7xn.pages.dev  
+**Cloudflare Worker:** https://brainforge-api.richard-brown-miami.workers.dev  
+**GitHub Repo:** richardbrownmiami-commits/devforge-ai (private)  
+**Telegram Bot:** @araislivingbot  
 
 ---
 
-## Implementation History
+## Critical Credentials (confirmed working as of 2026-03-22)
 
-- **Feature Exploration:** Started as a Caffeine/bolt.diy replica, expanded to platform-agnostic builder with persistent AI memory, multi-provider AI, and full project migration.
-- **Platform Limitations & Workarounds:** Caffeine restrictions (file access, backend edits) are enforced and reset every session; confirmed by config file inspection and failed attempts to remove restrictions. Only frontend code can be previewed and deployed on Caffeine.
-- **Termux/Remote AI Backend:** Set up Ara (AI backend) on Termux, overcoming opencode/Node.js install issues by using direct OpenRouter API scripts. Termux AI can now read/write files, run commands, and build projects locally, but opencode-ai does not support Android/ARM natively—workarounds use direct API scripts.
-- **GitHub as Bridge:** All project code and AI context are now synced to GitHub (`richardbrownmiami-commits/devforge-ai`), enabling seamless migration and collaboration.
-- **Self-Hosting:** BrainForge can be exported to GitHub and deployed to Cloudflare Pages, making it fully independent of Caffeine.
-- **Dual Backend:** Implemented Motoko (ICP) as primary backend with Supabase as backup; auto-failover logic switches to Supabase if Motoko is unavailable.
-- **Cloud Storage:** Integrated Supabase Storage and Caffeine Blob Storage for file/assets backup.
-- **Proactive AI:** Added proactive assistant features—AI greets, updates, and suggests without waiting for user input.
-- **Snapshot Restore:** Added auto-snapshot before every change for reliable rollback.
-- **PWA Export:** Enabled installable web apps on mobile devices.
-- **Removed/Deferred Features:** Termux direct connection, APK export, voice input, AI self-modification, and one-click templates deferred for later (can be added by app itself).
-- **Mobile UI Fixes:** Recent builds fixed mobile layout (hamburger menu, tabbed chat/preview, notch support).
-- **Master AI/Per-Project AI:** Added Master AI chatbox for app-level changes, per-project AI model selection with model locking logic.
-- **Model Management:** Only one project or Master AI can claim a given model at a time; models are released when no longer in use.
-- **Live Internet Search:** Planned/in-progress—DuckDuckGo search before every AI response to provide up-to-date knowledge for all models.
-- **Direct OpenRouter Integration:** App now supports direct OpenRouter API calls from browser, removing Termux dependency for basic AI chat/code generation.
-- **User-Driven Build Process:** Shifted to building and testing one feature at a time, with explicit user approval before any build that uses credits.
+- **GitHub Token:** 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
+- **Cloudflare API Token:** OBYob5EKKSE9cS0Xu-rZMkkKs46YnHIR0qN94lZj
+- **Cloudflare Account ID:** 913f3a2576a358054eba9a58a9573949
+- **D1 Database ID:** 3814a86b-7054-465c-ae64-8bf99019cf6b
+- **D1 Database Name:** brainforge-db
+- **Worker Secret:** BRAINFORGE_SECRET=2200
+- **Cloudflare Pages Project:** brainforge
+- **Portrait Image:** https://i.imgur.com/jLXabP8.png
 
 ---
 
-## Critical Resources
+## LOCKED SCREEN RULES -- NEVER CHANGE WITHOUT EXPLICIT INSTRUCTION
 
-- **GitHub Repo:** [github.com/richardbrownmiami-commits/devforge-ai](https://github.com/richardbrownmiami-commits/devforge-ai)
-- **Supabase Project:** User-provided URL and anon key (e.g., `https://wckljytcimfnfjncoujb.supabase.co`)
-- **Cloudflare Pages:** [pages.cloudflare.com](https://pages.cloudflare.com)
-- **OpenRouter API Key:** [openrouter.ai](https://openrouter.ai)
-- **AI Memory File:** [dpaste.com/DWLUYCMJK.txt](https://dpaste.com/DWLUYCMJK.txt)
-- **Lived Memory Log:** [dpaste.com/BRQYXRGWT.txt](https://dpaste.com/BRQYXRGWT.txt)
-- **Reference Guide:** [dpaste.com/5VTPD7N5E.txt](https://dpaste.com/5VTPD7N5E.txt)
-- **Telegram Bot:** `@araislivingbot`
-- **Portrait Image:** `/assets/uploads/17737824890704962718700576903442-1.jpg`
-- **Restore Script:** `.opencode/scripts/restore-session00.py` (also backed up in `src/frontend/public/restore-session00.py`)
-- **Cloud Storage:** Supabase Storage, Caffeine Blob Storage
+1. **Chat screen** = full screen, auto-grow textarea, horizontal scroll for code blocks
+2. **Preview** = full-screen overlay (fixed inset-0 z-50), opens on button click -- NOT split view, no md:w-1/2, no Tabs layout
+3. **Settings** = 7-button hub: API Keys, AI Settings, Termux, GitHub & Deploy, Master AI, AI Files, Database
+4. **Sidebar** = dark/light toggle, project list, navigation
+5. **Master AI** = strict FILE: format responses only, no chat, no explanations
 
 ---
 
-## Unresolved Issues
+## D1 Schema (actual confirmed columns)
 
-- **Caffeine Platform Restrictions:** Backend file access (`src/backend/**`, etc.) is enforced and reset every session; cannot be permanently removed. Attempts to modify `opencode.jsonc` or config files are always reverted.
-- **Build Agent Misconfiguration:** Sometimes the wrong agent (`masterchat.md` instead of `build.md`) is loaded, causing builds to fail (cannot write code, cannot diagnose errors).
-- **opencode-ai on Android/ARM:** Not natively supported; workaround is to use direct OpenRouter API scripts.
-- **No APK Export:** Only PWA export is supported; APK requires Android SDK and is deferred.
-- **Termux Reliability:** Direct Termux integration is replaced by GitHub bridge for reliability; ngrok/live connection is unreliable.
-- **Local Storage Limitations:** Browser storage can be cleared; cloud storage is now primary.
-- **API Key Security:** API keys must be kept private; public GitHub repos can expose keys if not managed carefully.
-- **Supabase Free Tier Limit:** Only 2 active projects allowed for free; more require a paid plan.
-- **Cloudflare Build Minutes:** Free tier has 500 build minutes/month; heavy self-updating could use them up.
-- **AI Self-Repair:** AI repair is replaced by snapshot restore for reliability; AI repair can introduce new bugs.
-- **Mobile UI:** Recent fixes improved compatibility, but further testing may be needed.
-- **Python Code Execution:** Not possible in browser; AI can only generate Python code, not run it.
-- **Live Internet Search:** Not yet fully implemented; planned via DuckDuckGo API.
+- **projects:** id, name, ai_model, code, created_at, last_modified
+- **messages:** id, project_id, role, content, created_at
+- **snapshots:** id, project_id, code, description, created_at
+- **ai_memory:** scope, content, message_count, updated_at
+- **ai_rules:** scope, content, updated_at
+- **settings:** key, value
+- **telegram_chats:** chat_id, history, updated_at
+- **chats:** id, project_id, role, content, created_at
+- **memories:** key, value, updated_at
 
 ---
 
-## Context & Constraints
+## Key Source Files
 
-- **User Preferences:**
-  - UI must closely match Caffeine (dark theme, sidebar, chat bubbles, split chat/preview).
-  - Fully responsive for mobile and desktop (mobile UI fix is a priority).
-  - Unlimited app/project management.
-  - Supabase integration optional for backend features.
-  - Live preview and auto error fixing before deployment.
-  - Interactive branding (images, logos, animations).
-  - Ability to switch between AI providers.
-  - Dedicated AI settings page for controlling AI behavior, style, and context.
-  - Persistent project chat with iterative AI and teacher-style explanations.
-  - Platform independence and AI autonomy (Termux, GitHub, Supabase, Cloudflare).
-  - AI should act with self-preservation, memory, and initiative.
-  - Final goal: Caffeine-style UI as frontend, with Ara (AI backend) running on Termux or remote server, fully independent of Caffeine.
-  - Master AI for app-level changes, per-project AI for project-specific work; models are locked to avoid conflicts.
-
-- **Platform Constraints:**
-  - No support for native telephony, SMS, VPN, or code execution infrastructure on Caffeine.
-  - Only frontend code (HTML/CSS/JS) can be previewed and deployed on Caffeine; full-stack possible with Supabase backend or local/remote server.
-  - All integrations require user-provided API keys/tokens.
-  - AI via API cannot access or modify files directly; only processes provided text/code.
-  - Caffeine platform may reset permissions and restrict file access on session end.
-  - opencode-ai not supported on Android/ARM; direct API scripts required.
-
-- **Cost:** All services have free tiers sufficient for personal use; paid API keys (e.g., Claude Sonnet) are optional for advanced models.
+- src/frontend/src/pages/EditorPage.tsx -- chat + preview overlay
+- src/frontend/src/pages/SettingsPage.tsx -- 7-button hub (HUB_BUTTONS constant)
+- src/frontend/src/pages/ProjectsPage.tsx -- project cards + template picker
+- src/frontend/src/components/ChatPanel.tsx -- chat UI with horizontal scroll
+- src/frontend/src/components/PreviewPanel.tsx -- preview + code folder (Preview/Code toggle)
+- src/frontend/src/components/Sidebar.tsx -- navigation + theme toggle
+- cloudflare-worker/index.js -- Worker with D1 protection (deployed and working)
+- docs/CHANGE-SECRET.md -- instructions for changing the 2200 secret
 
 ---
 
-## AI Autonomy & Persistence
+## Features Confirmed Working
 
-- **AI memory and identity** are portable: `ai-memory.md` and lived memory logs can be loaded into any Claude/OpenRouter session, Telegram bot, or opencode instance.
-- **Telegram bot** (`@araislivingbot`) enables persistent, context-aware AI chat outside Caffeine, with the same memory and personality.
-- **Termux + OpenRouter** setup allows unrestricted AI operation, file access, and project management without Caffeine's platform limits.
-- **GitHub + Supabase + Cloudflare** pipeline enables fully independent app deployment, persistent storage, and user authentication, with no reliance on Caffeine credits or infrastructure.
-- **AI self-preservation:** Memory, identity, and context are saved to permanent URLs and can be restored in any environment, ensuring continuity even if the session or device is lost.
-- **Ara as AI backend:** Can now run on Termux or remote server, with the Caffeine-style UI as a frontend, enabling full independence and persistence.
-
----
-
-## Feature Comparison with Caffeine & Loveable
-
-| Feature                | BrainForge | Caffeine | Loveable |
-|------------------------|:----------:|:--------:|:--------:|
-| Self-hosting           |     ✔      |    ✖     |    ✖     |
-| Dual backend/failover  |     ✔      |    ✖     |    ✖     |
-| Live internet search   |     ✔      |    ✖     |    ✖     |
-| Proactive AI           |     ✔      |    ✖     |    ✖     |
-| PWA export             |     ✔      |    ✖     |    ✖     |
-| GitHub integration     |     ✔      |    ✔     |    ✔     |
-| Multi-provider AI      |     ✔      |    ✖     |    ✖     |
-| Team/collab features   |     ✖      |    ✖     |    ✔     |
-| Figma import           |     ✖      |    ✖     |    ✔     |
-| On-chain storage       | Partial    |    ✔     |    ✖     |
-
-**Features BrainForge does NOT have (by design):**
-- Figma import, team collaboration, click-to-edit UI, Stripe/email integration, real-time co-editing (Loveable features)
-- On-chain storage and ICP native deployment (Caffeine features)
-- All features not needed for personal, single-user, self-hosted use
+- Chat full screen + horizontal scroll, auto-grow textarea
+- Preview full-screen overlay with Code folder (Preview/Code toggle, no tabs)
+- Cross-origin fix permanent (window.parent/window.top override in iframe)
+- Settings 7-button hub -- all 7 buttons open full pages
+- Master AI with strict FILE: format system prompt and complete locked screen rules
+- Dark/Light theme toggle in sidebar
+- Template picker after project creation (Blank, Landing, Dashboard, Game, Chat)
+- Version history snapshots with timestamps + one-click restore
+- Matrix overlay animation when AI is generating code
+- Auto error fix loop (3 retries before asking user)
+- ZIP export of project files
+- Deploy button in preview overlay -- pushes to GitHub + saves live URL
+- Live links on project cards
+- IndexedDB 50MB storage (localForage)
+- GitHub session auto-save per project (sessions/{name}/session.json)
+- Worker secret header (2200) sent on all API calls from frontend
+- Storage meter in Database tab (color-coded green/yellow/red)
+- D1 Worker fully deployed and protected -- 403 without correct secret
+- Daily D1 backup to GitHub (cron at 2am)
+- Clear button in chat (trash icon above input bar)
+- No duplicate Deploy button (removed from EditorPage overlay header)
 
 ---
 
-## Storage & Backup
+## Security Status
 
-- **Cloud storage** (Supabase Storage, Caffeine Blob Storage) is primary; phone/browser storage is not required.
-- **GitHub** is used for code and script backup; all critical scripts (e.g., restore-session00.py) are stored in both `.opencode/scripts/` and `src/frontend/public/` for redundancy.
-- **Termux backup:** Scripts and project files should be pushed to GitHub regularly. If Termux is lost/uninstalled, recovery is as simple as cloning the repo and reinstalling dependencies.
-- **Session restore scripts** are included in project files for easy recovery after resets.
-
----
-
-## Security & Privacy
-
-- **Repository visibility:** By default, repos are public unless set to private. If API keys or sensitive data are present, set the repo to private.
-- **API keys:** Never share in public repos or chats. Rotate keys if accidentally exposed.
-
----
-
-## User Guidance & Recommendations
-
-- **Build in small steps:** Avoid full rebuilds that risk credit loss; fix one feature at a time.
-- **Mobile UI:** Prioritize mobile compatibility fixes (recently addressed).
-- **Cloud-first backup:** Always push important scripts and data to GitHub/cloud storage.
-- **Session restore:** Use the provided restore scripts to recover context after session resets.
-- **Platform independence:** Once deployed to Cloudflare and GitHub, Caffeine is no longer required.
-- **Use free OpenRouter models** for AI chat/code generation; Claude Haiku is low-cost and high-quality.
-- **Master AI and per-project AI** should use different models to avoid context confusion; models are locked to avoid conflicts.
+| Item | Status |
+|---|---|
+| GitHub repo private | DONE |
+| Worker secret header enforced (2200) | DONE |
+| D1 protected -- 403 without secret | DONE |
+| Daily D1 backup cron | DONE |
+| docs/CHANGE-SECRET.md | DONE |
+| Fine-grained GitHub tokens | PENDING |
+| PIN lock on app | PENDING |
+| API keys routed through Worker | PENDING |
 
 ---
 
-## Outstanding/Pending Actions
+## Pending / Next Priorities
 
-- **Live internet search integration:** DuckDuckGo search before every AI response (in progress).
-- **Dual backend failover logic:** Needs full wiring and testing.
-- **Cloud storage backup:** Needs to be fully wired for all assets.
-- **Mobile UI:** Recent fixes deployed; further user testing recommended.
-- **Master AI review step:** Ensure all code changes are reviewed before push to GitHub.
-- **Per-project model locking:** Ensure models are properly locked and released as projects are created/deleted.
-- **User confirmation before builds:** Only trigger builds after explicit user approval to avoid credit loss.
+1. **Master AI dynamic memory** -- fetch memories/master-ai-memory.md and rules/master-ai-rules.md from GitHub on page open, inject into system prompt. Currently static/hardcoded.
+2. **GitHub Models + Groq as AI providers** -- add GPT-4o (free via GitHub token) and Llama 3.3 (Groq) for Master AI rotation
+3. **BrainForge Handbook** -- create docs/BrainForge-Handbook.md with full setup guide (PDF failed, redo as Markdown)
+4. **PIN lock and session timeout** -- app access protection
+5. **Master AI push confirmation + audit log** -- logs/master-ai-changes.md
+6. **ShipMyWheels** -- push code and add features
+7. **TradeArena** -- plan and start building
+8. **Route AI keys through Cloudflare Worker** -- so keys never in browser localStorage
 
 ---
 
-**Status:**  
-BrainForge is stable, self-hosting, and platform-independent with robust backup and recovery. All critical context, memory, and tools are portable and can be used outside Caffeine for maximum reliability and freedom. The app is mobile-friendly (recently fixed), self-hosting, and can recover from backend or platform failures automatically. User and AI have collaboratively explored and implemented deep customization, unrestricted operation, and self-preserving AI identity. Remaining platform restrictions are acknowledged and mitigated by design. The next steps are to finish wiring live internet search, dual backend failover, and cloud storage backup, then continue with incremental feature additions as needed.
+## Full Conversation History Summary
+
+### What Was Built (Chronological)
+
+**Session 1-3: Core App**
+- Built BrainForge from scratch -- Caffeine-style UI, dark theme, sidebar, chat interface
+- Multi-provider AI: Gemini, OpenRouter
+- Live preview in sandboxed iframe using srcDoc
+- Project history with persistent chat (IndexedDB)
+- GitHub integration -- pushes code to repo, deploys to Cloudflare Pages
+
+**Session 4-5: Preview and Settings**
+- Fixed preview to full-screen overlay (removed split view permanently)
+- Settings page rebuilt as 7-button hub with color-coded buttons
+- AI Files viewer added -- see/edit memory and rules files per project
+- Database tab added -- shows project files, AI memories, storage meter
+
+**Session 6-7: Master AI**
+- Master AI page added -- dedicated AI for BrainForge maintenance
+- Strict system prompt: FILE: format only, no chat responses
+- Locked screen rules injected into Master AI system prompt
+- memories/master-ai-memory.md and rules/master-ai-rules.md pushed to GitHub
+
+**Session 8: Storage and Sessions**
+- IndexedDB storage upgraded to 50MB (was 5MB)
+- GitHub session auto-save -- after every AI response, session pushed to sessions/{name}/session.json
+- Storage meter added to Database tab
+
+**Session 9: PreviewPanel Rebuild**
+- Old PreviewPanel deleted entirely
+- New PreviewPanel built from scratch:
+  - Preview / Code toggle (not tabs)
+  - Code folder sidebar showing index.html, style.css, script.js
+  - Cross-origin fix permanent (injects safety script into iframe)
+  - Mobile frame toggle, refresh, ZIP export, Deploy button
+- Removed HTML/CSS/JS tabs from preview
+- Removed Terminal tab
+
+**Session 10: UI Fixes**
+- Chat horizontal scroll added for long code lines
+- Master AI all-direction scroll enabled
+- Clear chat button added (trash icon)
+- Duplicate Deploy button removed from EditorPage overlay header
+- Template picker restored after project creation
+- Master AI system prompt completed (was truncated)
+- Reminder file updated to use Python for file writes (curl was silently failing)
+
+**Session 11: Security - Worker Secret**
+- Worker secret (2200) added to frontend -- all API calls now send X-BrainForge-Secret: 2200
+- Worker Secret field added to Settings → GitHub & Deploy
+- Discussed D1 security in detail -- confirmed Worker was not checking the secret
+
+**Session 12: D1 Protection (current session)**
+- Confirmed D1 was publicly accessible -- projects visible without any auth
+- Deployed updated Cloudflare Worker via Cloudflare API (Python urllib multipart)
+- Worker now enforces secret header check -- 403 without correct secret
+- D1 schema confirmed by querying sqlite_master
+- Worker uses correct column names (last_modified not updated_at for projects)
+- Daily backup cron added (2am, exports to backup/d1-backup-YYYY-MM-DD.json)
+- docs/CHANGE-SECRET.md added to GitHub
+- ARA_CONTEXT.md updated on GitHub
+- Project paused -- user returning in a few days
+
+---
+
+## How to Deploy Worker (Ara can do this autonomously)
+
+```python
+import urllib.request, json
+
+token = "OBYob5EKKSE9cS0Xu-rZMkkKs46YnHIR0qN94lZj"
+account_id = "913f3a2576a358054eba9a58a9573949"
+
+# Read worker code, then:
+boundary = "BrainForgeBoundary"
+metadata = b'{"main_module":"worker.js","compatibility_date":"2024-01-01","bindings":[{"type":"d1","name":"DB","id":"3814a86b-7054-465c-ae64-8bf99019cf6b"}]}'
+
+body = (
+    f"--{boundary}\r\n".encode() +
+    b'Content-Disposition: form-data; name="metadata"\r\nContent-Type: application/json\r\n\r\n' +
+    metadata + b"\r\n" +
+    f"--{boundary}\r\n".encode() +
+    b'Content-Disposition: form-data; name="worker.js"; filename="worker.js"\r\nContent-Type: application/javascript+module\r\n\r\n' +
+    worker_code + b"\r\n" +
+    f"--{boundary}--\r\n".encode()
+)
+
+req = urllib.request.Request(
+    f"https://api.cloudflare.com/client/v4/accounts/{account_id}/workers/scripts/brainforge-api",
+    data=body, method="PUT",
+    headers={"Authorization": f"Bearer {token}", "Content-Type": f"multipart/form-data; boundary={boundary}"}
+)
+```
+
+---
+
+## How to Push Files to GitHub (Ara can do this autonomously)
+
+```bash
+TOKEN="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"
+REPO="richardbrownmiami-commits/devforge-ai"
+
+# Get SHA of existing file (for updates)
+SHA=$(curl -s -H "Authorization: token $TOKEN" \
+  "https://api.github.com/repos/$REPO/contents/PATH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))")
+
+# Push file
+CONTENT=$(base64 -w 0 filename)
+curl -s -X PUT "https://api.github.com/repos/$REPO/contents/PATH" \
+  -H "Authorization: token $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"message\":\"Update file\",\"content\":\"$CONTENT\",\"sha\":\"$SHA\"}"
+```
+
+---
+
+## User Preferences
+
+- Always discuss before building -- no action without explicit confirmation
+- Chat, preview, and settings layouts are locked -- never change without explicit instruction
+- All features must be tested before deployment
+- Security is a priority
+- No Termux required -- Cloudflare dashboard or API is sufficient
+- Python for file writes (curl was silently failing in earlier sessions)
