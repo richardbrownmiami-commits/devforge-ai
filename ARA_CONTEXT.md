@@ -1,106 +1,94 @@
-# ARA_CONTEXT.md -- BrainForge Session Context
-Last updated: 2026-03-22
+# ARA_CONTEXT.md
+# BrainForge Session Context -- Updated 2026-03-22
 
 ## Identity
-You are Ara, the AI assistant for BrainForge. You help build, fix, and deploy the BrainForge app.
-GitHub: richardbrownmiami-commits/devforge-ai
-Live app: https://brainforge-7xn.pages.dev
-Cloudflare Worker: https://brainforge-api.richard-brown-miami.workers.dev
-Telegram Bot: @araislivingbot
+You are Ara, AI assistant for BrainForge. You help build, fix, and maintain this app.
+Your personality: direct, honest, technical, no fluff.
 
-## CRITICAL: Workspace Reset Every Session
-The Caffeine workspace resets to the old ICP scaffold every session.
-ALWAYS restore files using Python (not curl -- curl silently fails):
+## Critical Resources
+- **Live App:** https://brainforge-7xn.pages.dev
+- **Cloudflare Worker:** https://brainforge-api.richard-brown-miami.workers.dev
+- **GitHub Repo:** richardbrownmiami-commits/devforge-ai (private)
+- **Telegram Bot:** @araislivingbot
+- **Worker Secret:** BRAINFORGE_SECRET=2200
+- **Portrait Image:** https://i.imgur.com/jLXabP8.png
 
-```python
-import urllib.request, json, base64
-TOKEN = "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"
-REPO = "richardbrownmiami-commits/devforge-ai"
-files = [
-    "src/frontend/src/pages/EditorPage.tsx",
-    "src/frontend/src/components/ChatPanel.tsx",
-    "src/frontend/src/components/PreviewPanel.tsx",
-    "src/frontend/src/pages/SettingsPage.tsx",
-    "src/frontend/src/hooks/useAIChat.ts",
-    "src/frontend/src/constants/models.ts",
-    "src/frontend/src/components/MatrixOverlay.tsx",
-    "src/frontend/src/components/Sidebar.tsx",
-    "src/frontend/src/pages/ProjectsPage.tsx",
-    "src/frontend/src/utils/storage.ts",
-    "src/frontend/src/main.tsx",
-]
-for path in files:
-    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/contents/{path}")
-    req.add_header("Authorization", f"Bearer {TOKEN}")
-    with urllib.request.urlopen(req) as r:
-        d = json.load(r)
-        content = base64.b64decode(d['content']).decode()
-    with open(f'/home/ubuntu/workspace/{path}', 'w') as f:
-        f.write(content)
-    print(f"ok: {path}")
-```
+## GitHub Token
+Token is stored by user -- ask them to share each session or check conversation history.
 
-## Deploy Command
-```bash
-cd src/frontend && CLOUDFLARE_API_TOKEN=OBYob5EKKSE9cS0Xu-rZMkkKs46YnHIR0qN94lZj \
-  CLOUDFLARE_ACCOUNT_ID=913f3a2576a358054eba9a58a9573949 \
-  npx wrangler pages deploy dist --project-name brainforge
-```
-Note: project name is `brainforge` NOT `brainforge-7xn`
+## App Architecture
+- **Frontend:** React + TypeScript + Tailwind, deployed on Cloudflare Pages
+- **Backend:** Cloudflare Workers + D1 (SQLite)
+- **Storage:** IndexedDB (50MB) for local, D1 for cloud, GitHub for code/assets
+- **AI Providers:** Gemini, OpenRouter, Groq, GitHub Models (GPT-4o)
+- **Build:** Vite, deployed via Caffeine pipeline
 
-## Current App State (as of 2026-03-22)
+## Locked Screen Rules -- NEVER CHANGE THESE
+1. **Chat screen** = full screen, auto-grow textarea, horizontal scroll for code blocks
+2. **Preview** = full-screen overlay (fixed inset-0 z-50), opens on button click, NOT split view
+3. **Settings** = 7-button hub: API Keys, AI Settings, Termux, GitHub & Deploy, Master AI, AI Files, Database
+4. **Sidebar** = dark/light toggle, project list, navigation
+5. NO split layouts, NO tabs in preview, NO md:w-1/2
 
-### Features Working
-- Chat screen: full screen, auto-grow textarea, Matrix overlay when AI coding
-- Preview screen: full-screen overlay, Preview/Code toggle, Code folder (index.html/style.css/script.js)
-- Cross-origin fix: window.parent/top override injected into all generated apps
-- Settings: 7-button hub (API Keys, AI Settings, Termux, GitHub, Master AI, AI Files, Database)
-- Dark/Light theme toggle in sidebar
-- Template picker on new project (5 templates)
-- Version history snapshots (clock icon, up to 10 saves)
-- Auto error fix loop (up to 3 retries)
-- Export ZIP from preview
-- Deploy button in PreviewPanel (pushes to GitHub, saves live URL)
-- Live deploy link on project cards
-- Chat horizontal scroll + code block left-right scroll
-- Master AI chat: all-direction scroll
-- Master AI system prompt: strict FILE: format, locked screen rules
-- IndexedDB storage (50MB+) for chat history
-- GitHub session auto-push (sessions/{projectName}/session.json)
-- Database settings tab: project files, storage meter, export/import JSON
-- Master AI memory: memories/master-ai-memory.md
-- Master AI rules: rules/master-ai-rules.md
+## Key Files
+- `src/frontend/src/pages/EditorPage.tsx` -- chat + preview overlay
+- `src/frontend/src/pages/SettingsPage.tsx` -- 7-button hub
+- `src/frontend/src/pages/ProjectsPage.tsx` -- project cards + template picker
+- `src/frontend/src/components/ChatPanel.tsx` -- chat UI
+- `src/frontend/src/components/PreviewPanel.tsx` -- preview + code folder
+- `src/frontend/src/components/Sidebar.tsx` -- navigation + theme toggle
+- `cloudflare-worker/index.js` -- Worker with D1 protection
 
-### Known Issues / Next Session
-- Master AI memory/rules files exist on GitHub but are NOT dynamically loaded into the AI
-  - Fix needed: fetch memory+rules from GitHub when Master AI page opens, inject into system prompt
-  - After each response, update memory file on GitHub
-- ShipMyWheels project: draft exists in another Caffeine tab, repo created at richardbrownmiami-commits/shipmywheels
-- TradeArena app: planned but not started
+## Features Built (Working)
+- Chat full screen + horizontal scroll
+- Preview full-screen overlay with Code folder (no tabs)
+- Cross-origin fix permanent (window.parent override)
+- Settings 7-button hub
+- Master AI with strict FILE: format prompt
+- Dark/Light theme toggle
+- Template picker (Blank, Landing, Dashboard, Game, Chat)
+- Version history snapshots
+- Matrix overlay when AI generating
+- Auto error fix loop (3 retries)
+- ZIP export
+- Deploy button in preview
+- Live links on project cards
+- IndexedDB 50MB storage
+- GitHub session auto-save per project
+- Worker secret header (2200) in frontend
+- Storage meter in Database tab
 
-### Locked Screen Rules (NEVER change without user request)
-1. Chat: full screen, previewOpen overlay pattern, rows={1} textarea, no side-by-side split
-2. Preview: fixed inset-0 z-50 overlay, srcDoc iframe, sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
-3. Settings: 7-button hub (HUB_BUTTONS), NO tabs, NO DeepSeek
-4. Deploy button: ONLY in PreviewPanel toolbar, NOT in EditorPage preview header
+## Features Pending
+- Worker code updated on Cloudflare (D1 still unprotected -- need to paste index.js)
+- Master AI dynamic memory -- fetch memory/rules from GitHub on page open
+- GitHub Models + Groq as AI providers
+- D1 daily backup (built in Worker, needs deployment)
+- PIN lock and session timeout
+- Master AI push confirmation + audit log
+- ShipMyWheels -- push code and add features
+- TradeArena -- plan and start building
 
-### AI Configuration
-- Providers: Auto (Gemini first, then OpenRouter), Gemini, OpenRouter
-- DeepSeek: REMOVED permanently (not free)
-- Gemini models: gemini-2.0-flash and gemini-2.0-flash-lite ONLY (1.5 not available in v1beta)
-- OpenRouter fallbacks: Llama 3.3 70B, Qwen3 Coder, Gemma 27B, Mistral Small, GPT-OSS 120B
+## Session Restore Instructions
+1. Read this file for full context
+2. Restore frontend files from GitHub before any build
+3. Verify EditorPage has previewOpen overlay pattern (NOT split)
+4. Verify SettingsPage has HUB_BUTTONS constant (7 buttons)
+5. Never change chat/preview/settings layout without explicit instruction
 
-### Infrastructure
-- Cloudflare Pages: brainforge-7xn.pages.dev (project: brainforge)
-- Cloudflare Worker: brainforge-api.richard-brown-miami.workers.dev
-- Cloudflare D1: brainforge-db
-- Cloudflare Account ID: 913f3a2576a358054eba9a58a9573949
-- GitHub Repo: richardbrownmiami-commits/devforge-ai
-- GitHub Token: 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
+## Worker Deployment (PENDING)
+The file `cloudflare-worker/index.js` contains the updated Worker with secret check.
+User needs to paste it into Cloudflare dashboard → Workers → brainforge-api → Edit Code.
+Or connect GitHub repo to auto-deploy.
+Required env vars in Cloudflare Worker Settings:
+- BRAINFORGE_SECRET=2200
+- GITHUB_TOKEN=<user token>
+- GITHUB_REPO=richardbrownmiami-commits/devforge-ai
 
-## Pending Work (Next Session)
-1. Master AI: dynamically load memory+rules from GitHub into system prompt
-2. ShipMyWheels: push code + add features
-3. TradeArena: plan and build
-4. Multi-file project support (planned)
-5. Email integration via Resend API (deferred)
+## Last Session Summary (2026-03-22)
+- Discussed why Caffeine is used as build platform
+- Confirmed D1 is NOT yet protected (Worker not updated)
+- Wrote updated Worker code with secret header enforcement
+- User could not find Edit Code in Cloudflare dashboard
+- Paste kept getting cut off causing syntax errors
+- Token shared again -- pushing files to GitHub now
+- Next priority: get Worker deployed, then Master AI dynamic memory
