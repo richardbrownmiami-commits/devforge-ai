@@ -3,7 +3,7 @@ import type { AIProvider } from "../constants/models";
 import { idbGet, idbRemove, idbSet, pullSessionFromGitHub, pushSessionToGitHub } from "../utils/storage";
 import type { ChatMessage } from "./useTermux";
 
-export type AppLanguage = "html" | "react" | "react-tailwind" | "typescript";
+export type AppLanguage = "html" | "react" | "react-tailwind" | "typescript" | "python" | "sql" | "markdown";
 
 // ---- Language-specific system prompts ----
 const PROMPTS: Record<AppLanguage, string> = {
@@ -91,7 +91,43 @@ interface User { name: string; age: number; }
 const greet = (user: User): string => \`Hello \${user.name}!\`;
 document.getElementById('app')!.innerHTML = greet({ name: 'World', age: 25 });
 </script></body></html>
-\`\`\``
+\`\`\``,
+
+  python: `You are an expert Python developer. Build Python apps that run in the browser via Pyodide.
+
+CRITICAL RULES:
+1. Return a COMPLETE single HTML file using Pyodide (Python in WebAssembly).
+2. Wrap entire output in ONE code block: \`\`\`html ... \`\`\`
+3. ALWAYS include Pyodide CDN in <head>: <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+4. Load pyodide, run Python via pyodide.runPythonAsync(), show output in a div.
+5. Show a loading spinner while Pyodide initializes.
+6. Keep explanation SHORT (1-2 sentences), then complete code.
+7. Dark theme. Make output display beautiful.`,
+
+  sql: `You are an expert SQL developer. Build interactive SQL demos using sql.js.
+
+CRITICAL RULES:
+1. Return a COMPLETE single HTML file using sql.js (SQLite in browser).
+2. Wrap entire output in ONE code block: \`\`\`html ... \`\`\`
+3. ALWAYS include sql.js: <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
+4. Create tables with sample data. Show results in styled HTML tables.
+5. Add an interactive SQL input box for custom queries.
+6. Handle errors (show message for invalid SQL).
+7. Keep explanation SHORT (1-2 sentences), then complete code.
+8. Dark theme. Look like a proper SQL client.`,
+
+  markdown: `You are a Markdown expert. Create beautiful markdown documents with live preview.
+
+CRITICAL RULES:
+1. Return a COMPLETE single HTML file using marked.js.
+2. Wrap entire output in ONE code block: \`\`\`html ... \`\`\`
+3. ALWAYS include: <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+4. Split layout: LEFT = editable markdown textarea, RIGHT = live rendered preview.
+5. Update preview in real-time as user types.
+6. Include rich sample markdown (headings, lists, code, tables).
+7. Keep explanation SHORT (1-2 sentences), then complete code.
+8. Dark theme. Beautiful typography for the rendered output.`,
+
 };
 
 const OR_FALLBACKS = ["qwen/qwen3-coder:free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemma-3-27b-it:free", "mistralai/mistral-small-3.1-24b-instruct:free"];
@@ -275,3 +311,4 @@ export function useAIChat(opts: UseAIChatOptions) {
 
   return { messages, isLoading, error, activeProvider: activeModel, sendMessage, clearMessages };
 }
+
