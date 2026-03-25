@@ -60,15 +60,30 @@ function CodeBadge({ lang, lines, onPreview }: { lang: string; lines: number; on
   );
 }
 
+function cleanText(t: string): string {
+  // Remove lines that look like raw HTML code leaking out of code blocks
+  return t.split("\n").filter(line => {
+    const trimmed = line.trim();
+    // Skip lines that look like raw HTML tags
+    if (/^<[a-zA-Z!\/]/.test(trimmed) && trimmed.includes(">")) return false;
+    // Skip lines that look like DOCTYPE
+    if (/^<!DOCTYPE/i.test(trimmed)) return false;
+    return true;
+  }).join("\n").trim();
+}
+
 function AiMessage({ content, onPreview }: { content: string; onPreview?: () => void }) {
   const blocks = parseBlocks(content);
   const texts = blocks.filter(b => b.type === "text");
   const codes = blocks.filter(b => b.type === "code");
   return (
     <div className="space-y-2">
-      {texts.map(b => b.type === "text" && b.text.trim() ? (
-        <p key={b.id} className="text-[12px] leading-relaxed whitespace-pre-wrap text-foreground">{b.text.trim()}</p>
-      ) : null)}
+      {texts.map(b => {
+        if (b.type !== "text") return null;
+        const clean = cleanText(b.text);
+        if (!clean) return null;
+        return <p key={b.id} className="text-[12px] leading-relaxed whitespace-pre-wrap text-foreground">{clean}</p>;
+      })}
       {codes.length > 0 && (
         <div className="space-y-1.5 mt-1">
           {codes.map(b => b.type === "code" ? <CodeBadge key={b.id} lang={b.lang} lines={b.code.split("\n").length} onPreview={onPreview} /> : null)}
@@ -196,3 +211,4 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
     </div>
   );
 }
+
