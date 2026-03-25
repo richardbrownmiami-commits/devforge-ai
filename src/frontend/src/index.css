@@ -102,13 +102,18 @@
   outline: none;
 }
 
+/* Chat bubbles -- colorful */
 .chat-bubble-ai {
-  background: oklch(var(--card));
-  border: 1px solid oklch(var(--border));
+  background: linear-gradient(
+    135deg,
+    oklch(0.14 0.02 220 / 0.9),
+    oklch(0.13 0.02 250 / 0.9)
+  );
+  border: 1px solid oklch(0.28 0.05 220 / 0.5);
 }
 .chat-bubble-user {
-  background: oklch(0.18 0.04 158);
-  border: 1px solid oklch(0.25 0.05 158);
+  background: linear-gradient(135deg, oklch(0.2 0.06 280), oklch(0.18 0.05 300));
+  border: 1px solid oklch(0.32 0.08 280 / 0.6);
 }
 
 .nav-item-active {
