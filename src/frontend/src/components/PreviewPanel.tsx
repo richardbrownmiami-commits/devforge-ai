@@ -3,9 +3,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ChevronRight, Code2, Download, ExternalLink, FileCode, FileText, Loader2, Monitor, RefreshCw, Rocket, RotateCcw, Save, Smartphone } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { AppLanguage } from "../hooks/useAIChat";
 import type { ChatMessage } from "../hooks/useTermux";
 
-interface PreviewPanelProps { messages: ChatMessage[]; termuxUrl: string; projectName: string; }
+interface PreviewPanelProps {
+  messages: ChatMessage[];
+  termuxUrl: string;
+  projectName: string;
+  language?: AppLanguage;
+}
 
 function extractCode(messages: ChatMessage[]) {
   let html = "", css = "", js = "";
@@ -13,7 +19,7 @@ function extractCode(messages: ChatMessage[]) {
     if (msg.role !== "assistant") continue;
     const full = msg.content.match(/```html\n?([\s\S]*?)```/i);
     if (full && (full[1].includes("<!DOCTYPE") || full[1].includes("<html"))) { html = full[1]; css = ""; js = ""; continue; }
-    for (const m of msg.content.matchAll(/```(html|css|javascript|js)\n?([\s\S]*?)```/gi)) {
+    for (const m of msg.content.matchAll(/```(html|css|javascript|js|jsx|tsx|ts)\n?([\s\S]*?)```/gi)) {
       const l = m[1].toLowerCase();
       if (l === "html") html = m[2]; else if (l === "css") css = m[2]; else js = m[2];
     }
@@ -21,14 +27,54 @@ function extractCode(messages: ChatMessage[]) {
   return { html, css, js };
 }
 
-function buildDoc(html: string, css: string, js: string): string {
+const SAFETY = `<scr`+`ipt>try{Object.defineProperty(window,'parent',{get:()=>window,configurable:true});Object.defineProperty(window,'top',{get:()=>window,configurable:true});}catch(e){}var _ce=console.error;console.error=function(){try{window.parent.postMessage({type:'PREVIEW_ERROR',error:[...arguments].join(' ')},'*');}catch(e){}_ce.apply(console,arguments);};window.onerror=function(m,s,l){try{window.parent.postMessage({type:'PREVIEW_ERROR',error:m+' (line '+l+')'},'*');}catch(e){}return true;};window.addEventListener('unhandledrejection',e=>{try{window.parent.postMessage({type:'PREVIEW_ERROR',error:String(e.reason)},'*');}catch(e2){}});</scr`+`ipt>`;
+
+function buildDoc(html: string, css: string, js: string, language: AppLanguage = "html"): string {
   if (!html && !css && !js) return "";
-  const safety = `<scr`+`ipt>try{Object.defineProperty(window,'parent',{get:()=>window,configurable:true});Object.defineProperty(window,'top',{get:()=>window,configurable:true});}catch(e){}var _ce=console.error;console.error=function(){try{window.parent.postMessage({type:'PREVIEW_ERROR',error:[...arguments].join(' ')},'*');}catch(e){}  _ce.apply(console,arguments);};window.onerror=function(m,s,l){try{window.parent.postMessage({type:'PREVIEW_ERROR',error:m+' (line '+l+')'},'*');}catch(e){}return true;};window.addEventListener('unhandledrejection',e=>{try{window.parent.postMessage({type:'PREVIEW_ERROR',error:String(e.reason)},'*');}catch(e2){}});</scr`+`ipt>`;
-  if (html.includes("<!DOCTYPE") || html.includes("<html")) return html.replace(/<head>/i, `<head>${safety}`);
-  return `<!DOCTYPE html><html><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1">${safety}<style>*{box-sizing:border-box}${css}</style></head><body>${html}<scr`+`ipt>${js}</scr`+`ipt></body></html>`;
+
+  // Full HTML document -- inject safety script and return
+  if (html.includes("<!DOCTYPE") || html.includes("<html")) {
+    return html.replace(/<head>/i, `<head>${SAFETY}`);
+  }
+
+  // React mode -- wrap JSX in Babel
+  if (language === "react" || language === "react-tailwind") {
+    const tailwindCDN = language === "react-tailwind" ? '<script src="https://cdn.tailwindcss.com"></script>' : "";
+    return `<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+${tailwindCDN}
+${SAFETY}
+<style>body{margin:0;background:#0a0a0a;color:#fff;font-family:system-ui,sans-serif}${css}</style>
+</head><body><div id="root"></div>
+<scr`+`ipt type="text/babel">
+${js || html}
+</scr`+`ipt></body></html>`;
+  }
+
+  // TypeScript mode -- Babel with TS preset
+  if (language === "typescript") {
+    return `<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+${SAFETY}
+<style>body{margin:0;background:#0a0a0a;color:#fff;font-family:system-ui,sans-serif}${css}</style>
+</head><body><div id="app"></div>
+<scr`+`ipt type="text/babel" data-presets="typescript">
+${js || html}
+</scr`+`ipt></body></html>`;
+  }
+
+  // Default HTML/CSS/JS
+  return `<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+${SAFETY}<style>*{box-sizing:border-box}${css}</style>
+</head><body>${html}<scr`+`ipt>${js}</scr`+`ipt></body></html>`;
 }
 
-export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
+export function PreviewPanel({ messages, projectName, language = "html" }: PreviewPanelProps) {
   const [view, setView] = useState<"preview"|"edit">("preview");
   const [selFile, setSelFile] = useState<"index.html"|"style.css"|"script.js">("index.html");
   const [previewKey, setPreviewKey] = useState(0);
@@ -54,17 +100,17 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
   }, [aiHtml, aiCss, aiJs]);
 
   const html = editHtml || aiHtml, css = editCss || aiCss, js = editJs || aiJs;
-  const srcDoc = useMemo(() => liveDoc || buildDoc(html, css, js), [liveDoc, html, css, js]);
+  const srcDoc = useMemo(() => liveDoc || buildDoc(html, css, js, language), [liveDoc, html, css, js, language]);
   const hasCode = !!(html || css || js);
 
-  const getContent = (f: string) => f === "index.html" ? (editHtml || aiHtml || "<!-- No HTML yet -->") : f === "style.css" ? (editCss || aiCss || "/* No CSS yet */") : (editJs || aiJs || "// No JS yet");
+  const getContent = (f: string) => f === "index.html" ? (html || "<!-- No HTML yet -->") : f === "style.css" ? (css || "/* No CSS yet */") : (js || "// No JS yet");
   const setContent = (f: string, v: string) => { if (f === "index.html") setEditHtml(v); else if (f === "style.css") setEditCss(v); else setEditJs(v); setUnsaved(true); };
 
   const applyEdits = () => {
     const h = selFile === "index.html" ? (taRef.current?.value || editHtml) : editHtml;
     const c = selFile === "style.css" ? (taRef.current?.value || editCss) : editCss;
     const j = selFile === "script.js" ? (taRef.current?.value || editJs) : editJs;
-    setLiveDoc(buildDoc(h, c, j)); setPreviewKey(k => k+1); setUnsaved(false); setView("preview");
+    setLiveDoc(buildDoc(h, c, j, language)); setPreviewKey(k => k+1); setUnsaved(false); setView("preview");
   };
 
   const resetToAi = () => { setEditHtml(aiHtml); setEditCss(aiCss); setEditJs(aiJs); setLiveDoc(""); setUnsaved(false); setPreviewKey(k => k+1); };
@@ -78,10 +124,10 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
   const exportZip = async () => {
     if (!hasCode) return; setExporting(true);
     try {
-      await new Promise<void>((res, rej) => { if ((window as any).JSZip) { res(); return; } const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; s.onload = () => res(); s.onerror = rej; document.head.appendChild(s); });
+      await new Promise<void>((res, rej) => { if ((window as any).JSZip) { res(); return; } const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; sc.onload = () => res(); sc.onerror = rej; document.head.appendChild(sc); });
       const zip = new (window as any).JSZip();
       if (html.includes("<!DOCTYPE") || html.includes("<html")) { zip.file("index.html", html); }
-      else { zip.file("index.html", `<!DOCTYPE html><html><head><link rel=stylesheet href=style.css></head><body>${html}<scr`+`ipt src=script.js></scr`+`ipt></body></html>`); if (css) zip.file("style.css", css); if (js) zip.file("script.js", js); }
+      else { zip.file("index.html", srcDoc || buildDoc(html, css, js, language)); if (css) zip.file("style.css", css); if (js) zip.file("script.js", js); }
       const blob = await zip.generateAsync({ type: "blob" }); const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `${projectName}.zip`; a.click(); URL.revokeObjectURL(url);
     } catch { alert("Export failed."); } finally { setExporting(false); }
@@ -95,7 +141,7 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
     if (!hasCode) { alert("No code to deploy yet."); return; }
     setDeploying(true);
     try {
-      const doc = liveDoc || buildDoc(html, css, js);
+      const doc = liveDoc || buildDoc(html, css, js, language);
       const path = `docs/${projectName}/index.html`;
       const api = `https://api.github.com/repos/${repo}/contents/${path}`;
       const get = await fetch(api, { headers: { Authorization: `Bearer ${token}` } });
