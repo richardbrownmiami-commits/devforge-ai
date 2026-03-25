@@ -15,6 +15,7 @@ import type { ChatMessage } from "../hooks/useTermux";
 const PROVIDER_DOT: Record<string, string> = { openrouter: "bg-violet-400", gemini: "bg-blue-400", groq: "bg-orange-400", github: "bg-green-400", auto: "bg-green-400" };
 
 const LANG_OPTIONS: { value: AppLanguage; label: string; color: string }[] = [
+  { value: "auto", label: "Auto ✨", color: "text-primary" },
   { value: "html", label: "HTML/JS", color: "text-orange-400" },
   { value: "react", label: "React", color: "text-cyan-400" },
   { value: "react-tailwind", label: "React+TW", color: "text-violet-400" },
@@ -111,7 +112,7 @@ export function EditorPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(() => loadSnapshots(projectName));
   const [autoFixStatus, setAutoFixStatus] = useState<string | null>(null);
   const [language, setLanguage] = useState<AppLanguage>(() => {
-    return (localStorage.getItem(`bf_lang_${projectName}`) as AppLanguage) || "html";
+    return (localStorage.getItem(`bf_lang_${projectName}`) as AppLanguage) || "auto";
   });
   const autoFixCount = useRef(0);
   const prevLoadingRef = useRef(false);
@@ -138,6 +139,10 @@ export function EditorPage() {
   const { messages, isLoading, error, activeProvider, sendMessage, clearMessages } = useAIChat({
     provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel,
     groqKey, groqModel, githubModelsKey, githubModelsModel, projectName,
+    onLanguageDetected: (lang) => {
+      setLanguage(lang);
+      localStorage.setItem(`bf_lang_${projectName}`, lang);
+    },
   });
 
   const hasCode = messages.some(m => m.role === "assistant" && m.content.includes("```"));
@@ -252,5 +257,6 @@ export function EditorPage() {
     </div>
   );
 }
+
 
 
