@@ -7,35 +7,111 @@ import {
   createRouter,
   redirect,
 } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { EditorPage } from "./pages/EditorPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
+// ---- PIN Lock Component ----
+function PinLock({ children }: { children: React.ReactNode }) {
+  const [locked, setLocked] = useState(false);
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    if (!s.pinEnabled || !s.pinCode) return;
+    const last = Number(localStorage.getItem("bf_last_unlock") || "0");
+    const timeout = (s.sessionTimeout || 30) * 60 * 1000;
+    if (Date.now() - last > timeout) {
+      setLocked(true);
+    }
+    // Track activity to reset timeout
+    const resetTimer = () => localStorage.setItem("bf_last_unlock", Date.now().toString());
+    window.addEventListener("pointerdown", resetTimer);
+    window.addEventListener("keydown", resetTimer);
+    return () => {
+      window.removeEventListener("pointerdown", resetTimer);
+      window.removeEventListener("keydown", resetTimer);
+    };
+  }, []);
+
+  const tryUnlock = () => {
+    const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    if (pin === s.pinCode) {
+      localStorage.setItem("bf_last_unlock", Date.now().toString());
+      setLocked(false);
+      setErr("");
+    } else {
+      setErr("Wrong PIN. Try again.");
+      setPin("");
+    }
+  };
+
+  if (!locked) return <>{children}</>;
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: "oklch(0.05 0.02 280)" }}
+    >
+      <div className="w-72 p-6 rounded-2xl border border-red-500/30 bg-red-500/5 space-y-4 shadow-2xl">
+        <div className="text-center">
+          <div className="w-14 h-14 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center mx-auto mb-3 text-2xl">
+            🔒
+          </div>
+          <h2 className="text-base font-semibold text-foreground">BrainForge Locked</h2>
+          <p className="text-xs text-muted-foreground mt-1">Enter your PIN to continue</p>
+        </div>
+        <input
+          type="password"
+          inputMode="numeric"
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+          onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
+          placeholder="• • • •"
+          maxLength={6}
+          className="w-full bg-black/40 border border-red-500/30 rounded-lg px-3 py-2.5 text-center text-2xl tracking-[0.5em] text-foreground focus:outline-none focus:border-red-400/60 transition-colors"
+          autoFocus
+        />
+        {err && <p className="text-xs text-red-400 text-center">{err}</p>}
+        <button
+          type="button"
+          onClick={tryUnlock}
+          disabled={pin.length < 4}
+          className="w-full py-2.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+        >
+          Unlock
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const rootRoute = createRootRoute({
   component: () => (
-    // h-[100dvh] uses dynamic viewport height -- fills screen on mobile too (accounts for browser chrome)
-    <div
-      className="flex bg-background overflow-hidden"
-      style={{ height: "100dvh" }}
-    >
-      <Sidebar />
-      {/* Desktop main -- full height */}
-      <main className="hidden md:flex flex-1 overflow-hidden flex-col h-full">
-        <Outlet />
-      </main>
-      {/* Mobile main -- offset by top bar only, NO bottom nav consuming height */}
-      <main
-        className="md:hidden flex flex-1 overflow-hidden flex-col"
-        style={{
-          paddingTop: "calc(56px + env(safe-area-inset-top, 0px))",
-          height: "100%",
-        }}
+    <PinLock>
+      <div
+        className="flex bg-background overflow-hidden"
+        style={{ height: "100dvh" }}
       >
-        <Outlet />
-      </main>
-      <Toaster />
-    </div>
+        <Sidebar />
+        <main className="hidden md:flex flex-1 overflow-hidden flex-col h-full">
+          <Outlet />
+        </main>
+        <main
+          className="md:hidden flex flex-1 overflow-hidden flex-col"
+          style={{
+            paddingTop: "calc(56px + env(safe-area-inset-top, 0px))",
+            height: "100%",
+          }}
+        >
+          <Outlet />
+        </main>
+        <Toaster />
+      </div>
+    </PinLock>
   ),
 });
 
