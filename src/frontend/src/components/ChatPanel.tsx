@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { AlertCircle, ChevronDown, ChevronUp, Code2, Info, Loader2, Monitor, Send, Trash2, Wrench } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -83,11 +82,16 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount only
   useEffect(() => { if (initialMessage) setInput(initialMessage); }, []);
+
+  // Scroll to bottom on new messages
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isLoading, autoFixStatus]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading, autoFixStatus]);
 
   const handleSend = () => {
     const t = input.trim(); if (!t || isLoading || disabled) return;
@@ -97,7 +101,12 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
 
   return (
     <div className="flex flex-col h-full" data-ocid="chat.panel">
-      <ScrollArea className="flex-1 px-3">
+      {/* SCROLL FIX: use plain div with overflow-y-auto + min-h-0 instead of ScrollArea */}
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
         <div className="py-3 space-y-3">
           {messages.length === 0 && (
             <div className="text-center py-14" data-ocid="chat.empty_state">
@@ -158,8 +167,9 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
           )}
           <div ref={bottomRef} />
         </div>
-      </ScrollArea>
+      </div>
 
+      {/* Input bar */}
       <div className="px-3 py-2.5 border-t border-border shrink-0 bg-background">
         {messages.length > 0 && (
           <div className="flex justify-end mb-1">
