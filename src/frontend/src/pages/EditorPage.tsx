@@ -111,6 +111,10 @@ export function EditorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(() => loadSnapshots(projectName));
   const [autoFixStatus, setAutoFixStatus] = useState<string | null>(null);
+  const supabaseUrl = localStorage.getItem("bf_supabase_url") || "";
+  const supabaseKey = localStorage.getItem("bf_supabase_key") || "";
+  const hasSupabase = !!(supabaseUrl && supabaseKey);
+
   const [language, setLanguage] = useState<AppLanguage>(() => {
     return (localStorage.getItem(`bf_lang_${projectName}`) as AppLanguage) || "auto";
   });
@@ -139,6 +143,8 @@ export function EditorPage() {
   const { messages, isLoading, error, activeProvider, sendMessage, clearMessages } = useAIChat({
     provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel,
     groqKey, groqModel, githubModelsKey, githubModelsModel, projectName,
+    supabaseUrl: hasSupabase ? supabaseUrl : undefined,
+    supabaseKey: hasSupabase ? supabaseKey : undefined,
     onLanguageDetected: (lang) => {
       setLanguage(lang);
       localStorage.setItem(`bf_lang_${projectName}`, lang);
@@ -174,7 +180,7 @@ export function EditorPage() {
     return () => window.removeEventListener("message", handler);
   }, [autoFix, isLoading, sendMessage]);
 
-  const handleSend = (msg: string) => { autoFixCount.current = 0; setAutoFixStatus(null); saveSnapshot(projectName, messages); sendMessage(msg); };
+  const handleSend = (msg: string, img?: string) => { autoFixCount.current = 0; setAutoFixStatus(null); saveSnapshot(projectName, messages); sendMessage(msg, img); };
   const restoreSnapshot = (snap: Snapshot) => { localStorage.setItem(`bf_chat_${projectName}`, JSON.stringify(snap.messages)); window.location.reload(); };
 
   const activeLang = LANG_OPTIONS.find(l => l.value === language)!;
@@ -213,6 +219,9 @@ export function EditorPage() {
         </div>
 
         <span className={`w-2 h-2 rounded-full shrink-0 ${hasAnyKey ? (PROVIDER_DOT[provider] ?? "bg-green-400") : "bg-muted-foreground/30"}`} />
+        {hasSupabase && (
+          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full shrink-0" title="Supabase configured">DB</span>
+        )}
 
         <Button variant="outline" size="sm"
           className={`h-7 px-2 text-xs shrink-0 transition-all ${hasCode ? "border-primary/50 text-primary bg-primary/5" : "border-border text-muted-foreground"}`}
@@ -257,6 +266,7 @@ export function EditorPage() {
     </div>
   );
 }
+
 
 
 
