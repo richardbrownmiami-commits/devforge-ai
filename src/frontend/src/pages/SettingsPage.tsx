@@ -199,6 +199,15 @@ export function SettingsPage() {
   const [geminiModel, setGeminiModel] = useState("gemini-2.0-flash");
   const [groqModel, setGroqModel] = useState("llama-3.3-70b-versatile");
   const [githubModelsModel, setGithubModelsModel] = useState("gpt-4o");
+  // Supabase for generated projects (saved to localStorage, not backend)
+  const [supabaseUrl, setSupabaseUrl] = useState(() => localStorage.getItem("bf_supabase_url") || "");
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => localStorage.getItem("bf_supabase_key") || "");
+
+  const saveSupabase = () => {
+    localStorage.setItem("bf_supabase_url", supabaseUrl);
+    localStorage.setItem("bf_supabase_key", supabaseAnonKey);
+  };
+
   const [autoFix, setAutoFix] = useState(true);
   const [masterEnabled, setMasterEnabled] = useState(true);
 
@@ -595,6 +604,30 @@ This will trigger a Cloudflare deploy.`);
             {githubModelsKey
               ? <p className="text-[10px] text-green-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Key set</p>
               : <p className="text-[10px] text-muted-foreground">Use your GitHub Personal Access Token with Models access</p>}
+          </div>
+
+          {/* Supabase -- for generated projects */}
+          <div className="p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5" /> Supabase <span className="text-[9px] font-normal text-muted-foreground">(for your generated apps)</span>
+              </p>
+              <span className="text-[10px] text-muted-foreground">Free tier available</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground">BrainForge ka data D1+GitHub mein hai. Yeh keys sirf tumhare banaye apps ke liye hain.</p>
+            <Input value={supabaseUrl} onChange={(e) => setSupabaseUrl(e.target.value)}
+              placeholder="https://xxxx.supabase.co"
+              className="bg-black/30 border-emerald-500/30" style={{ fontSize: "16px" }} />
+            <Input type="password" value={supabaseAnonKey} onChange={(e) => setSupabaseAnonKey(e.target.value)}
+              placeholder="eyJhbGci... (anon/public key)"
+              className="bg-black/30 border-emerald-500/30" style={{ fontSize: "16px" }} />
+            {supabaseUrl && supabaseAnonKey
+              ? <p className="text-[10px] text-green-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Supabase configured</p>
+              : <p className="text-[10px] text-muted-foreground">Get free project at <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline">supabase.com <ExternalLink className="inline w-2.5 h-2.5" /></a></p>}
+            <button type="button" onClick={saveSupabase}
+              className="text-[10px] px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-medium">
+              Save Supabase Keys
+            </button>
           </div>
 
           <SaveBtn onClick={() => save()} pending={saveSettings.isPending} color="bg-violet-600 hover:bg-violet-700" />
@@ -1159,3 +1192,4 @@ This will trigger a Cloudflare deploy.`);
     </div>
   );
 }
+
