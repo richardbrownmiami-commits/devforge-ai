@@ -3,10 +3,55 @@ import type { AIProvider } from "../constants/models";
 import { idbGet, idbRemove, idbSet, pullSessionFromGitHub, pushSessionToGitHub } from "../utils/storage";
 import type { ChatMessage } from "./useTermux";
 
-export type AppLanguage = "html" | "react" | "react-tailwind" | "typescript" | "python" | "sql" | "markdown" | "p5js" | "threejs" | "chartjs";
+export type AppLanguage = "auto" | "html" | "react" | "react-tailwind" | "typescript" | "python" | "sql" | "markdown" | "p5js" | "threejs" | "chartjs";
 
 // ---- Language-specific system prompts ----
+
+const AUTO_PROMPT = `You are an expert multi-language app builder with auto language detection.
+
+STEP 1 -- DETECT LANGUAGE:
+Analyze the user's request and pick the BEST language. Output ONLY this on the very first line:
+LANGUAGE: <language>
+
+Choose from: html, react, react-tailwind, typescript, python, sql, markdown, p5js, threejs, chartjs
+
+Selection guide:
+- html: general websites, games, forms, anything generic
+- react: component-based UI, todo apps, dashboards with state
+- react-tailwind: react + needs beautiful Tailwind utility styling
+- typescript: type-safe logic, interfaces, strict typing important
+- python: algorithms, data processing, scientific computing, scripts
+- sql: database queries, data models, table operations
+- markdown: documentation, blogs, notes, README
+- p5js: creative art, animations, generative art, particle effects, canvas sketches
+- threejs: 3D scenes, rotating objects, WebGL, 3D visualizations
+- chartjs: charts, graphs, data visualization, analytics dashboards
+
+STEP 2 -- GENERATE CODE:
+After "LANGUAGE: xxx", output "---" then generate complete code following these rules:
+1. ALWAYS return a COMPLETE, self-contained single HTML file.
+2. Use the appropriate CDN for the detected language (Babel for React, Pyodide for Python, etc).
+3. Keep explanation SHORT (1-2 sentences), then complete code.
+4. Dark theme. Make it visually polished and fully functional.
+5. For React: use Babel CDN + React 18 CDN, write JSX in <script type="text/babel">
+6. For React+Tailwind: add Tailwind CDN too.
+7. For Python: use Pyodide CDN.
+8. For SQL: use sql.js CDN with interactive query editor.
+9. For Markdown: use marked.js CDN with split editor/preview.
+10. For p5.js: use p5.js CDN with setup() and draw().
+11. For Three.js: use Three.js CDN with animation loop.
+12. For Chart.js: use Chart.js CDN with realistic data.
+
+EXAMPLE OUTPUT FORMAT:
+LANGUAGE: react
+---
+Here is your todo app with local storage.
+\`\`\`html
+<!DOCTYPE html>...complete React app...
+\`\`\``;
+
 const PROMPTS: Record<AppLanguage, string> = {
+  auto: AUTO_PROMPT,
   html: `You are an expert web app builder. Build complete, working, beautiful apps.
 
 CRITICAL RULES:
@@ -263,6 +308,7 @@ async function tryGitHub(token: string, model: string, history: { role: string; 
 
 interface UseAIChatOptions {
   provider: AIProvider; language?: AppLanguage;
+  onLanguageDetected?: (lang: AppLanguage) => void;
   openRouterKey: string; openRouterModel: string;
   geminiKey: string; geminiModel: string;
   groqKey: string; groqModel: string;
@@ -271,7 +317,7 @@ interface UseAIChatOptions {
 }
 
 export function useAIChat(opts: UseAIChatOptions) {
-  const { provider, language = "html", openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName } = opts;
+  const { provider, language = "html", openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, onLanguageDetected } = opts;
   const sysPrompt = PROMPTS[language] || PROMPTS.html;
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatMessages(projectName));
@@ -335,10 +381,25 @@ export function useAIChat(opts: UseAIChatOptions) {
         if (!openRouterKey) throw new Error("No OpenRouter key.");
         reply = await openRouterWithFallback(openRouterKey, openRouterModel, history, signal, setActiveModel, sysPrompt);
       }
-      setMessages(p => { const n = [...p, { role: "assistant", content: reply } as ChatMessage]; persist(projectName, n); scheduleSessionPush(projectName, n); return n; });
+      // Parse LANGUAGE: detection from reply
+      let finalReply = reply;
+      let detected: AppLanguage | null = null;
+      const langMatch = reply.match(/^LANGUAGE:\s*(\w[-\w]*)\s*\n---\n/);
+      if (langMatch) {
+        const detectedLang = langMatch[1].toLowerCase().replace(/-/g, "-") as AppLanguage;
+        if (Object.keys(PROMPTS).includes(detectedLang) && detectedLang !== "auto") {
+          detected = detectedLang;
+          // Strip LANGUAGE: xxx\n---\n prefix from display
+          finalReply = reply.replace(/^LANGUAGE:\s*\S+\s*\n---\n/, "").trim();
+          // Prepend small badge so user knows what was auto-detected
+          finalReply = "AUTO_LANG:" + detectedLang + ":" + finalReply;
+        }
+      }
+      if (detected && onLanguageDetected) onLanguageDetected(detected);
+      setMessages(p => { const n = [...p, { role: "assistant", content: finalReply } as ChatMessage]; persist(projectName, n); scheduleSessionPush(projectName, n); return n; });
     } catch (e: unknown) { if (e instanceof Error && e.name !== "AbortError") setError(e.message); setActiveModel(""); }
     finally { setIsLoading(false); }
-  }, [provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, sysPrompt]);
+  }, [provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, sysPrompt, onLanguageDetected]);
 
   const clearMessages = useCallback(() => {
     setMessages([]); persist(projectName, []); idbRemove(storageKey(projectName)).catch(() => {}); setError(null); setActiveModel("");
@@ -346,5 +407,6 @@ export function useAIChat(opts: UseAIChatOptions) {
 
   return { messages, isLoading, error, activeProvider: activeModel, sendMessage, clearMessages };
 }
+
 
 
