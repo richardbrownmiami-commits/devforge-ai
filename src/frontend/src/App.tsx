@@ -1,4 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
+import { OnboardingWizard, useOnboarding } from "./components/OnboardingWizard";
+import { PolicyPage } from "./pages/PolicyPage";
 import {
   Outlet,
   RouterProvider,
@@ -142,11 +144,18 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+const policyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/policy",
+  component: PolicyPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   projectsRoute,
   editorRoute,
   settingsRoute,
+  policyRoute,
 ]);
 const router = createRouter({ routeTree });
 
@@ -157,5 +166,12 @@ declare module "@tanstack/react-router" {
 }
 
 export default function App() {
-  return <RouterProvider router={router} />;
+  const { showWizard, setShowWizard } = useOnboarding();
+  return (
+    <>
+      <RouterProvider router={router} />
+      {showWizard && <OnboardingWizard onComplete={() => setShowWizard(false)} />}
+    </>
+  );
 }
+
