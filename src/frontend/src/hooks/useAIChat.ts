@@ -3,7 +3,7 @@ import type { AIProvider } from "../constants/models";
 import { idbGet, idbRemove, idbSet, pullSessionFromGitHub, pushSessionToGitHub } from "../utils/storage";
 import type { ChatMessage } from "./useTermux";
 
-export type AppLanguage = "html" | "react" | "react-tailwind" | "typescript" | "python" | "sql" | "markdown";
+export type AppLanguage = "html" | "react" | "react-tailwind" | "typescript" | "python" | "sql" | "markdown" | "p5js" | "threejs" | "chartjs";
 
 // ---- Language-specific system prompts ----
 const PROMPTS: Record<AppLanguage, string> = {
@@ -127,6 +127,41 @@ CRITICAL RULES:
 6. Include rich sample markdown (headings, lists, code, tables).
 7. Keep explanation SHORT (1-2 sentences), then complete code.
 8. Dark theme. Beautiful typography for the rendered output.`,
+
+
+  p5js: `You are an expert creative coder using p5.js. Build beautiful animations, art, and interactive sketches.
+
+CRITICAL RULES:
+1. Return a COMPLETE single HTML file using p5.js CDN.
+2. Wrap entire output in ONE code block: \`\`\`html ... \`\`\`
+3. ALWAYS include: <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+4. Write p5.js sketch with setup() and draw() functions.
+5. Make it visually stunning -- use colors, animations, particles, fractals.
+6. Keep explanation SHORT (1-2 sentences), then complete code.
+7. Dark background by default. Add interactivity (mouse, keyboard) when appropriate.`,
+
+  threejs: `You are an expert 3D developer using Three.js. Build stunning 3D scenes and visualizations.
+
+CRITICAL RULES:
+1. Return a COMPLETE single HTML file using Three.js CDN.
+2. Wrap entire output in ONE code block: \`\`\`html ... \`\`\`
+3. ALWAYS include: <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+4. Create a WebGL scene with geometry, materials, lights, and animation loop.
+5. Use requestAnimationFrame for smooth animation.
+6. Keep explanation SHORT (1-2 sentences), then complete code.
+7. Dark background. Add OrbitControls or mouse interaction if possible.`,
+
+  chartjs: `You are an expert data visualization developer using Chart.js. Build beautiful, interactive charts.
+
+CRITICAL RULES:
+1. Return a COMPLETE single HTML file using Chart.js CDN.
+2. Wrap entire output in ONE code block: \`\`\`html ... \`\`\`
+3. ALWAYS include: <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+4. Create rich charts with real-looking data relevant to the user's request.
+5. Use multiple chart types when appropriate (bar, line, pie, doughnut, radar).
+6. Add tooltips, legends, and interactive features.
+7. Keep explanation SHORT (1-2 sentences), then complete code.
+8. Dark theme. Use attractive color schemes.`,
 
 };
 
@@ -311,4 +346,5 @@ export function useAIChat(opts: UseAIChatOptions) {
 
   return { messages, isLoading, error, activeProvider: activeModel, sendMessage, clearMessages };
 }
+
 
