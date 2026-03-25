@@ -50,20 +50,15 @@ function extractCode(messages: ChatMessage[]) {
 
 /**
  * Build a safe preview document.
- * Injects a script that overrides window.parent and window.top
- * to point back to the iframe window itself -- permanently fixes
- * the cross-origin 'document' error caused by AI-generated apps
- * that try to access window.parent.document.
+ * Injects safety script to prevent cross-origin errors and report JS errors for auto-fix.
  */
 function buildSafeDoc(html: string, css: string, js: string): string {
   if (!html && !css && !js) return "";
   const safetyScript = `<script>
-// Safety: prevent cross-origin errors from AI-generated code
 try {
   Object.defineProperty(window, 'parent', { get: function() { return window; }, configurable: true });
   Object.defineProperty(window, 'top', { get: function() { return window; }, configurable: true });
 } catch(e) {}
-// Error reporter for auto-fix
 window.onerror = function(m,s,l) {
   try { window.parent.postMessage({type:'PREVIEW_ERROR',error:m+' (line '+l+')'},'*'); } catch(e) {}
   return true;
@@ -110,24 +105,9 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
 
   // Code folder files
   const files: CodeFile[] = [
-    {
-      name: "index.html",
-      language: "html",
-      content: html || "<!-- No HTML generated yet -->",
-      icon: <FileText className="w-3.5 h-3.5 text-orange-400" />,
-    },
-    {
-      name: "style.css",
-      language: "css",
-      content: css || "/* No CSS generated yet */",
-      icon: <FileCode className="w-3.5 h-3.5 text-blue-400" />,
-    },
-    {
-      name: "script.js",
-      language: "javascript",
-      content: js || "// No JavaScript generated yet",
-      icon: <FileCode className="w-3.5 h-3.5 text-yellow-400" />,
-    },
+    { name: "index.html", language: "html", content: html || "<!-- No HTML generated yet -->", icon: <FileText className="w-3.5 h-3.5 text-orange-400" /> },
+    { name: "style.css", language: "css", content: css || "/* No CSS generated yet */", icon: <FileCode className="w-3.5 h-3.5 text-blue-400" /> },
+    { name: "script.js", language: "javascript", content: js || "// No JavaScript generated yet", icon: <FileCode className="w-3.5 h-3.5 text-yellow-400" /> },
   ];
 
   const activeFile = files.find((f) => f.name === selectedFile) || files[0];
@@ -151,9 +131,7 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `${projectName || "project"}.zip`;
-      a.click();
+      a.href = url; a.download = `${projectName || "project"}.zip`; a.click();
       URL.revokeObjectURL(url);
     } catch {
       alert("Export failed. Try again.");
@@ -173,7 +151,8 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
     const fullHtml = buildSafeDoc(html, css, js);
     setDeploying(true);
     try {
-      const path = `public/projects/${projectName}/index.html`;
+      // Deploy to GitHub Pages (docs/ folder) for reliable hosting
+      const path = `docs/${projectName}/index.html`;
       const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
       const getRes = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}` } });
       const existingSha = getRes.ok ? (await getRes.json()).sha : undefined;
@@ -190,13 +169,15 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
         const err = await putRes.json().catch(() => ({}));
         throw new Error(err?.message || `Deploy failed: ${putRes.status}`);
       }
-      const url = `https://raw.githack.com/${repo}/main/${path}`;
+      // Use jsDelivr CDN which is reliable and free
+      const url = `https://cdn.jsdelivr.net/gh/${repo}@main/${path}`;
       setDeployUrl(url);
       localStorage.setItem(`bf_deploy_url_${projectName}`, url);
       const projects = JSON.parse(localStorage.getItem("bf_projects") || "[]");
       localStorage.setItem("bf_projects", JSON.stringify(
         projects.map((p: any) => p.name === projectName ? { ...p, deployUrl: url } : p)
       ));
+      alert(`Deployed! Live at: ${url}\n\nNote: CDN may take 1-2 minutes to update after first deploy.`);
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -208,81 +189,52 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
     <div className="flex flex-col h-full bg-background" data-ocid="preview.panel">
       {/* Toolbar */}
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border shrink-0">
-        {/* View toggle: Preview / Code */}
+        {/* View toggle */}
         <div className="flex items-center rounded-md border border-border overflow-hidden shrink-0">
-          <button
-            type="button"
-            onClick={() => setView("preview")}
-            className={cn(
-              "flex items-center gap-1 px-2.5 py-1 text-[11px] transition-colors",
-              view === "preview"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-            )}
-            data-ocid="preview.tab"
-          >
+          <button type="button" onClick={() => setView("preview")}
+            className={cn("flex items-center gap-1 px-2.5 py-1 text-[11px] transition-colors",
+              view === "preview" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}
+            data-ocid="preview.tab">
             <Monitor className="w-3 h-3" /> Preview
           </button>
-          <button
-            type="button"
-            onClick={() => setView("files")}
-            className={cn(
-              "flex items-center gap-1 px-2.5 py-1 text-[11px] border-l border-border transition-colors",
-              view === "files"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-            )}
-            data-ocid="preview.files.tab"
-          >
+          <button type="button" onClick={() => setView("files")}
+            className={cn("flex items-center gap-1 px-2.5 py-1 text-[11px] border-l border-border transition-colors",
+              view === "files" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}
+            data-ocid="preview.files.tab">
             <Code2 className="w-3 h-3" /> Code
           </button>
         </div>
 
         <div className="flex-1" />
 
-        {/* Action buttons */}
         {hasCode && (
           <>
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              onClick={exportZip} disabled={exporting} title="Export as ZIP"
-              data-ocid="preview.export.button"
-            >
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={exportZip} disabled={exporting} title="Export as ZIP" data-ocid="preview.export.button">
               {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             </Button>
             {view === "preview" && (
               <>
-                <Button
-                  variant={mobileFrame ? "default" : "ghost"} size="icon"
-                  className="h-7 w-7" onClick={() => setMobileFrame(v => !v)}
-                  title={mobileFrame ? "Desktop view" : "Mobile view"}
-                >
+                <Button variant={mobileFrame ? "default" : "ghost"} size="icon" className="h-7 w-7"
+                  onClick={() => setMobileFrame(v => !v)} title={mobileFrame ? "Desktop view" : "Mobile view"}>
                   <Smartphone className="w-3.5 h-3.5" />
                 </Button>
-                <Button
-                  variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={() => setPreviewKey(k => k + 1)} title="Refresh"
-                  data-ocid="preview.refresh.button"
-                >
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={() => setPreviewKey(k => k + 1)} title="Refresh" data-ocid="preview.refresh.button">
                   <RefreshCw className="w-3.5 h-3.5" />
                 </Button>
               </>
             )}
             {deployUrl && (
               <a href={deployUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[11px] text-green-400 hover:underline shrink-0"
-                title="Open live app">
+                className="flex items-center gap-1 text-[11px] text-green-400 hover:underline shrink-0">
                 <ExternalLink className="w-3 h-3" /> Live
               </a>
             )}
-            <button
-              type="button" onClick={deployApp} disabled={deploying}
+            <button type="button" onClick={deployApp} disabled={deploying}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-medium shrink-0 disabled:opacity-50 transition-colors"
-              data-ocid="preview.deploy.button"
-            >
-              {deploying
-                ? <><Loader2 className="w-3 h-3 animate-spin" /> Deploying...</>
-                : <><Rocket className="w-3 h-3" /> Deploy</>}
+              data-ocid="preview.deploy.button">
+              {deploying ? <><Loader2 className="w-3 h-3 animate-spin" /> Deploying...</> : <><Rocket className="w-3 h-3" /> Deploy</>}
             </button>
           </>
         )}
@@ -301,14 +253,10 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
                 {mobileFrame && (
                   <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-zinc-700 rounded-b-xl z-10" />
                 )}
-                <iframe
-                  key={previewKey}
-                  srcDoc={srcDoc}
+                <iframe key={previewKey} srcDoc={srcDoc}
                   sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
-                  title="App Preview"
-                  className="w-full h-full border-0 bg-white"
-                  data-ocid="preview.canvas_target"
-                />
+                  title="App Preview" className="w-full h-full border-0 bg-white"
+                  data-ocid="preview.canvas_target" />
               </div>
             </div>
           ) : (
@@ -324,25 +272,18 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
       {/* Code folder view */}
       {view === "files" && (
         <div className="flex flex-1 overflow-hidden">
-          {/* File tree sidebar */}
           <div className="w-40 shrink-0 border-r border-border bg-muted/20 flex flex-col">
             <div className="px-3 py-2 border-b border-border">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Code Files</p>
             </div>
             <div className="flex-1 py-1">
               {files.map((file) => (
-                <button
-                  key={file.name}
-                  type="button"
-                  onClick={() => setSelectedFile(file.name)}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-3 py-1.5 text-[11px] transition-colors text-left",
+                <button key={file.name} type="button" onClick={() => setSelectedFile(file.name)}
+                  className={cn("w-full flex items-center gap-2 px-3 py-1.5 text-[11px] transition-colors text-left",
                     selectedFile === file.name
                       ? "bg-primary/15 text-foreground font-medium border-r-2 border-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                  )}
-                  data-ocid={`preview.file.${file.name}`}
-                >
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}
+                  data-ocid={`preview.file.${file.name}`}>
                   {file.icon}
                   <span className="truncate font-mono">{file.name}</span>
                   {selectedFile === file.name && <ChevronRight className="w-3 h-3 ml-auto shrink-0" />}
@@ -355,22 +296,16 @@ export function PreviewPanel({ messages, projectName }: PreviewPanelProps) {
               </p>
             </div>
           </div>
-
-          {/* File content */}
           <div className="flex-1 overflow-hidden flex flex-col">
             <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/10 shrink-0">
               {activeFile.icon}
               <span className="text-[11px] font-mono text-foreground">{activeFile.name}</span>
-              <span className="text-[10px] text-muted-foreground ml-auto">
-                {activeFile.content.split("\n").length} lines
-              </span>
+              <span className="text-[10px] text-muted-foreground ml-auto">{activeFile.content.split("\n").length} lines</span>
             </div>
             <ScrollArea className="flex-1">
-              <pre
-                className="p-3 text-[11px] font-mono leading-relaxed text-foreground"
+              <pre className="p-3 text-[11px] font-mono leading-relaxed text-foreground"
                 style={{ background: "oklch(0.08 0 0)", minHeight: "100%" }}
-                data-ocid="preview.editor"
-              >
+                data-ocid="preview.editor">
                 <code>{activeFile.content}</code>
               </pre>
             </ScrollArea>

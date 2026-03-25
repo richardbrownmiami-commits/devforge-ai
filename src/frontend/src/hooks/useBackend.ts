@@ -30,13 +30,14 @@ function loadSettings(): Settings {
     autoFix: true,
     proactiveAI: false,
     masterAIEnabled: true,
-    masterAIModel: "deepseek/deepseek-r1:free",
     // AI provider settings
-    aiProvider: "openrouter",
+    aiProvider: "auto",
     geminiApiKey: "",
     geminiModel: "gemini-2.0-flash",
-    deepSeekApiKey: "",
-    deepSeekModel: "deepseek-chat",
+    groqApiKey: "",
+    groqModel: "llama-3.3-70b-versatile",
+    githubModelsKey: "",
+    githubModelsModel: "gpt-4o",
   } as unknown as Settings;
 }
 

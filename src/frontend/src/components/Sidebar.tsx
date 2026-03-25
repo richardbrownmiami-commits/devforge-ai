@@ -2,7 +2,20 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 import { FolderOpen, Menu, Moon, Settings, Sun, Zap } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+// Apply theme from localStorage on module load (prevents flash)
+function applyStoredTheme() {
+  const stored = localStorage.getItem("bf_theme");
+  if (stored === "light") {
+    document.documentElement.classList.remove("dark");
+  } else {
+    // Default to dark
+    document.documentElement.classList.add("dark");
+    if (!stored) localStorage.setItem("bf_theme", "dark");
+  }
+}
+try { applyStoredTheme(); } catch {}
 
 function SidebarInner({ onClose }: { onClose?: () => void }) {
   const matchRoute = useMatchRoute();
@@ -10,15 +23,13 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
   const isSettings = !!matchRoute({ to: "/settings" });
 
   const [dark, setDark] = useState(
-    () => document.documentElement.classList.contains("dark")
+    () => localStorage.getItem("bf_theme") !== "light"
   );
 
-  const toggleTheme = () => {
-    const next = !dark;
-    setDark(next);
-    localStorage.setItem("bf_theme", next ? "dark" : "light");
-    document.documentElement.classList.toggle("dark", next);
-  };
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem("bf_theme", dark ? "dark" : "light");
+  }, [dark]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: "oklch(var(--sidebar))" }}>
@@ -60,7 +71,7 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
         {/* Dark / Light toggle */}
         <button
           type="button"
-          onClick={toggleTheme}
+          onClick={() => setDark((d) => !d)}
           className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors mb-3"
           title={dark ? "Switch to light mode" : "Switch to dark mode"}
           data-ocid="sidebar.theme.toggle"
@@ -94,24 +105,19 @@ export function Sidebar() {
         className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 border-b border-sidebar-border"
         style={{ background: "oklch(var(--sidebar))", paddingTop: "env(safe-area-inset-top, 12px)", height: "calc(56px + env(safe-area-inset-top, 0px))" }}
       >
+        <Link to="/projects" className="flex items-center gap-2">
+          <Zap className="w-5 h-5 text-primary fill-primary" strokeWidth={0} />
+          <span className="font-bold text-sm text-foreground">BrainForge</span>
+        </Link>
         <button type="button" onClick={() => setOpen(true)}
-          className="p-2 -ml-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
-          aria-label="Open menu" data-ocid="nav.hamburger.button">
+          className="p-2 text-muted-foreground hover:text-foreground">
           <Menu className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-primary fill-primary" strokeWidth={0} />
-          <span className="font-bold text-sm text-foreground tracking-tight">BrainForge</span>
-        </div>
-        <Link to="/settings"
-          className="p-2 -mr-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
-          aria-label="Settings" data-ocid="nav.mobile.settings.link">
-          <Settings className="w-5 h-5" />
-        </Link>
       </div>
 
+      {/* Mobile sheet */}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="p-0 w-[240px] border-r border-border" style={{ background: "oklch(var(--sidebar))" }}>
+        <SheetContent side="left" className="p-0 w-[240px] border-border">
           <SidebarInner onClose={() => setOpen(false)} />
         </SheetContent>
       </Sheet>

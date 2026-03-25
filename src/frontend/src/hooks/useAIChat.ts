@@ -8,19 +8,26 @@ const SYSTEM_PROMPT =
   "When asked to build an app, return a complete single HTML file. " +
   "When fixing errors, return the complete corrected code.";
 
-// Free OpenRouter models tried in sequence on rate limit (no deepseek)
+// Free OpenRouter models tried in sequence on rate limit
 const OR_FALLBACKS = [
-  "meta-llama/llama-3.3-70b-instruct:free",
   "qwen/qwen3-coder:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
   "google/gemma-3-27b-it:free",
   "mistralai/mistral-small-3.1-24b-instruct:free",
   "openai/gpt-oss-120b:free",
 ];
 
-// Gemini free models tried in sequence on rate limit (all free via AI Studio)
+// Gemini free models tried in sequence on rate limit
 const GEMINI_FALLBACKS = [
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
+];
+
+// Groq fallback models
+const GROQ_FALLBACKS = [
+  "llama-3.3-70b-versatile",
+  "qwen-qwq-32b",
+  "llama-3.1-8b-instant",
 ];
 
 function storageKey(name: string) {
@@ -46,30 +53,26 @@ export async function loadChatMessagesAsync(name: string): Promise<ChatMessage[]
 }
 
 function persist(name: string, msgs: ChatMessage[]) {
-  const data = JSON.stringify(msgs.slice(-200)); // IndexedDB supports 50MB+
-  // Write to IndexedDB (async, non-blocking)
+  const data = JSON.stringify(msgs.slice(-200));
   idbSet(storageKey(name), data).catch(() => {
-    // Fallback to localStorage if IndexedDB fails
     try { localStorage.setItem(storageKey(name), data); } catch {}
   });
-  // Mirror small copy to localStorage for fast sync reads
   try {
     localStorage.setItem(storageKey(name), JSON.stringify(msgs.slice(-50)));
   } catch {}
 }
 
-// Auto-push session to GitHub (debounced, non-blocking)
 let _sessionPushTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleSessionPush(name: string, msgs: ChatMessage[]) {
   if (_sessionPushTimer) clearTimeout(_sessionPushTimer);
   _sessionPushTimer = setTimeout(() => {
     pushSessionToGitHub(name, msgs).catch(() => {});
-  }, 5000); // push 5s after last message
+  }, 5000);
 }
 
+// ---- OpenRouter ----
 async function tryOpenRouter(
-  key: string,
-  model: string,
+  key: string, model: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
 ): Promise<string> {
@@ -90,8 +93,7 @@ async function tryOpenRouter(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    if (res.status === 401)
-      throw new Error("Invalid OpenRouter API key. Go to Settings \u2192 API Keys to fix it.");
+    if (res.status === 401) throw new Error("Invalid OpenRouter API key. Go to Settings \u2192 API Keys.");
     if (res.status === 429) throw new Error("RATE_LIMITED");
     throw new Error(err?.error?.message || `OpenRouter error ${res.status}`);
   }
@@ -102,8 +104,7 @@ async function tryOpenRouter(
 }
 
 async function openRouterWithFallback(
-  key: string,
-  preferred: string,
+  key: string, preferred: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
   onModel: (label: string) => void,
@@ -123,9 +124,9 @@ async function openRouterWithFallback(
   throw new Error("RATE_LIMITED");
 }
 
+// ---- Gemini ----
 async function tryGeminiModel(
-  key: string,
-  model: string,
+  key: string, model: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
 ): Promise<string> {
@@ -147,8 +148,7 @@ async function tryGeminiModel(
   );
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    if (res.status === 401 || res.status === 403)
-      throw new Error("Invalid Gemini API key. Go to Settings \u2192 API Keys.");
+    if (res.status === 401 || res.status === 403) throw new Error("Invalid Gemini API key. Go to Settings \u2192 API Keys.");
     if (res.status === 429) throw new Error("RATE_LIMITED");
     throw new Error(err?.error?.message || `Gemini error ${res.status}`);
   }
@@ -159,8 +159,7 @@ async function tryGeminiModel(
 }
 
 async function geminiWithFallback(
-  key: string,
-  preferred: string,
+  key: string, preferred: string,
   history: { role: string; content: string }[],
   signal: AbortSignal,
   onModel: (label: string) => void,
@@ -180,17 +179,107 @@ async function geminiWithFallback(
   throw new Error("RATE_LIMITED");
 }
 
+// ---- Groq ----
+async function tryGroqModel(
+  key: string, model: string,
+  history: { role: string; content: string }[],
+  signal: AbortSignal,
+): Promise<string> {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
+      stream: false,
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    if (res.status === 401) throw new Error("Invalid Groq API key. Go to Settings \u2192 API Keys.");
+    if (res.status === 429) throw new Error("RATE_LIMITED");
+    throw new Error(err?.error?.message || `Groq error ${res.status}`);
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("RATE_LIMITED");
+  return content;
+}
+
+async function groqWithFallback(
+  key: string, preferred: string,
+  history: { role: string; content: string }[],
+  signal: AbortSignal,
+  onModel: (label: string) => void,
+): Promise<string> {
+  const candidates = [preferred, ...GROQ_FALLBACKS.filter((m) => m !== preferred)];
+  for (const model of candidates) {
+    if (signal.aborted) break;
+    onModel(`Groq (${model})`);
+    try {
+      return await tryGroqModel(key, model, history, signal);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "AbortError") throw e;
+      if (e instanceof Error && e.message === "RATE_LIMITED") continue;
+      throw e;
+    }
+  }
+  throw new Error("RATE_LIMITED");
+}
+
+// ---- GitHub Models ----
+async function tryGitHubModel(
+  token: string, model: string,
+  history: { role: string; content: string }[],
+  signal: AbortSignal,
+  onModel: (label: string) => void,
+): Promise<string> {
+  onModel(`GitHub (${model})`);
+  const res = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
+      stream: false,
+    }),
+    signal,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    if (res.status === 401) throw new Error("Invalid GitHub Models token. Go to Settings \u2192 API Keys.");
+    if (res.status === 429) throw new Error("RATE_LIMITED");
+    throw new Error(err?.error?.message || `GitHub Models error ${res.status}`);
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("RATE_LIMITED");
+  return content;
+}
+
 interface UseAIChatOptions {
   provider: AIProvider;
   openRouterKey: string;
   openRouterModel: string;
   geminiKey: string;
   geminiModel: string;
+  groqKey: string;
+  groqModel: string;
+  githubModelsKey: string;
+  githubModelsModel: string;
   projectName: string;
 }
 
 export function useAIChat(opts: UseAIChatOptions) {
-  const { provider, openRouterKey, openRouterModel, geminiKey, geminiModel, projectName } = opts;
+  const { provider, openRouterKey, openRouterModel, geminiKey, geminiModel,
+    groqKey, groqModel, githubModelsKey, githubModelsModel, projectName } = opts;
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatMessages(projectName));
   const [isLoading, setIsLoading] = useState(false);
@@ -206,12 +295,10 @@ export function useAIChat(opts: UseAIChatOptions) {
       if (local.length > 0) {
         setMessages(local);
       } else {
-        // No local messages -- try to restore from GitHub session
         loadChatMessagesAsync(projectName).then(async (idbMsgs) => {
           if (idbMsgs.length > 0) {
             setMessages(idbMsgs);
           } else {
-            // Try GitHub session restore
             const ghMsgs = await pullSessionFromGitHub(projectName).catch(() => null);
             if (ghMsgs && ghMsgs.length > 0) {
               const msgs = ghMsgs as ChatMessage[];
@@ -245,31 +332,25 @@ export function useAIChat(opts: UseAIChatOptions) {
       try {
         let reply = "";
 
-        if (provider === "gemini") {
-          if (!geminiKey)
-            throw new Error("No Gemini API key. Go to Settings \u2192 API Keys.");
+        if (provider === "groq") {
+          if (!groqKey) throw new Error("No Groq API key. Go to Settings \u2192 API Keys.");
+          reply = await groqWithFallback(groqKey, groqModel, history, signal, setActiveModel);
+        } else if (provider === "github") {
+          if (!githubModelsKey) throw new Error("No GitHub Models token. Go to Settings \u2192 API Keys.");
+          reply = await tryGitHubModel(githubModelsKey, githubModelsModel, history, signal, setActiveModel);
+        } else if (provider === "gemini") {
+          if (!geminiKey) throw new Error("No Gemini API key. Go to Settings \u2192 API Keys.");
           reply = await geminiWithFallback(geminiKey, geminiModel, history, signal, setActiveModel);
         } else if (provider === "auto") {
-          // Auto: try providers that have keys, skip others silently
+          // Auto: try all providers that have keys, in order: OpenRouter → Gemini → Groq → GitHub
           type P = { name: string; call: () => Promise<string> };
           const queue: P[] = [];
+          if (openRouterKey) queue.push({ name: "OpenRouter", call: () => openRouterWithFallback(openRouterKey, openRouterModel, history, signal, setActiveModel) });
+          if (geminiKey) queue.push({ name: "Gemini", call: () => geminiWithFallback(geminiKey, geminiModel, history, signal, setActiveModel) });
+          if (groqKey) queue.push({ name: "Groq", call: () => groqWithFallback(groqKey, groqModel, history, signal, setActiveModel) });
+          if (githubModelsKey) queue.push({ name: "GitHub", call: () => tryGitHubModel(githubModelsKey, githubModelsModel, history, signal, setActiveModel) });
 
-          if (geminiKey) {
-            queue.push({
-              name: "Gemini",
-              call: () => geminiWithFallback(geminiKey, geminiModel, history, signal, setActiveModel),
-            });
-          }
-          if (openRouterKey) {
-            queue.push({
-              name: "OpenRouter",
-              call: () =>
-                openRouterWithFallback(openRouterKey, openRouterModel, history, signal, setActiveModel),
-            });
-          }
-
-          if (queue.length === 0)
-            throw new Error("No API keys configured. Go to Settings \u2192 API Keys and add at least one.");
+          if (queue.length === 0) throw new Error("No API keys configured. Go to Settings \u2192 API Keys and add at least one.");
 
           let succeeded = false;
           const tried: string[] = [];
@@ -286,15 +367,10 @@ export function useAIChat(opts: UseAIChatOptions) {
               throw e;
             }
           }
-
-          if (!succeeded)
-            throw new Error(
-              `All providers rate limited (tried: ${tried.join(", ")}). Wait a minute and try again.`,
-            );
+          if (!succeeded) throw new Error(`All providers rate limited (tried: ${tried.join(", ")}). Wait a minute and try again.`);
         } else {
           // OpenRouter explicit
-          if (!openRouterKey)
-            throw new Error("No OpenRouter API key. Go to Settings \u2192 API Keys.");
+          if (!openRouterKey) throw new Error("No OpenRouter API key. Go to Settings \u2192 API Keys.");
           reply = await openRouterWithFallback(openRouterKey, openRouterModel, history, signal, setActiveModel);
         }
 
@@ -312,7 +388,7 @@ export function useAIChat(opts: UseAIChatOptions) {
         setIsLoading(false);
       }
     },
-    [provider, openRouterKey, openRouterModel, geminiKey, geminiModel, projectName],
+    [provider, openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName],
   );
 
   const clearMessages = useCallback(() => {

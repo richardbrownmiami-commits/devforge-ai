@@ -14,6 +14,8 @@ import { useSettings } from "../hooks/useBackend";
 const PROVIDER_DOT: Record<string, string> = {
   openrouter: "bg-violet-400",
   gemini: "bg-blue-400",
+  groq: "bg-orange-400",
+  github: "bg-green-400",
   auto: "bg-green-400",
 };
 
@@ -57,12 +59,16 @@ export function EditorPage() {
   const prevLoadingRef = useRef(false);
 
   const s = settings as any;
-  const provider: AIProvider = s?.aiProvider === "deepseek" ? "auto" : s?.aiProvider || "auto";
+  const provider: AIProvider = (s?.aiProvider === "deepseek" ? "auto" : s?.aiProvider) || "auto";
   const openRouterKey: string = s?.openRouterApiKey || "";
-  const openRouterModel: string = s?.defaultModel || "meta-llama/llama-3.3-70b-instruct:free";
+  const openRouterModel: string = s?.defaultModel || "qwen/qwen3-coder:free";
   const geminiKey: string = s?.geminiApiKey || "";
   const geminiModel: string = s?.geminiModel || "gemini-2.0-flash";
-  const hasAnyKey = !!(openRouterKey || geminiKey);
+  const groqKey: string = s?.groqApiKey || "";
+  const groqModel: string = s?.groqModel || "llama-3.3-70b-versatile";
+  const githubModelsKey: string = s?.githubModelsKey || "";
+  const githubModelsModel: string = s?.githubModelsModel || "gpt-4o";
+  const hasAnyKey = !!(openRouterKey || geminiKey || groqKey || githubModelsKey);
   const autoFix: boolean = s?.autoFix !== false;
 
   const [initialMessage] = useState<string>(() => {
@@ -73,7 +79,8 @@ export function EditorPage() {
   });
 
   const { messages, isLoading, error, activeProvider, sendMessage, clearMessages } = useAIChat({
-    provider, openRouterKey, openRouterModel, geminiKey, geminiModel, projectName,
+    provider, openRouterKey, openRouterModel, geminiKey, geminiModel,
+    groqKey, groqModel, githubModelsKey, githubModelsModel, projectName,
   });
 
   const hasCode = messages.some((m) => m.role === "assistant" && m.content.includes("```"));
@@ -161,7 +168,6 @@ export function EditorPage() {
         <div className="fixed inset-0 z-50 bg-background flex flex-col"
           style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
           data-ocid="editor.preview.overlay">
-          {/* Preview header -- clean, no duplicate deploy button */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
               onClick={() => setPreviewOpen(false)}>
