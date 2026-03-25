@@ -22,6 +22,9 @@ const LANG_OPTIONS: { value: AppLanguage; label: string; color: string }[] = [
   { value: "python", label: "Python", color: "text-yellow-400" },
   { value: "sql", label: "SQL", color: "text-green-400" },
   { value: "markdown", label: "Markdown", color: "text-pink-400" },
+  { value: "p5js", label: "p5.js", color: "text-rose-400" },
+  { value: "threejs", label: "Three.js", color: "text-amber-400" },
+  { value: "chartjs", label: "Chart.js", color: "text-teal-400" },
 ];
 
 interface Snapshot { timestamp: number; messages: ChatMessage[]; }
@@ -112,7 +115,6 @@ export function EditorPage() {
   });
   const autoFixCount = useRef(0);
   const prevLoadingRef = useRef(false);
-  const prevHasCodeRef = useRef(false);
   const errorCooldown = useRef(false);
 
   const s = settings as any;
@@ -151,11 +153,6 @@ export function EditorPage() {
     }
     prevLoadingRef.current = isLoading;
   }, [isLoading, messages, projectName]);
-
-  useEffect(() => {
-    if (!isLoading && hasCode && !prevHasCodeRef.current) setPreviewOpen(true);
-    prevHasCodeRef.current = hasCode;
-  }, [isLoading, hasCode]);
 
   useEffect(() => {
     if (!autoFix) return;
@@ -255,4 +252,5 @@ export function EditorPage() {
     </div>
   );
 }
+
 
