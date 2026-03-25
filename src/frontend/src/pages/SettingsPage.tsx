@@ -221,6 +221,11 @@ export function SettingsPage() {
     () => JSON.parse(localStorage.getItem('bf_master_audit') || '[]')
   );
   const [backingUp, setBackingUp] = useState(false);
+  // Voice output state
+  const [voiceEnabled, setVoiceEnabled] = useState(() => localStorage.getItem("bf_voice_enabled") === "true");
+  const [voiceLang, setVoiceLang] = useState<"hindi" | "english">(() =>
+    (localStorage.getItem("bf_voice_lang") as "hindi" | "english") || "english"
+  );
   const masterEndRef = useRef<HTMLDivElement>(null);
 
   // AI Files
@@ -250,6 +255,24 @@ export function SettingsPage() {
     setPinEnabled(s.pinEnabled || false);
     setSessionTimeout(s.sessionTimeout || 30);
   }, [settings]);
+
+  // Auto-load Master AI memory + send greeting when page opens
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run on page change only
+  useEffect(() => {
+    if (page === "master-ai") {
+      // Auto-load memory from GitHub if not loaded
+      if (!masterMemory && !masterMemoryLoading) {
+        loadMasterMemory();
+      }
+      // Auto greeting if no messages yet
+      if (masterEnabled && masterMsgs.length === 0) {
+        const greeting =
+          `BrainForge systems online. I am your Master AI.\n\nStatus:\n- Live: https://brainforge-7xn.pages.dev\n- Date: ${new Date().toISOString().slice(0, 10)}\n- Provider: ${aiProvider || "auto"}\n\nMemory loading from GitHub... Ready to modify BrainForge on your command.`;
+        setMasterMsgs([{ role: "assistant", content: greeting }]);
+        setTimeout(() => speak(greeting), 600);
+      }
+    }
+  }, [page]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new messages
   useEffect(() => {
@@ -296,6 +319,38 @@ export function SettingsPage() {
       toast.error("Failed to load memory: " + e.message);
     } finally {
       setMasterMemoryLoading(false);
+    }
+  };
+
+
+  // Voice output - robotic deep voice (Megatron/Darth Vader style)
+  const speak = (text: string) => {
+    if (!voiceEnabled || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const clean = text.replace(/[#*`>]/g, "").slice(0, 600);
+    const utterance = new SpeechSynthesisUtterance(clean);
+    const loadVoice = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (voiceLang === "hindi") {
+        const v = voices.find((v) => v.lang.startsWith("hi"));
+        if (v) utterance.voice = v;
+      } else {
+        const v = voices.find((v) =>
+          v.name.toLowerCase().includes("david") ||
+          v.name.toLowerCase().includes("george") ||
+          v.name.toLowerCase().includes("daniel")
+        );
+        if (v) utterance.voice = v;
+      }
+      utterance.pitch = 0.3;
+      utterance.rate = 0.78;
+      utterance.volume = 1;
+      window.speechSynthesis.speak(utterance);
+    };
+    if (window.speechSynthesis.getVoices().length > 0) {
+      loadVoice();
+    } else {
+      window.speechSynthesis.addEventListener("voiceschanged", loadVoice, { once: true });
     }
   };
 
@@ -392,6 +447,7 @@ export function SettingsPage() {
       }
 
       setMasterMsgs((p) => [...p, { role: "assistant", content: reply }]);
+      speak(reply);
       const fileM = reply.match(/FILE:\s*([^\n]+)/);
       const codeM = reply.match(/```(?:[\w.]*)\n([\s\S]*?)```/);
       if (fileM && codeM) setPendingFile({ path: fileM[1].trim(), content: codeM[1], req: text });
@@ -713,6 +769,35 @@ This will trigger a Cloudflare deploy.`);
                 Load Memory from GitHub
               </Button>
               {masterMemory && <span className="text-[10px] text-green-400">Memory loaded \u2713</span>}
+            </div>
+            {/* Voice Output Toggle */}
+            <div className="flex items-center justify-between py-2 border-t border-white/10">
+              <div>
+                <p className="text-sm text-foreground">Voice Output</p>
+                <p className="text-xs text-muted-foreground">Robotic AI voice (deep/slow)</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={voiceLang}
+                  onChange={(e) => {
+                    const v = e.target.value as "hindi" | "english";
+                    setVoiceLang(v);
+                    localStorage.setItem("bf_voice_lang", v);
+                  }}
+                  className="text-[10px] bg-black/30 border border-white/10 rounded px-1.5 py-0.5 text-muted-foreground"
+                >
+                  <option value="english">EN</option>
+                  <option value="hindi">HI</option>
+                </select>
+                <Switch
+                  checked={voiceEnabled}
+                  onCheckedChange={(v) => {
+                    setVoiceEnabled(v);
+                    localStorage.setItem("bf_voice_enabled", String(v));
+                    if (v) setTimeout(() => speak("Voice output enabled. Master AI is ready."), 100);
+                  }}
+                />
+              </div>
             </div>
           </div>
 
