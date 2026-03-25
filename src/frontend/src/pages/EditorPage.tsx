@@ -8,11 +8,18 @@ import { ChatPanel } from "../components/ChatPanel";
 import { MatrixOverlay } from "../components/MatrixOverlay";
 import { PreviewPanel } from "../components/PreviewPanel";
 import type { AIProvider } from "../constants/models";
-import { useAIChat } from "../hooks/useAIChat";
+import { type AppLanguage, useAIChat } from "../hooks/useAIChat";
 import { useSettings } from "../hooks/useBackend";
 import type { ChatMessage } from "../hooks/useTermux";
 
 const PROVIDER_DOT: Record<string, string> = { openrouter: "bg-violet-400", gemini: "bg-blue-400", groq: "bg-orange-400", github: "bg-green-400", auto: "bg-green-400" };
+
+const LANG_OPTIONS: { value: AppLanguage; label: string; color: string }[] = [
+  { value: "html", label: "HTML/JS", color: "text-orange-400" },
+  { value: "react", label: "React", color: "text-cyan-400" },
+  { value: "react-tailwind", label: "React+TW", color: "text-violet-400" },
+  { value: "typescript", label: "TypeScript", color: "text-blue-400" },
+];
 
 interface Snapshot { timestamp: number; messages: ChatMessage[]; }
 
@@ -54,8 +61,6 @@ function EditorSidebar({ projectName, snapshots, onRestore, onClose }: {
           <Settings className="w-4 h-4 text-violet-400" /> Settings
         </button>
       </nav>
-
-      {/* Version history -- always visible in sidebar */}
       <div className="flex-1 flex flex-col min-h-0 border-t border-border">
         <div className="px-4 py-3 flex items-center gap-2">
           <Clock className="w-3.5 h-3.5 text-orange-400" />
@@ -63,7 +68,7 @@ function EditorSidebar({ projectName, snapshots, onRestore, onClose }: {
           {snapshots.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground">{snapshots.length} saved</span>}
         </div>
         {snapshots.length === 0 ? (
-          <p className="px-4 text-[11px] text-muted-foreground/50">No snapshots yet. Send a message to start.</p>
+          <p className="px-4 text-[11px] text-muted-foreground/50">No snapshots yet.</p>
         ) : (
           <ScrollArea className="flex-1 px-3 pb-3">
             <div className="space-y-2">
@@ -73,9 +78,7 @@ function EditorSidebar({ projectName, snapshots, onRestore, onClose }: {
                     <span className="text-[10px] text-orange-400">{relTime(s.timestamp)}</span>
                     <span className="text-[10px] text-muted-foreground">{s.messages.length} msgs</span>
                   </div>
-                  <p className="text-[11px] truncate mb-2 text-foreground">
-                    {s.messages.filter(m => m.role === "user").slice(-1)[0]?.content.slice(0, 50) || "Empty"}
-                  </p>
+                  <p className="text-[11px] truncate mb-2 text-foreground">{s.messages.filter(m => m.role === "user").slice(-1)[0]?.content.slice(0, 50) || "Empty"}</p>
                   <Button size="sm" variant="outline" className="h-6 text-[10px] w-full gap-1"
                     onClick={() => { onRestore(s); onClose(); }} data-ocid={`editor.history.restore.${i+1}`}>
                     <RotateCcw className="w-3 h-3" /> Restore
@@ -101,6 +104,9 @@ export function EditorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(() => loadSnapshots(projectName));
   const [autoFixStatus, setAutoFixStatus] = useState<string | null>(null);
+  const [language, setLanguage] = useState<AppLanguage>(() => {
+    return (localStorage.getItem(`bf_lang_${projectName}`) as AppLanguage) || "html";
+  });
   const autoFixCount = useRef(0);
   const prevLoadingRef = useRef(false);
   const prevHasCodeRef = useRef(false);
@@ -125,17 +131,20 @@ export function EditorPage() {
   });
 
   const { messages, isLoading, error, activeProvider, sendMessage, clearMessages } = useAIChat({
-    provider, openRouterKey, openRouterModel, geminiKey, geminiModel,
+    provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel,
     groqKey, groqModel, githubModelsKey, githubModelsModel, projectName,
   });
 
   const hasCode = messages.some(m => m.role === "assistant" && m.content.includes("```"));
 
+  const handleLangChange = (lang: AppLanguage) => {
+    setLanguage(lang);
+    localStorage.setItem(`bf_lang_${projectName}`, lang);
+  };
+
   useEffect(() => {
     if (prevLoadingRef.current && !isLoading && messages.length > 0) {
-      saveSnapshot(projectName, messages);
-      setSnapshots(loadSnapshots(projectName));
-      setAutoFixStatus(null);
+      saveSnapshot(projectName, messages); setSnapshots(loadSnapshots(projectName)); setAutoFixStatus(null);
     }
     prevLoadingRef.current = isLoading;
   }, [isLoading, messages, projectName]);
@@ -154,7 +163,7 @@ export function EditorPage() {
       autoFixCount.current += 1;
       setAutoFixStatus(`🔧 Auto-fixing (${autoFixCount.current}/3)...`);
       setPreviewOpen(false);
-      sendMessage(`Fix this error: "${e.data.error}"\nReturn the COMPLETE corrected HTML file. Auto-fix ${autoFixCount.current}/3.`);
+      sendMessage(`Fix this error: "${e.data.error}"\nReturn the COMPLETE corrected file. Auto-fix ${autoFixCount.current}/3.`);
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -163,11 +172,13 @@ export function EditorPage() {
   const handleSend = (msg: string) => { autoFixCount.current = 0; setAutoFixStatus(null); saveSnapshot(projectName, messages); sendMessage(msg); };
   const restoreSnapshot = (snap: Snapshot) => { localStorage.setItem(`bf_chat_${projectName}`, JSON.stringify(snap.messages)); window.location.reload(); };
 
+  const activeLang = LANG_OPTIONS.find(l => l.value === language)!;
+
   return (
     <div className="flex flex-col" style={{ height: "100dvh" }} data-ocid="editor.page">
       <MatrixOverlay visible={isLoading} />
 
-      {/* Header -- compact, hamburger always visible */}
+      {/* Header */}
       <div className="flex items-center gap-1.5 px-2 py-2 border-b border-border shrink-0">
         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
           onClick={() => navigate({ to: "/projects" })} data-ocid="editor.back.button">
@@ -176,17 +187,28 @@ export function EditorPage() {
 
         <span className="text-sm font-medium text-foreground truncate flex-1 min-w-0">{projectName}</span>
 
-        {/* Auto fix badge -- compact */}
         {autoFixStatus && (
           <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 shrink-0">
             {autoFixStatus.includes("⚠") ? <AlertTriangle className="w-3 h-3" /> : <Wrench className="w-3 h-3 animate-spin" />}
           </div>
         )}
 
-        {/* Provider dot only -- no text on mobile to save space */}
+        {/* Language selector */}
+        <div className="relative shrink-0">
+          <select
+            value={language}
+            onChange={e => handleLangChange(e.target.value as AppLanguage)}
+            className={`appearance-none bg-muted/50 border border-border rounded-md px-2 py-1 text-[10px] font-mono cursor-pointer focus:outline-none focus:border-primary/50 ${activeLang.color}`}
+            title="Select language"
+          >
+            {LANG_OPTIONS.map(l => (
+              <option key={l.value} value={l.value}>{l.label}</option>
+            ))}
+          </select>
+        </div>
+
         <span className={`w-2 h-2 rounded-full shrink-0 ${hasAnyKey ? (PROVIDER_DOT[provider] ?? "bg-green-400") : "bg-muted-foreground/30"}`} />
 
-        {/* Preview button */}
         <Button variant="outline" size="sm"
           className={`h-7 px-2 text-xs shrink-0 transition-all ${hasCode ? "border-primary/50 text-primary bg-primary/5" : "border-border text-muted-foreground"}`}
           onClick={() => setPreviewOpen(true)} data-ocid="editor.preview.open_button">
@@ -194,33 +216,25 @@ export function EditorPage() {
           <span className="ml-1 hidden sm:inline">{hasCode ? "Preview ✓" : "Preview"}</span>
         </Button>
 
-        {/* Hamburger -- always visible, prominent */}
-        <button
-          type="button"
-          onClick={() => setSidebarOpen(true)}
+        <button type="button" onClick={() => setSidebarOpen(true)}
           className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0 transition-colors"
-          data-ocid="editor.menu.button"
-          title="Menu & History"
-        >
+          data-ocid="editor.menu.button" title="Menu & History">
           <Menu className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Chat area */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <ChatPanel messages={messages as any} isLoading={isLoading} error={error} initialMessage={initialMessage}
           onSend={handleSend} onClear={clearMessages} apiKeyMissing={!hasAnyKey}
           hasCode={hasCode} onPreview={() => setPreviewOpen(true)} autoFixStatus={autoFixStatus} />
       </div>
 
-      {/* Right sidebar drawer */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="right" className="p-0 w-[300px] border-border" style={{ zIndex: 100 }}>
           <EditorSidebar projectName={projectName} snapshots={snapshots} onRestore={restoreSnapshot} onClose={() => setSidebarOpen(false)} />
         </SheetContent>
       </Sheet>
 
-      {/* Preview overlay */}
       {previewOpen && (
         <div className="fixed inset-0 z-50 bg-background flex flex-col" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} data-ocid="editor.preview.overlay">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
@@ -228,9 +242,10 @@ export function EditorPage() {
               <X className="w-4 h-4" />
             </Button>
             <span className="text-sm font-medium flex-1">Preview — {projectName}</span>
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border border-border ${activeLang.color}`}>{activeLang.label}</span>
           </div>
           <div className="flex-1 overflow-hidden">
-            <PreviewPanel messages={messages as any} termuxUrl="" projectName={projectName} />
+            <PreviewPanel messages={messages as any} termuxUrl="" projectName={projectName} language={language} />
           </div>
         </div>
       )}
