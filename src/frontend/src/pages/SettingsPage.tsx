@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -1071,18 +1072,22 @@ export function SettingsPage() {
             );
           })}
         </div>
-        <p className="text-center text-[10px] text-muted-foreground/30 mt-6">
-          &copy; {new Date().getFullYear()}. Built with love using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(typeof window !== "undefined" ? window.location.hostname : "")}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-muted-foreground"
+        <div className="text-center mt-6 space-y-1.5">
+          <p className="text-[10px] text-muted-foreground/30">
+            Made with love by{" "}
+            <span className="text-violet-400/60">Richard Brown</span>
+            {" "}&amp;{" "}
+            <span className="text-cyan-400/60">Claude (Ara)</span>
+          </p>
+          <Link
+            to="/policy"
+            className="text-[10px] text-muted-foreground/25 hover:text-muted-foreground/60 underline transition-colors"
           >
-            caffeine.ai
-          </a>
-        </p>
+            Legal Policy &amp; Terms
+          </Link>
+        </div>
       </div>
     </div>
   );
 }
+
