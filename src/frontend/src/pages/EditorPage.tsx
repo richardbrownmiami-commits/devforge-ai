@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChatPanel } from "../components/ChatPanel";
 import { MatrixOverlay } from "../components/MatrixOverlay";
 import { PreviewPanel } from "../components/PreviewPanel";
+import { DeployWizard } from "../components/DeployWizard";
 import type { AIProvider } from "../constants/models";
 import { type AppLanguage, useAIChat } from "../hooks/useAIChat";
 import { useSettings } from "../hooks/useBackend";
@@ -233,6 +234,7 @@ export function EditorPage() {
   const navigate = useNavigate();
   const { data: settings } = useSettings();
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(() =>
     loadSnapshots(projectName),
@@ -474,6 +476,13 @@ export function EditorPage() {
         </SheetContent>
       </Sheet>
 
+      {deployOpen && (
+        <DeployWizard
+          projectName={projectName}
+          code={messages.filter((m: any) => m.role === "assistant" && m.code).slice(-1)[0]?.code || ""}
+          onClose={() => setDeployOpen(false)}
+        />
+      )}
       {previewOpen && (
         <div
           className="fixed inset-0 z-50 bg-background flex flex-col"
@@ -497,6 +506,13 @@ export function EditorPage() {
             >
               {activeLang.label}
             </span>
+            <button
+              type="button"
+              onClick={() => setDeployOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-xs font-semibold shadow-lg transition-all"
+            >
+              🚀 Deploy
+            </button>
           </div>
           <div className="flex-1 overflow-hidden">
             <PreviewPanel
@@ -510,3 +526,4 @@ export function EditorPage() {
     </div>
   );
 }
+
