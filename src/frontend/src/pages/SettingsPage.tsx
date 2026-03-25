@@ -217,6 +217,10 @@ export function SettingsPage() {
   const [masterMemoryLoading, setMasterMemoryLoading] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ path: string; content: string; req: string } | null>(null);
   const [pushing, setPushing] = useState(false);
+  const [auditLog, setAuditLog] = useState<{ ts: string; action: string; file: string; status: string }[]>(
+    () => JSON.parse(localStorage.getItem('bf_master_audit') || '[]')
+  );
+  const [backingUp, setBackingUp] = useState(false);
   const masterEndRef = useRef<HTMLDivElement>(null);
 
   // AI Files
@@ -295,6 +299,36 @@ export function SettingsPage() {
     }
   };
 
+  const addAuditEntry = (action: string, file: string, status: string) => {
+    const entry = { ts: new Date().toISOString(), action, file, status };
+    setAuditLog((prev) => {
+      const updated = [entry, ...prev].slice(0, 50);
+      localStorage.setItem('bf_master_audit', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Auto-push memory update to GitHub after Master AI response
+  const autoUpdateMemory = async (newContent: string) => {
+    const token = githubToken || (JSON.parse(localStorage.getItem('bf_settings') || '{}')).githubToken || '';
+    const repo = githubRepo || (JSON.parse(localStorage.getItem('bf_settings') || '{}')).githubRepo || '';
+    if (!token || !repo) return;
+    const path = 'memories/master-ai-memory.md';
+    try {
+      const getRes = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, { headers: { Authorization: `Bearer ${token}` } });
+      const sha = getRes.ok ? (await getRes.json()).sha : undefined;
+      await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'chore: auto-update Master AI memory', content: btoa(unescape(encodeURIComponent(newContent))), ...(sha ? { sha } : {}) }),
+      });
+      localStorage.setItem('bf_ai_file_master-memory', newContent);
+      addAuditEntry('auto-memory-update', path, 'success');
+    } catch {
+      addAuditEntry('auto-memory-update', path, 'failed');
+    }
+  };
+
   const handleMasterSend = async () => {
     const text = masterInput.trim();
     if (!text || masterLoading || !masterEnabled) return;
@@ -361,6 +395,10 @@ export function SettingsPage() {
       const fileM = reply.match(/FILE:\s*([^\n]+)/);
       const codeM = reply.match(/```(?:[\w.]*)\n([\s\S]*?)```/);
       if (fileM && codeM) setPendingFile({ path: fileM[1].trim(), content: codeM[1], req: text });
+      // Auto-update memory: append this interaction summary
+      const updatedMemory = (masterMemory || localStorage.getItem('bf_ai_file_master-memory') || '')
+        + `\n\n## Session ${new Date().toISOString().slice(0, 10)}\n- User: ${text.slice(0, 100)}\n- AI: ${reply.slice(0, 200)}...`;
+      autoUpdateMemory(updatedMemory);
     } catch (e: any) {
       toast.error(e.message || "Master AI failed");
     } finally {
@@ -375,6 +413,14 @@ export function SettingsPage() {
     const repo = githubRepo || saved.githubRepo || "";
     if (!token) { toast.error("GitHub token not set. Go to GitHub & Deploy settings first."); return; }
     if (!repo) { toast.error("GitHub repo not set. Go to GitHub & Deploy settings first."); return; }
+    // Confirmation before push
+    const confirmed = window.confirm(`Push to GitHub?
+
+File: ${pendingFile.path}
+Repo: ${repo}
+
+This will trigger a Cloudflare deploy.`);
+    if (!confirmed) return;
     setPushing(true);
     try {
       const getRes = await fetch(`https://api.github.com/repos/${repo}/contents/${pendingFile.path}`,
@@ -394,9 +440,11 @@ export function SettingsPage() {
         throw new Error(errData?.message || `GitHub push failed: ${putRes.status}`);
       }
       toast.success("Pushed to GitHub! Cloudflare will deploy shortly.");
+      addAuditEntry('push', pendingFile.path, 'success');
       setPendingFile(null);
     } catch (e: any) {
       toast.error(e.message);
+      if (pendingFile) addAuditEntry('push', pendingFile.path, 'failed: ' + e.message);
     } finally {
       setPushing(false);
     }
@@ -710,6 +758,32 @@ export function SettingsPage() {
             </div>
           )}
 
+          {/* Audit Log */}
+          {auditLog.length > 0 && (
+            <div className="mx-4 mb-2">
+              <details className="group">
+                <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground flex items-center gap-1">
+                  <span>Push Audit Log ({auditLog.length})</span>
+                </summary>
+                <div className="mt-1 space-y-1 max-h-32 overflow-auto">
+                  {auditLog.map((e, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[10px] font-mono">
+                      <span className={e.status === 'success' ? 'text-green-400' : 'text-red-400'}>
+                        {e.status === 'success' ? '✓' : '✗'}
+                      </span>
+                      <span className="text-muted-foreground">{e.ts.slice(0, 16)}</span>
+                      <span className="text-foreground truncate flex-1">{e.file}</span>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="text-[9px] text-muted-foreground/50 hover:text-destructive mt-1"
+                  onClick={() => { setAuditLog([]); localStorage.removeItem('bf_master_audit'); }}>
+                  Clear log
+                </button>
+              </details>
+            </div>
+          )}
+
           {/* Input */}
           <div className="px-4 py-3 border-t border-white/10 shrink-0">
             <div className="flex gap-2">
@@ -771,6 +845,30 @@ export function SettingsPage() {
       </div>
     );
   }
+
+  const backupD1ToGitHub = async () => {
+    const workerUrl = 'https://brainforge-api.richard-brown-miami.workers.dev/api/backup';
+    const saved = JSON.parse(localStorage.getItem('bf_settings') || '{}');
+    const token = saved.githubToken || '';
+    const repo = saved.githubRepo || '';
+    if (!token || !repo) { toast.error('Set GitHub token and repo first.'); return; }
+    setBackingUp(true);
+    try {
+      const res = await fetch(workerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-BrainForge-Secret': '2200' },
+        body: JSON.stringify({ githubToken: token, githubRepo: repo }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Backup failed');
+      toast.success(`D1 backed up to GitHub: ${data.path} (${data.rows} rows)`);
+      addAuditEntry('d1-backup', data.path, 'success');
+    } catch (e: any) {
+      toast.error('Backup failed: ' + e.message);
+    } finally {
+      setBackingUp(false);
+    }
+  };
 
   // ---- DATABASE PAGE ----
   if (page === "database") {
@@ -838,6 +936,16 @@ export function SettingsPage() {
               </div>
             </div>
           )}
+
+          {/* D1 Backup */}
+          <div className="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 space-y-2">
+            <p className="text-xs font-semibold text-indigo-300">Cloudflare D1 Backup</p>
+            <p className="text-[10px] text-muted-foreground">Push a snapshot of D1 database to GitHub. Cron runs daily at 2am UTC automatically once Worker is redeployed.</p>
+            <Button variant="outline" size="sm" className="w-full h-8 text-xs gap-2 border-indigo-500/30"
+              onClick={backupD1ToGitHub} disabled={backingUp}>
+              {backingUp ? <><Loader2 className="w-3 h-3 animate-spin" /> Backing up...</> : 'Backup D1 to GitHub Now'}
+            </Button>
+          </div>
 
           {/* Export / Clear */}
           <div className="space-y-2 pt-2 border-t border-white/10">
