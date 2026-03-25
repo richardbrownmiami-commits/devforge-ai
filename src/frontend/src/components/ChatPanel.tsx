@@ -7,10 +7,10 @@ import {
   ChevronUp,
   Code2,
   Info,
-  Loader2,
   Monitor,
   Send,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -27,6 +27,7 @@ interface ChatPanelProps {
   onPreview?: () => void;
   hasCode?: boolean;
   initialMessage?: string;
+  autoFixStatus?: string | null;
 }
 
 type Block =
@@ -62,62 +63,75 @@ function parseBlocks(content: string): Block[] {
   return blocks;
 }
 
-function CodeIndicator({
+function CodeBadge({
   lang,
-  lines,
+  code,
   onPreview,
 }: {
   lang: string;
-  lines: number;
+  code: string;
   onPreview?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const lines = code.trim().split("\n").length;
   return (
-    <div className="rounded-lg border border-green-500/30 bg-green-950/20 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2">
-        <div className="flex items-center gap-2">
-          <Code2 className="w-3.5 h-3.5 text-green-400" />
-          <span className="text-[11px] font-mono text-green-400 uppercase tracking-wider">
-            {lang || "code"}
-          </span>
-          <span className="text-[10px] text-green-600">{lines} lines</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {onPreview && (
-            <button
-              type="button"
-              onClick={onPreview}
-              className="text-[10px] text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 px-2 py-0.5 rounded-full transition-colors"
-            >
-              Preview
-            </button>
-          )}
+    <div className="my-1">
+      <div
+        className="flex items-center gap-1.5 rounded-md px-2 py-1"
+        style={{
+          background: "oklch(0.1 0.04 140 / 0.5)",
+          border: "1px solid oklch(0.25 0.06 140 / 0.5)",
+        }}
+      >
+        <Code2 className="w-3 h-3" style={{ color: "#4ade80" }} />
+        <span className="text-[10px] font-mono" style={{ color: "#4ade80" }}>
+          {lang || "code"} · {lines} lines
+        </span>
+        <div className="flex-1" />
+        {onPreview && (
           <button
             type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="text-green-600 hover:text-green-400 transition-colors"
+            onClick={onPreview}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors"
+            style={{
+              background: "oklch(0.2 0.06 140 / 0.5)",
+              color: "#4ade80",
+            }}
           >
-            {expanded ? (
-              <ChevronUp className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" />
-            )}
+            <Monitor className="w-2.5 h-2.5" /> Preview
           </button>
-        </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+          title={expanded ? "Collapse" : "Expand"}
+        >
+          {expanded ? (
+            <ChevronUp className="w-3 h-3" />
+          ) : (
+            <ChevronDown className="w-3 h-3" />
+          )}
+        </button>
       </div>
       {expanded && (
-        <div className="border-t border-green-500/20">
-          <pre
-            className="code-editor px-3 py-2 text-[10px] overflow-x-auto bg-black/40 leading-relaxed whitespace-pre max-h-40"
-            style={{ fontSize: "10px" }}
-          />
-        </div>
+        <pre
+          className="mt-1 rounded p-2 text-[10px] font-mono overflow-x-auto leading-relaxed whitespace-pre"
+          style={{
+            background: "oklch(0.08 0 0)",
+            color: "#4ade80",
+            maxHeight: "240px",
+            overflowY: "auto",
+          }}
+        >
+          <code>{code}</code>
+        </pre>
       )}
     </div>
   );
 }
 
-function AiMessageContent({
+function AIMessageContent({
   content,
   onPreview,
 }: {
@@ -125,38 +139,24 @@ function AiMessageContent({
   onPreview?: () => void;
 }) {
   const blocks = parseBlocks(content);
-  const codeBlocks = blocks.filter((b) => b.type === "code");
-  const textBlocks = blocks.filter((b) => b.type === "text");
-  const hasCode = codeBlocks.length > 0;
-
   return (
-    <div className="space-y-2">
-      {/* Show text parts only */}
-      {textBlocks.map((b) =>
-        b.type === "text" && b.text.trim() ? (
+    <div className="space-y-1">
+      {blocks.map((b) =>
+        b.type === "code" ? (
+          <CodeBadge
+            key={b.id}
+            lang={b.lang}
+            code={b.code}
+            onPreview={onPreview}
+          />
+        ) : (
           <p
             key={b.id}
             className="text-[12px] leading-relaxed whitespace-pre-wrap text-foreground"
           >
-            {b.text.trim()}
+            {b.text}
           </p>
-        ) : null,
-      )}
-
-      {/* Show code as compact indicators -- not pasted inline */}
-      {hasCode && (
-        <div className="space-y-1.5 mt-1">
-          {codeBlocks.map((b) =>
-            b.type === "code" ? (
-              <CodeIndicator
-                key={b.id}
-                lang={b.lang}
-                lines={b.code.split("\n").length}
-                onPreview={onPreview}
-              />
-            ) : null,
-          )}
-        </div>
+        ),
       )}
     </div>
   );
@@ -173,6 +173,7 @@ export function ChatPanel({
   onPreview,
   hasCode,
   initialMessage,
+  autoFixStatus,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -192,9 +193,7 @@ export function ChatPanel({
     const text = input.trim();
     if (!text || isLoading || disabled) return;
     setInput("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
     onSend(text);
   };
 
@@ -211,12 +210,12 @@ export function ChatPanel({
         <div className="py-3 space-y-3 min-w-0">
           {messages.length === 0 && (
             <div className="text-center py-14" data-ocid="chat.empty_state">
-              <div className="text-3xl mb-2">⚡</div>
+              <div className="text-2xl mb-2">⚡</div>
               <p className="text-xs text-muted-foreground">
                 Describe what you want to build
               </p>
               <p className="text-[11px] text-muted-foreground/50 mt-1">
-                AI generates code + live preview
+                AI generates complete working code + live preview
               </p>
             </div>
           )}
@@ -244,7 +243,7 @@ export function ChatPanel({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.15 }}
                 className={cn(
-                  "rounded-xl px-3 py-2.5",
+                  "rounded-lg px-3 py-2",
                   msg.role === "user"
                     ? "chat-bubble-user ml-8"
                     : "chat-bubble-ai",
@@ -252,17 +251,18 @@ export function ChatPanel({
                 data-ocid={`chat.item.${i + 1}`}
               >
                 <span
-                  className={cn(
-                    "text-[9px] font-mono uppercase block mb-1.5 tracking-wider",
-                    msg.role === "user"
-                      ? "text-violet-300/70"
-                      : "text-cyan-400/70",
-                  )}
+                  className="text-[9px] font-mono uppercase block mb-1"
+                  style={{
+                    color:
+                      msg.role === "user"
+                        ? "oklch(0.7 0.15 290)"
+                        : "oklch(0.7 0.1 220)",
+                  }}
                 >
                   {msg.role === "user" ? "you" : "✦ ai"}
                 </span>
                 {msg.role === "assistant" ? (
-                  <AiMessageContent
+                  <AIMessageContent
                     content={msg.content}
                     onPreview={onPreview}
                   />
@@ -277,17 +277,20 @@ export function ChatPanel({
 
           {isLoading && (
             <div
-              className="chat-bubble-ai rounded-xl px-3 py-2.5"
+              className="chat-bubble-ai rounded-lg px-3 py-2"
               data-ocid="chat.loading_state"
             >
-              <span className="text-[9px] font-mono text-cyan-400/70 uppercase block mb-1.5 tracking-wider">
+              <span
+                className="text-[9px] font-mono uppercase block mb-1"
+                style={{ color: "oklch(0.7 0.1 220)" }}
+              >
                 ✦ ai
               </span>
               <div className="flex gap-1">
                 {[0, 1, 2].map((i) => (
                   <span
                     key={i}
-                    className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"
+                    className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"
                     style={{ animationDelay: `${i * 0.15}s` }}
                   />
                 ))}
@@ -295,9 +298,33 @@ export function ChatPanel({
             </div>
           )}
 
+          {autoFixStatus && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{
+                background: "oklch(0.18 0.06 60 / 0.5)",
+                border: "1px solid oklch(0.35 0.1 60 / 0.5)",
+              }}
+              data-ocid="chat.autofix.loading_state"
+            >
+              <Wrench
+                className="w-3.5 h-3.5 animate-spin shrink-0"
+                style={{ color: "oklch(0.75 0.15 60)" }}
+              />
+              <span
+                className="text-[11px]"
+                style={{ color: "oklch(0.75 0.15 60)" }}
+              >
+                {autoFixStatus}
+              </span>
+            </motion.div>
+          )}
+
           {error && (
             <div
-              className="flex items-start gap-2 text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-xl p-2.5"
+              className="flex items-start gap-2 text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-2.5"
               data-ocid="chat.error_state"
             >
               <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -313,10 +340,11 @@ export function ChatPanel({
               <button
                 type="button"
                 onClick={onPreview}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 to-violet-500/10 hover:from-primary/20 hover:to-violet-500/20 transition-all text-[11px] text-primary font-medium"
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-[11px] text-primary"
+                data-ocid="chat.preview.button"
               >
-                <Monitor className="w-3.5 h-3.5" />
-                Open Preview
+                <Monitor className="w-3 h-3" />
+                Tap to open preview
               </button>
             </motion.div>
           )}
@@ -325,20 +353,8 @@ export function ChatPanel({
         </div>
       </ScrollArea>
 
-      {/* Input bar */}
-      <div className="px-3 py-2.5 border-t border-border shrink-0 bg-background">
-        {messages.length > 0 && (
-          <div className="flex justify-end mb-1">
-            <button
-              type="button"
-              onClick={onClear}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-destructive transition-colors"
-              title="Clear chat"
-            >
-              <Trash2 className="w-2.5 h-2.5" /> Clear
-            </button>
-          </div>
-        )}
+      {/* Input */}
+      <div className="px-3 pb-3 pt-2 border-t border-border shrink-0">
         <div className="flex gap-2 items-end">
           <textarea
             ref={textareaRef}
@@ -350,30 +366,41 @@ export function ChatPanel({
                 handleSend();
               }
             }}
-            placeholder="Enter instruction or question..."
-            disabled={disabled || isLoading}
+            placeholder="Describe what you want to build..."
             rows={1}
-            className="resize-none bg-card border border-border rounded-xl px-3 py-2 flex-1 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50 leading-relaxed overflow-hidden"
-            style={{ fontSize: "16px", minHeight: "38px", maxHeight: "120px" }}
+            disabled={disabled || isLoading}
+            className="flex-1 resize-none rounded-xl border border-border bg-muted/30 px-3 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-40 transition-all"
+            style={{ minHeight: "36px", maxHeight: "120px" }}
             data-ocid="chat.input"
           />
-          <Button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading || disabled}
-            size="icon"
-            className="h-9 w-9 bg-gradient-to-br from-primary to-violet-600 hover:opacity-90 text-primary-foreground shrink-0 rounded-xl"
-            data-ocid="chat.submit_button"
-          >
-            {isLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Send className="w-3.5 h-3.5" />
+          <div className="flex gap-1 shrink-0">
+            {messages.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-muted-foreground hover:text-destructive rounded-xl"
+                onClick={onClear}
+                title="Clear chat"
+                data-ocid="chat.clear.button"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
             )}
-          </Button>
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!input.trim() || isLoading || !!disabled}
+              className="h-9 w-9 flex items-center justify-center rounded-xl disabled:opacity-30 transition-all"
+              style={{
+                background:
+                  "linear-gradient(135deg, oklch(0.6 0.2 250), oklch(0.5 0.2 290))",
+              }}
+              data-ocid="chat.submit_button"
+            >
+              <Send className="w-3.5 h-3.5 text-white" />
+            </button>
+          </div>
         </div>
-        <p className="text-[9px] text-muted-foreground/30 mt-1 ml-0.5">
-          Enter · send Shift+Enter · new line
-        </p>
       </div>
     </div>
   );
