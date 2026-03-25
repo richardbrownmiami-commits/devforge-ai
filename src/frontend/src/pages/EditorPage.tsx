@@ -19,6 +19,9 @@ const LANG_OPTIONS: { value: AppLanguage; label: string; color: string }[] = [
   { value: "react", label: "React", color: "text-cyan-400" },
   { value: "react-tailwind", label: "React+TW", color: "text-violet-400" },
   { value: "typescript", label: "TypeScript", color: "text-blue-400" },
+  { value: "python", label: "Python", color: "text-yellow-400" },
+  { value: "sql", label: "SQL", color: "text-green-400" },
+  { value: "markdown", label: "Markdown", color: "text-pink-400" },
 ];
 
 interface Snapshot { timestamp: number; messages: ChatMessage[]; }
@@ -252,3 +255,4 @@ export function EditorPage() {
     </div>
   );
 }
+
