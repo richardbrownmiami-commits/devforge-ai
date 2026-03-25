@@ -1,15 +1,26 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Clock, Monitor, RotateCcw, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Clock,
+  FolderOpen,
+  Menu,
+  Monitor,
+  RotateCcw,
+  Settings,
+  X,
+  Zap,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ChatPanel } from "../components/ChatPanel";
 import { MatrixOverlay } from "../components/MatrixOverlay";
 import { PreviewPanel } from "../components/PreviewPanel";
 import type { AIProvider } from "../constants/models";
-import type { ChatMessage } from "../hooks/useTermux";
 import { useAIChat } from "../hooks/useAIChat";
 import { useSettings } from "../hooks/useBackend";
+import type { ChatMessage } from "../hooks/useTermux";
 
 const PROVIDER_DOT: Record<string, string> = {
   openrouter: "bg-violet-400",
@@ -34,7 +45,9 @@ function saveSnapshot(projectName: string, messages: ChatMessage[]) {
 }
 
 function loadSnapshots(projectName: string): Snapshot[] {
-  return JSON.parse(localStorage.getItem(`bf_snapshots_${projectName}`) || "[]");
+  return JSON.parse(
+    localStorage.getItem(`bf_snapshots_${projectName}`) || "[]",
+  );
 }
 
 function relativeTime(ts: number): string {
@@ -48,18 +61,152 @@ function relativeTime(ts: number): string {
   return "Just now";
 }
 
+function EditorSidebar({
+  projectName,
+  snapshots,
+  onRestore,
+  onClose,
+}: {
+  projectName: string;
+  snapshots: Snapshot[];
+  onRestore: (snap: Snapshot) => void;
+  onClose: () => void;
+}) {
+  const navigate = useNavigate();
+  return (
+    <div
+      className="flex flex-col h-full"
+      style={{ background: "oklch(0.10 0 0)" }}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-4 border-b border-border">
+        <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center">
+          <Zap className="w-4 h-4 text-primary" />
+        </div>
+        <span className="font-bold text-sm text-foreground tracking-tight flex-1">
+          BrainForge
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1 text-muted-foreground hover:text-foreground"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Project info */}
+      <div className="px-4 py-3 border-b border-border">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+          Current Project
+        </p>
+        <p className="text-sm font-medium text-foreground truncate">
+          {projectName}
+        </p>
+      </div>
+
+      {/* Navigation */}
+      <nav className="px-3 py-3 space-y-1">
+        <button
+          type="button"
+          onClick={() => {
+            navigate({ to: "/projects" });
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all"
+        >
+          <FolderOpen className="w-4 h-4 text-blue-400" />
+          All Projects
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            navigate({ to: "/settings" });
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all"
+        >
+          <Settings className="w-4 h-4 text-violet-400" />
+          Settings
+        </button>
+      </nav>
+
+      {/* Version History */}
+      {snapshots.length > 0 && (
+        <div className="flex-1 flex flex-col min-h-0 border-t border-border">
+          <div className="px-4 py-3 flex items-center gap-2">
+            <Clock className="w-3.5 h-3.5 text-orange-400" />
+            <span className="text-[11px] font-semibold text-foreground">
+              Version History
+            </span>
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              {snapshots.length} saved
+            </span>
+          </div>
+          <ScrollArea className="flex-1 px-3 pb-3">
+            <div className="space-y-2">
+              {snapshots.map((snap, i) => (
+                <div
+                  key={snap.timestamp}
+                  className="p-3 rounded-lg border border-border bg-white/[0.03] hover:border-primary/40 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-orange-400">
+                      {relativeTime(snap.timestamp)}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {snap.messages.length} msgs
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-foreground truncate mb-2">
+                    {snap.messages
+                      .filter((m) => m.role === "user")
+                      .slice(-1)[0]
+                      ?.content.slice(0, 50) || "Empty"}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] w-full gap-1 border-border"
+                    onClick={() => {
+                      onRestore(snap);
+                      onClose();
+                    }}
+                    data-ocid={`editor.history.restore.${i + 1}`}
+                  >
+                    <RotateCcw className="w-3 h-3" /> Restore
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
+
+      <div className="px-4 py-3 border-t border-border">
+        <p className="text-[10px] text-muted-foreground/40">
+          &copy; {new Date().getFullYear()} BrainForge
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function EditorPage() {
   const { projectName } = useParams({ from: "/editor/$projectName" });
   const navigate = useNavigate();
   const { data: settings } = useSettings();
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [snapshots, setSnapshots] = useState<Snapshot[]>(() => loadSnapshots(projectName));
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>(() =>
+    loadSnapshots(projectName),
+  );
   const autoFixCount = useRef(0);
   const prevLoadingRef = useRef(false);
 
   const s = settings as any;
-  const provider: AIProvider = (s?.aiProvider === "deepseek" ? "auto" : s?.aiProvider) || "auto";
+  const provider: AIProvider =
+    (s?.aiProvider === "deepseek" ? "auto" : s?.aiProvider) || "auto";
   const openRouterKey: string = s?.openRouterApiKey || "";
   const openRouterModel: string = s?.defaultModel || "qwen/qwen3-coder:free";
   const geminiKey: string = s?.geminiApiKey || "";
@@ -68,7 +215,12 @@ export function EditorPage() {
   const groqModel: string = s?.groqModel || "llama-3.3-70b-versatile";
   const githubModelsKey: string = s?.githubModelsKey || "";
   const githubModelsModel: string = s?.githubModelsModel || "gpt-4o";
-  const hasAnyKey = !!(openRouterKey || geminiKey || groqKey || githubModelsKey);
+  const hasAnyKey = !!(
+    openRouterKey ||
+    geminiKey ||
+    groqKey ||
+    githubModelsKey
+  );
   const autoFix: boolean = s?.autoFix !== false;
 
   const [initialMessage] = useState<string>(() => {
@@ -78,12 +230,29 @@ export function EditorPage() {
     return val;
   });
 
-  const { messages, isLoading, error, activeProvider, sendMessage, clearMessages } = useAIChat({
-    provider, openRouterKey, openRouterModel, geminiKey, geminiModel,
-    groqKey, groqModel, githubModelsKey, githubModelsModel, projectName,
+  const {
+    messages,
+    isLoading,
+    error,
+    activeProvider,
+    sendMessage,
+    clearMessages,
+  } = useAIChat({
+    provider,
+    openRouterKey,
+    openRouterModel,
+    geminiKey,
+    geminiModel,
+    groqKey,
+    groqModel,
+    githubModelsKey,
+    githubModelsModel,
+    projectName,
   });
 
-  const hasCode = messages.some((m) => m.role === "assistant" && m.content.includes("```"));
+  const hasCode = messages.some(
+    (m) => m.role === "assistant" && m.content.includes("```"),
+  );
 
   useEffect(() => {
     if (prevLoadingRef.current && !isLoading && messages.length > 0) {
@@ -99,7 +268,9 @@ export function EditorPage() {
       if (e.data?.type !== "PREVIEW_ERROR") return;
       if (isLoading || autoFixCount.current >= 3) return;
       autoFixCount.current += 1;
-      sendMessage(`Fix this JavaScript error (auto-fix ${autoFixCount.current}/3): ${e.data.error}`);
+      sendMessage(
+        `Fix this JavaScript error (auto-fix ${autoFixCount.current}/3): ${e.data.error}`,
+      );
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -112,43 +283,78 @@ export function EditorPage() {
   };
 
   const restoreSnapshot = (snap: Snapshot) => {
-    localStorage.setItem(`bf_chat_${projectName}`, JSON.stringify(snap.messages));
-    setHistoryOpen(false);
+    localStorage.setItem(
+      `bf_chat_${projectName}`,
+      JSON.stringify(snap.messages),
+    );
     window.location.reload();
   };
 
   return (
-    <div className="flex flex-col" style={{ height: "100dvh" }} data-ocid="editor.page">
+    <div
+      className="flex flex-col"
+      style={{ height: "100dvh" }}
+      data-ocid="editor.page"
+    >
+      {/* Matrix overlay -- small floating panel */}
       <MatrixOverlay visible={isLoading} />
 
-      {/* Header -- LOCKED, do not change */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
-          onClick={() => navigate({ to: "/projects" })} data-ocid="editor.back.button">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0 bg-background">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+          onClick={() => navigate({ to: "/projects" })}
+          data-ocid="editor.back.button"
+        >
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <span className="text-sm font-medium text-foreground truncate flex-1">{projectName}</span>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className={`w-1.5 h-1.5 rounded-full ${
-            hasAnyKey ? (PROVIDER_DOT[provider] ?? "bg-green-400") : "bg-muted-foreground/30"
-          }`} />
-          {isLoading && activeProvider
-            ? <span className="text-[10px] font-mono">{activeProvider}</span>
-            : <span className="text-[10px]">{provider === "auto" ? "Auto AI" : provider}</span>}
+
+        <span className="text-sm font-medium text-foreground truncate flex-1">
+          {projectName}
+        </span>
+
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              hasAnyKey
+                ? (PROVIDER_DOT[provider] ?? "bg-green-400")
+                : "bg-muted-foreground/30"
+            }`}
+          />
+          {isLoading && activeProvider ? (
+            <span className="text-[10px] font-mono">{activeProvider}</span>
+          ) : (
+            <span className="text-[10px]">
+              {provider === "auto" ? "Auto AI" : provider}
+            </span>
+          )}
         </div>
-        {snapshots.length > 0 && (
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={() => setHistoryOpen(true)} title="Version history" data-ocid="editor.history.button">
-            <Clock className="w-3.5 h-3.5" />
-          </Button>
-        )}
-        <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs border-border shrink-0"
-          onClick={() => setPreviewOpen(true)} data-ocid="editor.preview.open_button">
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 h-7 text-xs border-border shrink-0"
+          onClick={() => setPreviewOpen(true)}
+          data-ocid="editor.preview.open_button"
+        >
           <Monitor className="w-3.5 h-3.5" /> Preview
+        </Button>
+
+        {/* Sidebar / menu button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+          onClick={() => setSidebarOpen(true)}
+          data-ocid="editor.sidebar.button"
+        >
+          <Menu className="w-4 h-4" />
         </Button>
       </div>
 
-      {/* Chat -- full screen, LOCKED */}
+      {/* Chat -- full screen */}
       <div className="flex-1 overflow-hidden">
         <ChatPanel
           messages={messages as any}
@@ -163,14 +369,32 @@ export function EditorPage() {
         />
       </div>
 
-      {/* Preview overlay -- full screen, LOCKED */}
+      {/* Right sidebar drawer */}
+      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        <SheetContent side="right" className="p-0 w-[280px] border-border">
+          <EditorSidebar
+            projectName={projectName}
+            snapshots={snapshots}
+            onRestore={restoreSnapshot}
+            onClose={() => setSidebarOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
+
+      {/* Preview overlay -- full screen */}
       {previewOpen && (
-        <div className="fixed inset-0 z-50 bg-background flex flex-col"
+        <div
+          className="fixed inset-0 z-50 bg-background flex flex-col"
           style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-          data-ocid="editor.preview.overlay">
+          data-ocid="editor.preview.overlay"
+        >
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground"
-              onClick={() => setPreviewOpen(false)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={() => setPreviewOpen(false)}
+            >
               <X className="w-4 h-4" />
             </Button>
             <span className="text-sm font-medium text-foreground flex-1">
@@ -178,44 +402,11 @@ export function EditorPage() {
             </span>
           </div>
           <div className="flex-1 overflow-hidden">
-            <PreviewPanel messages={messages as any} termuxUrl="" projectName={projectName} />
-          </div>
-        </div>
-      )}
-
-      {/* Version history drawer */}
-      {historyOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setHistoryOpen(false)}>
-          <div className="w-[300px] h-full bg-card border-l border-border flex flex-col shadow-2xl"
-            onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-              <span className="text-sm font-semibold flex items-center gap-2">
-                <Clock className="w-4 h-4 text-primary" /> Version History
-              </span>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setHistoryOpen(false)}>
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            <ScrollArea className="flex-1 px-3 py-3">
-              <div className="space-y-2">
-                {snapshots.map((snap, i) => (
-                  <div key={snap.timestamp}
-                    className="p-3 rounded-lg border border-border bg-background hover:border-primary/40 transition-colors">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-muted-foreground">{relativeTime(snap.timestamp)}</span>
-                      <span className="text-[10px] text-muted-foreground">{snap.messages.length} msgs</span>
-                    </div>
-                    <p className="text-[11px] text-foreground truncate mb-2">
-                      {snap.messages.filter(m => m.role === "user").slice(-1)[0]?.content.slice(0, 60) || "Empty"}
-                    </p>
-                    <Button size="sm" variant="outline" className="h-6 text-xs w-full gap-1"
-                      onClick={() => restoreSnapshot(snap)} data-ocid={`editor.history.restore.${i+1}`}>
-                      <RotateCcw className="w-3 h-3" /> Restore
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
+            <PreviewPanel
+              messages={messages as any}
+              termuxUrl=""
+              projectName={projectName}
+            />
           </div>
         </div>
       )}
