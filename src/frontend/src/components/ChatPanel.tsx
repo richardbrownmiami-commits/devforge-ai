@@ -72,12 +72,35 @@ function cleanText(t: string): string {
   }).join("\n").trim();
 }
 
+const LANG_LABELS: Record<string, string> = {
+  html: "HTML/JS", react: "React", "react-tailwind": "React+TW",
+  typescript: "TypeScript", python: "Python 🐍", sql: "SQL 🗄️",
+  markdown: "Markdown 📝", p5js: "p5.js 🎨", threejs: "Three.js 🌐", chartjs: "Chart.js 📊"
+};
+
 function AiMessage({ content, onPreview }: { content: string; onPreview?: () => void }) {
-  const blocks = parseBlocks(content);
+  // Parse AUTO_LANG: prefix if present
+  let displayContent = content;
+  let autoDetectedLang: string | null = null;
+  const autoMatch = content.match(/^AUTO_LANG:(\w[-\w]*):/);
+  if (autoMatch) {
+    autoDetectedLang = autoMatch[1];
+    displayContent = content.replace(/^AUTO_LANG:\S+:/, "").trim();
+  }
+
+  const blocks = parseBlocks(displayContent);
   const texts = blocks.filter(b => b.type === "text");
   const codes = blocks.filter(b => b.type === "code");
   return (
     <div className="space-y-2">
+      {autoDetectedLang && (
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">auto-selected</span>
+          <span className="text-[10px] font-mono text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-full">
+            {LANG_LABELS[autoDetectedLang] || autoDetectedLang}
+          </span>
+        </div>
+      )}
       {texts.map(b => {
         if (b.type !== "text") return null;
         const clean = cleanText(b.text);
@@ -211,4 +234,5 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
     </div>
   );
 }
+
 
