@@ -260,10 +260,17 @@ async function openRouterWithFallback(key: string, preferred: string, history: {
   throw new Error("RATE_LIMITED");
 }
 
-async function tryGemini(key: string, model: string, history: { role: string; content: string }[], signal: AbortSignal, sysPrompt: string): Promise<string> {
+async function tryGemini(key: string, model: string, history: { role: string; content: any }[], signal: AbortSignal, sysPrompt: string): Promise<string> {
+  const toGeminiParts = (c: any) => {
+    if (typeof c === "string") return [{ text: c }];
+    if (Array.isArray(c)) return c.map((p: any) => p.type === "image_url"
+      ? { inlineData: { mimeType: "image/jpeg", data: p.image_url.url.split(",")[1] || p.image_url.url } }
+      : { text: p.text || "" });
+    return [{ text: String(c) }];
+  };
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system_instruction: { parts: [{ text: sysPrompt }] }, contents: history.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })), generationConfig: { maxOutputTokens: 8192 } }), signal,
+    body: JSON.stringify({ system_instruction: { parts: [{ text: sysPrompt }] }, contents: history.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: toGeminiParts(m.content) })), generationConfig: { maxOutputTokens: 8192 } }), signal,
   });
   if (!res.ok) { if (res.status === 429) throw new Error("RATE_LIMITED"); throw new Error(`Gemini ${res.status}`); }
   const d = await res.json(); const t = d.candidates?.[0]?.content?.parts?.[0]?.text; if (!t) throw new Error("RATE_LIMITED"); return t;
@@ -309,6 +316,7 @@ async function tryGitHub(token: string, model: string, history: { role: string; 
 interface UseAIChatOptions {
   provider: AIProvider; language?: AppLanguage;
   onLanguageDetected?: (lang: AppLanguage) => void;
+  supabaseUrl?: string; supabaseKey?: string;
   openRouterKey: string; openRouterModel: string;
   geminiKey: string; geminiModel: string;
   groqKey: string; groqModel: string;
@@ -317,8 +325,11 @@ interface UseAIChatOptions {
 }
 
 export function useAIChat(opts: UseAIChatOptions) {
-  const { provider, language = "html", openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, onLanguageDetected } = opts;
-  const sysPrompt = PROMPTS[language] || PROMPTS.html;
+  const { provider, language = "html", openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, onLanguageDetected, supabaseUrl, supabaseKey } = opts;
+  const supabaseAddon = (supabaseUrl && supabaseKey)
+    ? `\n\nSUPABASE INTEGRATION:\nThis app should use Supabase for database. Include this CDN: <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\nInitialize: const supabase = window.supabase.createClient("${supabaseUrl}", "${supabaseKey}");\nUse supabase.from('table').select/insert/update/delete for all data operations.`
+    : "";
+  const sysPrompt = (PROMPTS[language] || PROMPTS.html) + supabaseAddon;
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatMessages(projectName));
   const [isLoading, setIsLoading] = useState(false);
@@ -342,7 +353,7 @@ export function useAIChat(opts: UseAIChatOptions) {
     }
   }, [projectName]);
 
-  const sendMessage = useCallback(async (message: string) => {
+  const sendMessage = useCallback(async (message: string, imageBase64?: string) => {
     setError(null);
     const prev = loadChatMessages(projectName);
     const next = [...prev, { role: "user", content: message } as ChatMessage];
@@ -351,7 +362,19 @@ export function useAIChat(opts: UseAIChatOptions) {
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
-    const history = next.map(m => ({ role: m.role, content: m.content }));
+    // Build history -- last user message may include image for vision
+    const history = next.map((m, idx) => {
+      if (m.role === "user" && idx === next.length - 1 && imageBase64) {
+        return {
+          role: m.role,
+          content: [
+            { type: "text", text: m.content },
+            { type: "image_url", image_url: { url: imageBase64 } }
+          ] as any,
+        };
+      }
+      return { role: m.role, content: m.content };
+    });
     try {
       let reply = "";
       if (provider === "groq") {
@@ -399,7 +422,7 @@ export function useAIChat(opts: UseAIChatOptions) {
       setMessages(p => { const n = [...p, { role: "assistant", content: finalReply } as ChatMessage]; persist(projectName, n); scheduleSessionPush(projectName, n); return n; });
     } catch (e: unknown) { if (e instanceof Error && e.name !== "AbortError") setError(e.message); setActiveModel(""); }
     finally { setIsLoading(false); }
-  }, [provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, sysPrompt, onLanguageDetected]);
+  }, [provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, sysPrompt, onLanguageDetected, supabaseUrl, supabaseKey]);
 
   const clearMessages = useCallback(() => {
     setMessages([]); persist(projectName, []); idbRemove(storageKey(projectName)).catch(() => {}); setError(null); setActiveModel("");
@@ -407,6 +430,7 @@ export function useAIChat(opts: UseAIChatOptions) {
 
   return { messages, isLoading, error, activeProvider: activeModel, sendMessage, clearMessages };
 }
+
 
 
 
