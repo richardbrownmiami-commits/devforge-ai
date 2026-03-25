@@ -1,7 +1,17 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { AlertCircle, Info, Loader2, Monitor, Send, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Code2,
+  Info,
+  Loader2,
+  Monitor,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../hooks/useTermux";
@@ -31,8 +41,17 @@ function parseBlocks(content: string): Block[] {
   let m = regex.exec(content);
   while (m !== null) {
     if (m.index > last)
-      blocks.push({ type: "text", id: `t-${idx++}`, text: content.slice(last, m.index) });
-    blocks.push({ type: "code", id: `c-${idx++}`, lang: m[1] || "text", code: m[2] });
+      blocks.push({
+        type: "text",
+        id: `t-${idx++}`,
+        text: content.slice(last, m.index),
+      });
+    blocks.push({
+      type: "code",
+      id: `c-${idx++}`,
+      lang: m[1] || "text",
+      code: m[2],
+    });
     last = m.index + m[0].length;
     m = regex.exec(content);
   }
@@ -43,27 +62,101 @@ function parseBlocks(content: string): Block[] {
   return blocks;
 }
 
-function CodeBlock({ content }: { content: string }) {
-  const blocks = parseBlocks(content);
+function CodeIndicator({
+  lang,
+  lines,
+  onPreview,
+}: {
+  lang: string;
+  lines: number;
+  onPreview?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="space-y-1.5">
-      {blocks.map((b) =>
-        b.type === "code" ? (
-          <div key={b.id} className="rounded overflow-hidden border border-border">
-            {b.lang && (
-              <div className="px-2 py-0.5 text-[9px] font-mono text-muted-foreground bg-muted/50 border-b border-border uppercase tracking-wider">
-                {b.lang}
-              </div>
+    <div className="rounded-lg border border-green-500/30 bg-green-950/20 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Code2 className="w-3.5 h-3.5 text-green-400" />
+          <span className="text-[11px] font-mono text-green-400 uppercase tracking-wider">
+            {lang || "code"}
+          </span>
+          <span className="text-[10px] text-green-600">{lines} lines</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {onPreview && (
+            <button
+              type="button"
+              onClick={onPreview}
+              className="text-[10px] text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 px-2 py-0.5 rounded-full transition-colors"
+            >
+              Preview
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="text-green-600 hover:text-green-400 transition-colors"
+          >
+            {expanded ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
             )}
-            <pre className="code-editor px-3 py-2 text-[11px] overflow-x-scroll bg-[oklch(0.1_0_0)] leading-relaxed whitespace-pre">
-              <code>{b.code}</code>
-            </pre>
-          </div>
-        ) : (
-          <p key={b.id} className="text-[12px] leading-relaxed whitespace-pre-wrap text-foreground">
-            {b.text}
+          </button>
+        </div>
+      </div>
+      {expanded && (
+        <div className="border-t border-green-500/20">
+          <pre
+            className="code-editor px-3 py-2 text-[10px] overflow-x-auto bg-black/40 leading-relaxed whitespace-pre max-h-40"
+            style={{ fontSize: "10px" }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiMessageContent({
+  content,
+  onPreview,
+}: {
+  content: string;
+  onPreview?: () => void;
+}) {
+  const blocks = parseBlocks(content);
+  const codeBlocks = blocks.filter((b) => b.type === "code");
+  const textBlocks = blocks.filter((b) => b.type === "text");
+  const hasCode = codeBlocks.length > 0;
+
+  return (
+    <div className="space-y-2">
+      {/* Show text parts only */}
+      {textBlocks.map((b) =>
+        b.type === "text" && b.text.trim() ? (
+          <p
+            key={b.id}
+            className="text-[12px] leading-relaxed whitespace-pre-wrap text-foreground"
+          >
+            {b.text.trim()}
           </p>
-        )
+        ) : null,
+      )}
+
+      {/* Show code as compact indicators -- not pasted inline */}
+      {hasCode && (
+        <div className="space-y-1.5 mt-1">
+          {codeBlocks.map((b) =>
+            b.type === "code" ? (
+              <CodeIndicator
+                key={b.id}
+                lang={b.lang}
+                lines={b.code.split("\n").length}
+                onPreview={onPreview}
+              />
+            ) : null,
+          )}
+        </div>
       )}
     </div>
   );
@@ -85,10 +178,9 @@ export function ChatPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Pre-fill from template on mount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only effect
   useEffect(() => {
     if (initialMessage) setInput(initialMessage);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on change
@@ -115,77 +207,116 @@ export function ChatPanel({
 
   return (
     <div className="flex flex-col h-full" data-ocid="chat.panel">
-
-      {/* Messages */}
-      {/* Scrolls vertically AND horizontally for long code blocks/content */}
       <ScrollArea className="flex-1 px-3" style={{ overflowX: "auto" }}>
         <div className="py-3 space-y-3 min-w-0">
-
           {messages.length === 0 && (
             <div className="text-center py-14" data-ocid="chat.empty_state">
-              <div className="text-2xl mb-2">⚡</div>
-              <p className="text-xs text-muted-foreground">Describe what you want to build</p>
-              <p className="text-[11px] text-muted-foreground/50 mt-1">AI generates code + live preview</p>
+              <div className="text-3xl mb-2">⚡</div>
+              <p className="text-xs text-muted-foreground">
+                Describe what you want to build
+              </p>
+              <p className="text-[11px] text-muted-foreground/50 mt-1">
+                AI generates code + live preview
+              </p>
             </div>
           )}
 
           {apiKeyMissing && messages.length === 0 && (
-            <div className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg p-2.5" data-ocid="chat.api_key_notice">
+            <div
+              className="flex items-start gap-2 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg p-2.5"
+              data-ocid="chat.api_key_notice"
+            >
               <Info className="w-3 h-3 shrink-0 mt-0.5 text-primary" />
-              <span>Add OpenRouter or Gemini API key in <a href="/settings" className="text-primary hover:underline">Settings › API</a></span>
+              <span>
+                Add OpenRouter or Gemini API key in{" "}
+                <a href="/settings" className="text-primary hover:underline">
+                  Settings › API
+                </a>
+              </span>
             </div>
           )}
 
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => (
               <motion.div
-                key={`msg-${i}`}
+                key={`${msg.role}-${i}-${msg.content.slice(0, 8)}`}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.15 }}
                 className={cn(
-                  "rounded-lg px-3 py-2",
-                  msg.role === "user" ? "chat-bubble-user ml-6" : "chat-bubble-ai"
+                  "rounded-xl px-3 py-2.5",
+                  msg.role === "user"
+                    ? "chat-bubble-user ml-8"
+                    : "chat-bubble-ai",
                 )}
                 data-ocid={`chat.item.${i + 1}`}
               >
-                <span className="text-[9px] font-mono text-muted-foreground uppercase block mb-1">
-                  {msg.role === "user" ? "you" : "ai"}
+                <span
+                  className={cn(
+                    "text-[9px] font-mono uppercase block mb-1.5 tracking-wider",
+                    msg.role === "user"
+                      ? "text-violet-300/70"
+                      : "text-cyan-400/70",
+                  )}
+                >
+                  {msg.role === "user" ? "you" : "✦ ai"}
                 </span>
-                <CodeBlock content={msg.content} />
+                {msg.role === "assistant" ? (
+                  <AiMessageContent
+                    content={msg.content}
+                    onPreview={onPreview}
+                  />
+                ) : (
+                  <p className="text-[12px] leading-relaxed whitespace-pre-wrap text-foreground">
+                    {msg.content}
+                  </p>
+                )}
               </motion.div>
             ))}
           </AnimatePresence>
 
           {isLoading && (
-            <div className="chat-bubble-ai rounded-lg px-3 py-2" data-ocid="chat.loading_state">
-              <span className="text-[9px] font-mono text-muted-foreground uppercase block mb-1">ai</span>
+            <div
+              className="chat-bubble-ai rounded-xl px-3 py-2.5"
+              data-ocid="chat.loading_state"
+            >
+              <span className="text-[9px] font-mono text-cyan-400/70 uppercase block mb-1.5 tracking-wider">
+                ✦ ai
+              </span>
               <div className="flex gap-1">
                 {[0, 1, 2].map((i) => (
-                  <span key={i} className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"
-                    style={{ animationDelay: `${i * 0.15}s` }} />
+                  <span
+                    key={i}
+                    className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"
+                    style={{ animationDelay: `${i * 0.15}s` }}
+                  />
                 ))}
               </div>
             </div>
           )}
 
           {error && (
-            <div className="flex items-start gap-2 text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-2.5" data-ocid="chat.error_state">
+            <div
+              className="flex items-start gap-2 text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-xl p-2.5"
+              data-ocid="chat.error_state"
+            >
               <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
-          {/* Shortcut button to open preview after code is generated */}
           {hasCode && !isLoading && onPreview && (
-            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
               <button
                 type="button"
                 onClick={onPreview}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-[11px] text-primary"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 to-violet-500/10 hover:from-primary/20 hover:to-violet-500/20 transition-all text-[11px] text-primary font-medium"
               >
-                <Monitor className="w-3 h-3" />
-                Tap to open preview
+                <Monitor className="w-3.5 h-3.5" />
+                Open Preview
               </button>
             </motion.div>
           )}
@@ -196,7 +327,6 @@ export function ChatPanel({
 
       {/* Input bar */}
       <div className="px-3 py-2.5 border-t border-border shrink-0 bg-background">
-        {/* Clear chat button -- top of input bar */}
         {messages.length > 0 && (
           <div className="flex justify-end mb-1">
             <button
@@ -223,7 +353,7 @@ export function ChatPanel({
             placeholder="Enter instruction or question..."
             disabled={disabled || isLoading}
             rows={1}
-            className="resize-none bg-card border border-border rounded-md px-3 py-2 flex-1 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50 leading-relaxed overflow-hidden"
+            className="resize-none bg-card border border-border rounded-xl px-3 py-2 flex-1 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/50 leading-relaxed overflow-hidden"
             style={{ fontSize: "16px", minHeight: "38px", maxHeight: "120px" }}
             data-ocid="chat.input"
           />
@@ -231,15 +361,19 @@ export function ChatPanel({
             onClick={handleSend}
             disabled={!input.trim() || isLoading || disabled}
             size="icon"
-            className="h-9 w-9 bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
+            className="h-9 w-9 bg-gradient-to-br from-primary to-violet-600 hover:opacity-90 text-primary-foreground shrink-0 rounded-xl"
             data-ocid="chat.submit_button"
           >
-            {isLoading
-              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              : <Send className="w-3.5 h-3.5" />}
+            {isLoading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
           </Button>
         </div>
-        <p className="text-[9px] text-muted-foreground/30 mt-1 ml-0.5">Enter · send    Shift+Enter · new line</p>
+        <p className="text-[9px] text-muted-foreground/30 mt-1 ml-0.5">
+          Enter · send Shift+Enter · new line
+        </p>
       </div>
     </div>
   );
