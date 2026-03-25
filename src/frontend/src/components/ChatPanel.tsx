@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { AlertCircle, ChevronDown, ChevronUp, Code2, Info, Loader2, Monitor, Send, Trash2, Wrench } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronUp, Code2, ImagePlus, Info, Loader2, Monitor, Send, Trash2, Wrench, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../hooks/useTermux";
@@ -9,7 +9,7 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   isLoading: boolean;
   error: string | null;
-  onSend: (message: string) => void;
+  onSend: (message: string, imageBase64?: string) => void;
   onClear: () => void;
   disabled?: boolean;
   apiKeyMissing?: boolean;
@@ -118,9 +118,12 @@ function AiMessage({ content, onPreview }: { content: string; onPreview?: () => 
 
 export function ChatPanel({ messages, isLoading, error, onSend, onClear, disabled, apiKeyMissing, onPreview, hasCode, initialMessage, autoFixStatus }: ChatPanelProps) {
   const [input, setInput] = useState("");
+  const [image, setImage] = useState<string | null>(null);
+  const [imageName, setImageName] = useState<string>("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount only
   useEffect(() => { if (initialMessage) setInput(initialMessage); }, []);
@@ -133,8 +136,20 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
 
   const handleSend = () => {
     const t = input.trim(); if (!t || isLoading || disabled) return;
-    setInput(""); if (textareaRef.current) textareaRef.current.style.height = "auto";
-    onSend(t);
+    const img = image;
+    setInput(""); setImage(null); setImageName("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    onSend(t, img || undefined);
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImage(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
   return (
@@ -216,7 +231,25 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
             </button>
           </div>
         )}
+        {/* Image preview */}
+        {image && (
+          <div className="flex items-center gap-2 mb-1.5 px-1">
+            <img src={image} alt="attachment" className="w-12 h-12 rounded-lg object-cover border border-border" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-muted-foreground truncate">{imageName}</p>
+              <p className="text-[9px] text-primary">Image attached -- AI will analyze it</p>
+            </div>
+            <button type="button" onClick={() => { setImage(null); setImageName(""); }} className="text-muted-foreground hover:text-destructive"><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
         <div className="flex gap-2 items-end">
+          {/* Image upload button */}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+          <button type="button" onClick={() => fileRef.current?.click()}
+            className={`h-9 w-9 flex items-center justify-center rounded-xl border shrink-0 transition-colors ${image ? "border-primary text-primary bg-primary/10" : "border-border text-muted-foreground hover:text-foreground hover:border-primary/50"}`}
+            title="Attach image (screenshot to code)">
+            <ImagePlus className="w-4 h-4" />
+          </button>
           <textarea ref={textareaRef} value={input}
             onChange={e => { setInput(e.target.value); const el = e.target; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight,120)}px`; }}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
@@ -234,5 +267,6 @@ export function ChatPanel({ messages, isLoading, error, onSend, onClear, disable
     </div>
   );
 }
+
 
 
