@@ -28,7 +28,10 @@ function relTime(ts: number) {
   return dy > 0 ? `${dy}d ago` : h > 0 ? `${h}h ago` : m > 0 ? `${m}m ago` : "Just now";
 }
 
-function EditorSidebar({ projectName, snapshots, onRestore, onClose }: { projectName: string; snapshots: Snapshot[]; onRestore: (s: Snapshot) => void; onClose: () => void }) {
+function EditorSidebar({ projectName, snapshots, onRestore, onClose }: {
+  projectName: string; snapshots: Snapshot[];
+  onRestore: (s: Snapshot) => void; onClose: () => void;
+}) {
   const navigate = useNavigate();
   return (
     <div className="flex flex-col h-full" style={{ background: "oklch(0.10 0 0)" }}>
@@ -51,13 +54,17 @@ function EditorSidebar({ projectName, snapshots, onRestore, onClose }: { project
           <Settings className="w-4 h-4 text-violet-400" /> Settings
         </button>
       </nav>
-      {snapshots.length > 0 && (
-        <div className="flex-1 flex flex-col min-h-0 border-t border-border">
-          <div className="px-4 py-3 flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5 text-orange-400" />
-            <span className="text-[11px] font-semibold">Version History</span>
-            <span className="ml-auto text-[10px] text-muted-foreground">{snapshots.length} saved</span>
-          </div>
+
+      {/* Version history -- always visible in sidebar */}
+      <div className="flex-1 flex flex-col min-h-0 border-t border-border">
+        <div className="px-4 py-3 flex items-center gap-2">
+          <Clock className="w-3.5 h-3.5 text-orange-400" />
+          <span className="text-[11px] font-semibold text-foreground">Version History</span>
+          {snapshots.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground">{snapshots.length} saved</span>}
+        </div>
+        {snapshots.length === 0 ? (
+          <p className="px-4 text-[11px] text-muted-foreground/50">No snapshots yet. Send a message to start.</p>
+        ) : (
           <ScrollArea className="flex-1 px-3 pb-3">
             <div className="space-y-2">
               {snapshots.map((s, i) => (
@@ -66,16 +73,19 @@ function EditorSidebar({ projectName, snapshots, onRestore, onClose }: { project
                     <span className="text-[10px] text-orange-400">{relTime(s.timestamp)}</span>
                     <span className="text-[10px] text-muted-foreground">{s.messages.length} msgs</span>
                   </div>
-                  <p className="text-[11px] truncate mb-2">{s.messages.filter(m => m.role==="user").slice(-1)[0]?.content.slice(0,50)||"Empty"}</p>
-                  <Button size="sm" variant="outline" className="h-6 text-[10px] w-full gap-1" onClick={() => { onRestore(s); onClose(); }} data-ocid={`editor.history.restore.${i+1}`}>
+                  <p className="text-[11px] truncate mb-2 text-foreground">
+                    {s.messages.filter(m => m.role === "user").slice(-1)[0]?.content.slice(0, 50) || "Empty"}
+                  </p>
+                  <Button size="sm" variant="outline" className="h-6 text-[10px] w-full gap-1"
+                    onClick={() => { onRestore(s); onClose(); }} data-ocid={`editor.history.restore.${i+1}`}>
                     <RotateCcw className="w-3 h-3" /> Restore
                   </Button>
                 </div>
               ))}
             </div>
           </ScrollArea>
-        </div>
-      )}
+        )}
+      </div>
       <div className="px-4 py-3 border-t border-border">
         <p className="text-[10px] text-muted-foreground/40">&copy; {new Date().getFullYear()} BrainForge</p>
       </div>
@@ -109,31 +119,32 @@ export function EditorPage() {
   const hasAnyKey = !!(openRouterKey || geminiKey || groqKey || githubModelsKey);
   const autoFix: boolean = s?.autoFix !== false;
 
-  const [initialMessage] = useState(() => { const k = `bf_starter_${projectName}`; const v = localStorage.getItem(k)||"";
-    if (v) localStorage.removeItem(k); return v; });
+  const [initialMessage] = useState(() => {
+    const k = `bf_starter_${projectName}`; const v = localStorage.getItem(k) || "";
+    if (v) localStorage.removeItem(k); return v;
+  });
 
   const { messages, isLoading, error, activeProvider, sendMessage, clearMessages } = useAIChat({
-    provider, openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName,
+    provider, openRouterKey, openRouterModel, geminiKey, geminiModel,
+    groqKey, groqModel, githubModelsKey, githubModelsModel, projectName,
   });
 
   const hasCode = messages.some(m => m.role === "assistant" && m.content.includes("```"));
 
-  // Save snapshot + clear fix status after AI responds
   useEffect(() => {
     if (prevLoadingRef.current && !isLoading && messages.length > 0) {
-      saveSnapshot(projectName, messages); setSnapshots(loadSnapshots(projectName));
+      saveSnapshot(projectName, messages);
+      setSnapshots(loadSnapshots(projectName));
       setAutoFixStatus(null);
     }
     prevLoadingRef.current = isLoading;
   }, [isLoading, messages, projectName]);
 
-  // Auto-open preview when code first appears
   useEffect(() => {
     if (!isLoading && hasCode && !prevHasCodeRef.current) setPreviewOpen(true);
     prevHasCodeRef.current = hasCode;
   }, [isLoading, hasCode]);
 
-  // Phase 2 -- auto error fix loop
   useEffect(() => {
     if (!autoFix) return;
     const handler = (e: MessageEvent) => {
@@ -141,7 +152,7 @@ export function EditorPage() {
       errorCooldown.current = true;
       setTimeout(() => { errorCooldown.current = false; }, 3000);
       autoFixCount.current += 1;
-      setAutoFixStatus(`🔧 Auto-fixing error (${autoFixCount.current}/3)...`);
+      setAutoFixStatus(`🔧 Auto-fixing (${autoFixCount.current}/3)...`);
       setPreviewOpen(false);
       sendMessage(`Fix this error: "${e.data.error}"\nReturn the COMPLETE corrected HTML file. Auto-fix ${autoFixCount.current}/3.`);
     };
@@ -156,51 +167,66 @@ export function EditorPage() {
     <div className="flex flex-col" style={{ height: "100dvh" }} data-ocid="editor.page">
       <MatrixOverlay visible={isLoading} />
 
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0" onClick={() => navigate({ to: "/projects" })} data-ocid="editor.back.button">
+      {/* Header -- compact, hamburger always visible */}
+      <div className="flex items-center gap-1.5 px-2 py-2 border-b border-border shrink-0">
+        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+          onClick={() => navigate({ to: "/projects" })} data-ocid="editor.back.button">
           <ArrowLeft className="w-4 h-4" />
         </Button>
-        <span className="text-sm font-medium text-foreground truncate flex-1">{projectName}</span>
 
+        <span className="text-sm font-medium text-foreground truncate flex-1 min-w-0">{projectName}</span>
+
+        {/* Auto fix badge -- compact */}
         {autoFixStatus && (
-          <div className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 shrink-0 max-w-[140px]">
-            {autoFixStatus.includes("⚠") ? <AlertTriangle className="w-3 h-3 shrink-0" /> : <Wrench className="w-3 h-3 shrink-0 animate-spin" />}
-            <span className="truncate text-[10px]">{autoFixStatus}</span>
+          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 shrink-0">
+            {autoFixStatus.includes("⚠") ? <AlertTriangle className="w-3 h-3" /> : <Wrench className="w-3 h-3 animate-spin" />}
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className={`w-1.5 h-1.5 rounded-full ${hasAnyKey ? (PROVIDER_DOT[provider]??"bg-green-400") : "bg-muted-foreground/30"}`} />
-          <span className="text-[10px] text-muted-foreground">{isLoading && activeProvider ? activeProvider : provider === "auto" ? "Auto" : provider}</span>
-        </div>
+        {/* Provider dot only -- no text on mobile to save space */}
+        <span className={`w-2 h-2 rounded-full shrink-0 ${hasAnyKey ? (PROVIDER_DOT[provider] ?? "bg-green-400") : "bg-muted-foreground/30"}`} />
 
+        {/* Preview button */}
         <Button variant="outline" size="sm"
-          className={`gap-1.5 h-7 text-xs shrink-0 transition-all ${hasCode ? "border-primary/50 text-primary bg-primary/5" : "border-border"}`}
+          className={`h-7 px-2 text-xs shrink-0 transition-all ${hasCode ? "border-primary/50 text-primary bg-primary/5" : "border-border text-muted-foreground"}`}
           onClick={() => setPreviewOpen(true)} data-ocid="editor.preview.open_button">
-          <Monitor className="w-3.5 h-3.5" /> Preview{hasCode ? " ✓" : ""}
+          <Monitor className="w-3.5 h-3.5" />
+          <span className="ml-1 hidden sm:inline">{hasCode ? "Preview ✓" : "Preview"}</span>
         </Button>
 
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0" onClick={() => setSidebarOpen(true)} data-ocid="editor.menu.button">
+        {/* Hamburger -- always visible, prominent */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0 transition-colors"
+          data-ocid="editor.menu.button"
+          title="Menu & History"
+        >
           <Menu className="w-4 h-4" />
-        </Button>
+        </button>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      {/* Chat area */}
+      <div className="flex-1 min-h-0 overflow-hidden">
         <ChatPanel messages={messages as any} isLoading={isLoading} error={error} initialMessage={initialMessage}
           onSend={handleSend} onClear={clearMessages} apiKeyMissing={!hasAnyKey}
           hasCode={hasCode} onPreview={() => setPreviewOpen(true)} autoFixStatus={autoFixStatus} />
       </div>
 
+      {/* Right sidebar drawer */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="right" className="p-0 w-[280px] border-border">
+        <SheetContent side="right" className="p-0 w-[300px] border-border" style={{ zIndex: 100 }}>
           <EditorSidebar projectName={projectName} snapshots={snapshots} onRestore={restoreSnapshot} onClose={() => setSidebarOpen(false)} />
         </SheetContent>
       </Sheet>
 
+      {/* Preview overlay */}
       {previewOpen && (
         <div className="fixed inset-0 z-50 bg-background flex flex-col" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} data-ocid="editor.preview.overlay">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setPreviewOpen(false)}><X className="w-4 h-4" /></Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setPreviewOpen(false)}>
+              <X className="w-4 h-4" />
+            </Button>
             <span className="text-sm font-medium flex-1">Preview — {projectName}</span>
           </div>
           <div className="flex-1 overflow-hidden">
