@@ -1,0 +1,32 @@
+{
+  "name": "BrainForge",
+  "short_name": "BrainForge",
+  "description": "AI-powered app builder - Soocho Mat, Bana Dalo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a12",
+  "theme_color": "#7c3aed",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/assets/generated/brainforge-icon-3d.dim_512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/generated/brainforge-icon-3d.dim_512x512.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["productivity", "developer"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "New Project",
+      "url": "/projects",
+      "description": "Create a new AI project"
+    }
+  ]
+}
