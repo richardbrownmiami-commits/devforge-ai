@@ -5,6 +5,7 @@ import {
   StickyNote,
   ChevronLeft,
   ClipboardList,
+  Database,
   HardDrive,
   LayoutDashboard,
   LogOut,
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { icon: Users, label: "Users", path: "/admin/users" },
   { icon: MessageSquare, label: "Feedback", path: "/admin/feedback" },
   { icon: Bot, label: "Master AI", path: "/admin/master-ai" },
+  { icon: Database, label: "Database", path: "/admin/database" },
   { icon: Activity, label: "Status", path: "/admin/status" },
   { icon: HardDrive, label: "Backup", path: "/admin/backup" },
   { icon: ClipboardList, label: "Issues", path: "/admin/issues" },
@@ -47,7 +49,7 @@ function useIdleLogout() {
 
     const events = ["mousemove", "keydown", "click", "scroll", "touchstart", "touchmove"];
     events.forEach(ev => window.addEventListener(ev, reset, { passive: true }));
-    reset(); // start timer
+    reset();
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -78,7 +80,7 @@ function IdleWarning() {
 
   const mins = Math.floor(remaining / 60000);
   const secs = Math.floor((remaining % 60000) / 1000);
-  const isWarning = remaining < 2 * 60 * 1000; // warn at 2 min
+  const isWarning = remaining < 2 * 60 * 1000;
 
   if (!isWarning) return null;
   return (
@@ -155,7 +157,6 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
 
 function AdminContent() {
   useIdleLogout();
-
   const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "oklch(0.06 0.02 280)" }}>
