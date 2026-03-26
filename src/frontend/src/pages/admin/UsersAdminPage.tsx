@@ -1,11 +1,11 @@
 import { getActivityLog, getUsers, saveUsers, simpleHash, getSessionRecord, forceLogoutUser, hasActiveSession, type BFUser } from "../../lib/userUtils";
-import { Activity, AlertCircle, Clock, LogOut, Monitor, Plus, Shield, Trash2, UserCheck, Users, Wifi, WifiOff } from "lucide-react";
+import { Activity, AlertCircle, Brain, Clock, LogOut, Monitor, Plus, Shield, Trash2, UserCheck, Users, Wifi, WifiOff } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export function UsersAdminPage() {
   const [users, setUsers] = useState<BFUser[]>(() => getUsers());
-  const [tab, setTab] = useState<"users" | "sessions" | "activity">("users");
+  const [tab, setTab] = useState<"users" | "sessions" | "memories" | "activity">("users");
   const [showAdd, setShowAdd] = useState(false);
   const [newUser, setNewUser] = useState({ username: "", password: "", email: "" });
   const [defaultOrKey, setDefaultOrKey] = useState(() => localStorage.getItem("bf_default_or_key") || "");
@@ -78,6 +78,7 @@ export function UsersAdminPage() {
   const TAB_ITEMS = [
     { id: "users" as const, label: "Users", icon: Users },
     { id: "sessions" as const, label: "Sessions", icon: Monitor },
+    { id: "memories" as const, label: "Memories", icon: Brain },
     { id: "activity" as const, label: "Activity", icon: Activity },
   ];
 
@@ -269,6 +270,58 @@ export function UsersAdminPage() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Memories tab */}
+      {tab === "memories" && (
+        <div className="space-y-3">
+          {users.length === 0 ? (
+            <div className="rounded-xl p-8 text-center text-xs text-muted-foreground" style={cardStyle}>Koi users nahi</div>
+          ) : users.map(u => {
+            const userProjs = (() => {
+              try { return JSON.parse(localStorage.getItem(`bf_projects_${u.username}`) || "[]"); } catch { return []; }
+            })();
+            return (
+              <div key={u.username} className="rounded-xl overflow-hidden" style={cardStyle}>
+                <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: "1px solid oklch(0.18 0.06 280)" }}>
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                    style={{ background: "oklch(0.55 0.25 280 / 0.15)", color: accentColor }}>
+                    {u.username.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-sm font-medium text-foreground">{u.username}</span>
+                  <span className="text-[10px] text-muted-foreground">{userProjs.length} projects</span>
+                </div>
+                {userProjs.length === 0 ? (
+                  <div className="px-4 py-3 text-[10px] text-muted-foreground">Koi projects nahi</div>
+                ) : (
+                  <div className="divide-y" style={{ borderColor: "oklch(0.15 0.05 280)" }}>
+                    {userProjs.map((p: any) => {
+                      const memKey = `bf_memory_${u.username}_${p.name || p}`;
+                      const mem = localStorage.getItem(memKey) || "";
+                      return (
+                        <div key={p.name || p} className="px-4 py-3">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <Brain className="w-3 h-3 shrink-0" style={{ color: "oklch(0.60 0.20 280)" }} />
+                            <span className="text-xs font-medium text-foreground">{p.name || p}</span>
+                            <span className="text-[10px] text-muted-foreground">{mem.length} chars</span>
+                          </div>
+                          {mem ? (
+                            <pre className="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap line-clamp-4 max-h-16 overflow-hidden rounded px-2 py-1.5"
+                              style={{ background: "oklch(0.07 0.02 280)" }}>
+                              {mem.substring(0, 300)}{mem.length > 300 ? "..." : ""}
+                            </pre>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground italic">No memory yet</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
