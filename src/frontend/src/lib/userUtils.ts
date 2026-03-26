@@ -6,6 +6,28 @@ export interface BFUser {
   email?: string;
   createdAt: string;
   lastActive?: string;
+  dailyMessageLimit?: number; // 0 = unlimited
+  maxProjects?: number; // 0 = unlimited
+}
+
+// ===== Quotas =====
+export function getTodayMessageCount(username: string): number {
+  const key = `bf_msg_count_${username}_${new Date().toDateString()}`;
+  return parseInt(localStorage.getItem(key) || "0");
+}
+export function incrementMessageCount(username: string): number {
+  const key = `bf_msg_count_${username}_${new Date().toDateString()}`;
+  const count = parseInt(localStorage.getItem(key) || "0") + 1;
+  localStorage.setItem(key, String(count));
+  return count;
+}
+export function checkMessageQuota(username: string): { allowed: boolean; count: number; limit: number } {
+  const users = getUsers();
+  const user = users.find(u => u.username === username);
+  const limit = user?.dailyMessageLimit || 0;
+  const count = getTodayMessageCount(username);
+  if (limit === 0) return { allowed: true, count, limit: 0 };
+  return { allowed: count < limit, count, limit };
 }
 
 export interface Activity {
