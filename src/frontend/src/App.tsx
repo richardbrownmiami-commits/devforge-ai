@@ -18,11 +18,15 @@ import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { BackupPage } from "./pages/admin/BackupPage";
 import { DeployLogPage } from "./pages/admin/DeployLogPage";
+import { FeedbackAdminPage } from "./pages/admin/FeedbackAdminPage";
 import { IssueTrackerPage } from "./pages/admin/IssueTrackerPage";
 import { MasterAIAdminPage } from "./pages/admin/MasterAIAdminPage";
 import { StatusPage } from "./pages/admin/StatusPage";
 import { NotesPage } from "./pages/admin/NotesPage";
 import { TermuxAdminPage } from "./pages/admin/TermuxAdminPage";
+import { UsersAdminPage } from "./pages/admin/UsersAdminPage";
+import { FeedbackWidget } from "./components/FeedbackWidget";
+import { UserLoginGate } from "./components/UserLoginGate";
 
 function PinLock({ children }: { children: React.ReactNode }) {
   const [locked, setLocked] = useState(false);
@@ -113,10 +117,13 @@ const adminIssuesRoute = createRoute({ getParentRoute: () => adminLayoutRoute, p
 const adminDeployLogRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/deploy-log", component: DeployLogPage });
 const adminNotesRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/notes", component: NotesPage });
 const adminTermuxRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/termux", component: TermuxAdminPage });
+const adminUsersRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/users", component: UsersAdminPage });
+const adminFeedbackRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/feedback", component: FeedbackAdminPage });
 
 adminLayoutRoute.addChildren([
   adminIndexRoute, adminMasterAIRoute, adminStatusRoute, adminBackupRoute,
   adminIssuesRoute, adminDeployLogRoute, adminNotesRoute, adminTermuxRoute,
+  adminUsersRoute, adminFeedbackRoute,
 ]);
 
 const mainRouteTree = rootRoute.addChildren([indexRoute, projectsRoute, editorRoute, settingsRoute, policyRoute]);
@@ -133,8 +140,11 @@ export default function App() {
   const { showWizard, setShowWizard } = useOnboarding();
   return (
     <>
-      <RouterProvider router={router} />
-      {!isAdminPath && showWizard && <OnboardingWizard onComplete={() => setShowWizard(false)} />}
+      <UserLoginGate>
+        <RouterProvider router={router} />
+        {!isAdminPath && showWizard && <OnboardingWizard onComplete={() => setShowWizard(false)} />}
+        {!isAdminPath && <FeedbackWidget />}
+      </UserLoginGate>
     </>
   );
 }
