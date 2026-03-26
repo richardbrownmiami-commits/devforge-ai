@@ -1,10 +1,11 @@
-import { getActivityLog, getUsers, saveUsers, simpleHash, type BFUser } from "../../lib/userUtils";
-import { Activity, Clock, Plus, Shield, Trash2, UserCheck, Users } from "lucide-react";
+import { getActivityLog, getUsers, saveUsers, simpleHash, getSessionRecord, forceLogoutUser, hasActiveSession, type BFUser } from "../../lib/userUtils";
+import { Activity, AlertCircle, Clock, LogOut, Monitor, Plus, Shield, Trash2, UserCheck, Users, Wifi, WifiOff } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 export function UsersAdminPage() {
   const [users, setUsers] = useState<BFUser[]>(() => getUsers());
-  const [tab, setTab] = useState<"users" | "activity">("users");
+  const [tab, setTab] = useState<"users" | "sessions" | "activity">("users");
   const [showAdd, setShowAdd] = useState(false);
   const [newUser, setNewUser] = useState({ username: "", password: "", email: "" });
   const [defaultOrKey, setDefaultOrKey] = useState(() => localStorage.getItem("bf_default_or_key") || "");
@@ -28,6 +29,7 @@ export function UsersAdminPage() {
     setUsers(updated);
     setNewUser({ username: "", password: "", email: "" });
     setShowAdd(false);
+    toast.success(`User "${newUser.username}" add ho gaya!`);
   };
 
   const handleDelete = (username: string) => {
@@ -35,6 +37,7 @@ export function UsersAdminPage() {
     const updated = users.filter(u => u.username !== username);
     saveUsers(updated);
     setUsers(updated);
+    toast.success("User delete ho gaya");
   };
 
   const handleResetPw = (username: string) => {
@@ -43,12 +46,18 @@ export function UsersAdminPage() {
     const updated = users.map(u => u.username === username ? { ...u, passwordHash: simpleHash(pw) } : u);
     saveUsers(updated);
     setUsers(updated);
-    alert("Password reset ho gaya!");
+    toast.success("Password reset ho gaya!");
+  };
+
+  const handleForceLogout = (username: string) => {
+    forceLogoutUser(username);
+    toast.success(`${username} ka session end kar diya`);
   };
 
   const saveDefaultKey = () => {
     localStorage.setItem("bf_default_or_key", defaultOrKey);
     setSaved(true);
+    toast.success("Default key saved!");
     setTimeout(() => setSaved(false), 2000);
   };
 
@@ -63,142 +72,228 @@ export function UsersAdminPage() {
     try { return JSON.parse(localStorage.getItem(`bf_projects_${username}`) || "[]").length; } catch { return 0; }
   };
 
+  const cardStyle = { background: "oklch(0.10 0.025 280)", border: "1px solid oklch(0.20 0.08 280)" };
+  const accentColor = "oklch(0.65 0.25 280)";
+
+  const TAB_ITEMS = [
+    { id: "users" as const, label: "Users", icon: Users },
+    { id: "sessions" as const, label: "Sessions", icon: Monitor },
+    { id: "activity" as const, label: "Activity", icon: Activity },
+  ];
+
   return (
-    <div className="p-6 space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-lg font-semibold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> Users</h1>
-        <p className="text-xs text-muted-foreground mt-1">Testers manage karo, activity dekho</p>
+    <div className="p-4 md:p-6 space-y-5 max-w-3xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" />Users & Sessions</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Testers manage karo, sessions monitor karo</p>
+        </div>
+        {tab === "users" && (
+          <button type="button" onClick={() => setShowAdd(s => !s)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{ background: "oklch(0.55 0.25 280 / 0.15)", border: "1px solid oklch(0.55 0.25 280 / 0.3)", color: accentColor }}>
+            <Plus className="w-3.5 h-3.5" />
+            Add User
+          </button>
+        )}
       </div>
 
       {/* Default OR Key */}
       <div className="rounded-xl p-4 space-y-3" style={{ background: "oklch(0.55 0.25 280 / 0.08)", border: "1px solid oklch(0.55 0.25 280 / 0.3)" }}>
-        <p className="text-xs font-semibold" style={{ color: "oklch(0.75 0.25 280)" }}>🔑 Default OpenRouter Key (Testers ke liye)</p>
-        <p className="text-[10px] text-muted-foreground">Yeh key testers ke liye pre-loaded hogi -- unhe apni key nahi daalni padegi.</p>
+        <p className="text-xs font-semibold" style={{ color: accentColor }}>🔑 Default OpenRouter Key (Testers ke liye)</p>
+        <p className="text-[10px] text-muted-foreground">Yeh key testers ke liye pre-loaded hogi — unhe apni key nahi daalni padegi.</p>
         <div className="flex gap-2">
           <input type="password" value={defaultOrKey} onChange={e => setDefaultOrKey(e.target.value)}
             placeholder="sk-or-xxxx..."
             className="flex-1 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none"
-            style={{ background: "oklch(0.08 0.02 280)", border: "1px solid oklch(0.25 0.08 280 / 0.5)" }}
+            style={{ background: "oklch(0.08 0.02 280)", border: "1px solid oklch(0.30 0.15 280 / 0.5)" }}
           />
           <button type="button" onClick={saveDefaultKey}
-            className="px-4 py-2 rounded-lg text-white text-sm font-medium"
+            className="px-4 py-2 rounded-lg text-xs font-medium text-white"
             style={{ background: "oklch(0.55 0.25 280)" }}>
-            {saved ? "✓ Saved" : "Save"}
+            {saved ? "✓" : "Save"}
           </button>
         </div>
       </div>
 
+      {/* Add user form */}
+      {showAdd && (
+        <div className="rounded-xl p-4 space-y-3" style={cardStyle}>
+          <p className="text-sm font-semibold text-foreground">Naya User</p>
+          {["username", "password", "email"].map(field => (
+            <input key={field} type={field === "password" ? "password" : "text"}
+              placeholder={field === "email" ? "Email (optional)" : field.charAt(0).toUpperCase() + field.slice(1)}
+              value={(newUser as any)[field]}
+              onChange={e => setNewUser(p => ({ ...p, [field]: e.target.value }))}
+              className="w-full rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none"
+              style={{ background: "oklch(0.08 0.02 280)", border: "1px solid oklch(0.25 0.08 280 / 0.5)" }}
+            />
+          ))}
+          {err && <p className="text-xs text-red-400">{err}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={handleAdd}
+              className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
+              style={{ background: "oklch(0.55 0.25 280)" }}>
+              Add User
+            </button>
+            <button type="button" onClick={() => setShowAdd(false)}
+              className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground"
+              style={{ background: "oklch(0.12 0.03 280)", border: "1px solid oklch(0.22 0.08 280)" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: "oklch(0.10 0.02 280)" }}>
-        {[{ id: "users", label: "Users", icon: UserCheck }, { id: "activity", label: "Activity", icon: Activity }].map(t => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id as any)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-            style={tab === t.id ? { background: "oklch(0.55 0.25 280)", color: "white" } : { color: "oklch(0.55 0.05 280)" }}>
-            <t.icon className="w-3.5 h-3.5" />{t.label}
+      <div className="flex gap-1 p-1 rounded-xl" style={{ background: "oklch(0.10 0.025 280)", border: "1px solid oklch(0.18 0.06 280)" }}>
+        {TAB_ITEMS.map(({ id, label, icon: Icon }) => (
+          <button key={id} type="button" onClick={() => setTab(id)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all"
+            style={tab === id ? { background: "oklch(0.55 0.25 280 / 0.2)", color: accentColor, border: "1px solid oklch(0.55 0.25 280 / 0.3)" } : { color: "oklch(0.55 0.05 280)", border: "1px solid transparent" }}>
+            <Icon className="w-3.5 h-3.5" />{label}
           </button>
         ))}
       </div>
 
-      {/* Users Tab */}
+      {/* Users tab */}
       {tab === "users" && (
-        <div className="space-y-3">
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-muted-foreground">{users.length} user(s) registered</p>
-            <button type="button" onClick={() => setShowAdd(v => !v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-              style={{ background: "oklch(0.55 0.25 280)" }}>
-              <Plus className="w-3 h-3" /> Add User
-            </button>
-          </div>
-
-          {showAdd && (
-            <div className="rounded-xl p-4 space-y-2.5" style={{ background: "oklch(0.10 0.02 280)", border: "1px solid oklch(0.25 0.08 280 / 0.4)" }}>
-              <p className="text-xs font-semibold text-foreground">Naya User Banao</p>
-              {[
-                { key: "username", placeholder: "Username", type: "text" },
-                { key: "password", placeholder: "Password (4+ chars)", type: "password" },
-                { key: "email", placeholder: "Email (optional)", type: "email" },
-              ].map(f => (
-                <input key={f.key} type={f.type} value={(newUser as any)[f.key]}
-                  onChange={e => setNewUser(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={f.placeholder}
-                  className="w-full rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none"
-                  style={{ background: "oklch(0.08 0.02 280)", border: "1px solid oklch(0.20 0.05 280 / 0.5)" }}
-                />
-              ))}
-              {err && <p className="text-xs text-red-400">{err}</p>}
-              <div className="flex gap-2">
-                <button type="button" onClick={handleAdd}
-                  className="flex-1 py-2 rounded-lg text-white text-xs font-medium"
-                  style={{ background: "oklch(0.55 0.25 280)" }}>Create Karo</button>
-                <button type="button" onClick={() => { setShowAdd(false); setErr(""); }}
-                  className="px-3 py-2 rounded-lg text-xs text-muted-foreground"
-                  style={{ background: "oklch(0.12 0.02 280)" }}>Cancel</button>
-              </div>
+        <div className="rounded-xl overflow-hidden" style={cardStyle}>
+          {users.length === 0 ? (
+            <div className="p-8 text-center">
+              <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-40" />
+              <p className="text-sm text-muted-foreground">Koi user nahi -- "Add User" click karo</p>
+            </div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: "oklch(0.18 0.06 280)" }}>
+              {users.map(u => {
+                const active = hasActiveSession(u.username);
+                const session = getSessionRecord(u.username);
+                return (
+                  <div key={u.username} className="p-4 flex items-center gap-4">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+                      style={{ background: "oklch(0.55 0.25 280 / 0.15)", color: accentColor, border: "1px solid oklch(0.55 0.25 280 / 0.3)" }}>
+                      {u.username.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-foreground">{u.username}</p>
+                        {active && (
+                          <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full"
+                            style={{ background: "oklch(0.50 0.20 160 / 0.15)", color: "oklch(0.65 0.20 160)", border: "1px solid oklch(0.50 0.20 160 / 0.3)" }}>
+                            <Wifi className="w-2.5 h-2.5" />Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {userProjects(u.username)} projects · Last active: {relTime(session?.lastActive || u.lastActive)}
+                        {u.email && ` · ${u.email}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {active && (
+                        <button type="button" onClick={() => handleForceLogout(u.username)} title="Force logout"
+                          className="p-1.5 rounded-lg transition-colors hover:bg-orange-500/15"
+                          style={{ color: "oklch(0.65 0.20 50)" }}>
+                          <LogOut className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button type="button" onClick={() => handleResetPw(u.username)} title="Reset password"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
+                        <Shield className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => handleDelete(u.username)} title="Delete user"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
-
-          {users.length === 0 ? (
-            <div className="text-center py-10 text-muted-foreground">
-              <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p className="text-xs">Koi user nahi hai abhi. "Add User" se testers banao.</p>
-            </div>
-          ) : users.map(u => (
-            <div key={u.username} className="flex items-center gap-3 p-4 rounded-xl"
-              style={{ background: "oklch(0.10 0.02 280)", border: "1px solid oklch(0.20 0.05 280 / 0.4)" }}>
-              <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
-                style={{ background: "oklch(0.55 0.25 280 / 0.2)", color: "oklch(0.75 0.25 280)" }}>
-                {u.username[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">{u.username}</p>
-                <div className="flex items-center gap-3 mt-0.5">
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> {relTime(u.lastActive)}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">{userProjects(u.username)} projects</span>
-                </div>
-              </div>
-              <div className="flex gap-1.5">
-                <button type="button" onClick={() => handleResetPw(u.username)}
-                  className="p-1.5 rounded-lg text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                  style={{ background: "oklch(0.15 0.03 280)" }} title="Reset Password">
-                  <Shield className="w-3.5 h-3.5" />
-                </button>
-                <button type="button" onClick={() => handleDelete(u.username)}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 transition-colors"
-                  style={{ background: "oklch(0.15 0.03 280)" }} title="Delete User">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
         </div>
       )}
 
-      {/* Activity Tab */}
+      {/* Sessions tab */}
+      {tab === "sessions" && (
+        <div className="rounded-xl overflow-hidden" style={cardStyle}>
+          {users.length === 0 ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">Koi users nahi</div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: "oklch(0.18 0.06 280)" }}>
+              {users.map(u => {
+                const session = getSessionRecord(u.username);
+                const active = hasActiveSession(u.username);
+                return (
+                  <div key={u.username} className="p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                          style={{ background: "oklch(0.55 0.25 280 / 0.15)", color: accentColor }}>
+                          {u.username.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm font-medium text-foreground">{u.username}</span>
+                        <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full"
+                          style={active
+                            ? { background: "oklch(0.50 0.20 160 / 0.15)", color: "oklch(0.65 0.20 160)", border: "1px solid oklch(0.50 0.20 160 / 0.3)" }
+                            : { background: "oklch(0.15 0.03 280)", color: "oklch(0.5 0.05 280)", border: "1px solid oklch(0.22 0.06 280)" }
+                          }>
+                          {active ? <><Wifi className="w-2.5 h-2.5" />Online</> : <><WifiOff className="w-2.5 h-2.5" />Offline</>}
+                        </span>
+                      </div>
+                      {active && (
+                        <button type="button" onClick={() => handleForceLogout(u.username)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all"
+                          style={{ background: "oklch(0.55 0.25 25 / 0.12)", border: "1px solid oklch(0.55 0.25 25 / 0.3)", color: "oklch(0.65 0.25 30)" }}>
+                          <LogOut className="w-3 h-3" />Force Logout
+                        </button>
+                      )}
+                    </div>
+                    {session ? (
+                      <div className="ml-9 space-y-1">
+                        <div className="flex items-start gap-2 text-[10px] text-muted-foreground">
+                          <Clock className="w-3 h-3 mt-0.5 shrink-0" />
+                          <span>Login: {relTime(session.loginAt)} · Last active: {relTime(session.lastActive)}</span>
+                        </div>
+                        <div className="flex items-start gap-2 text-[10px] text-muted-foreground">
+                          <Monitor className="w-3 h-3 mt-0.5 shrink-0" />
+                          <span className="truncate max-w-xs">{session.deviceInfo}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="ml-9 text-[10px] text-muted-foreground">No session data</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Activity tab */}
       {tab === "activity" && (
-        <div className="space-y-2">
+        <div className="rounded-xl overflow-hidden" style={cardStyle}>
           {activities.length === 0 ? (
-            <div className="text-center py-10 text-muted-foreground">
-              <Activity className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p className="text-xs">Koi activity nahi abhi</p>
+            <div className="p-8 text-center">
+              <Activity className="w-8 h-8 mx-auto mb-2 text-muted-foreground opacity-40" />
+              <p className="text-sm text-muted-foreground">Koi activity nahi abhi</p>
             </div>
-          ) : activities.slice(0, 100).map(a => (
-            <div key={a.id} className="flex items-start gap-3 p-3 rounded-lg"
-              style={{ background: "oklch(0.09 0.02 280)", border: "1px solid oklch(0.18 0.04 280 / 0.4)" }}>
-              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5"
-                style={{ background: "oklch(0.55 0.25 280 / 0.2)", color: "oklch(0.75 0.25 280)" }}>
-                {a.username[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-xs font-medium text-foreground">{a.username}</span>
-                <span className="text-xs text-muted-foreground"> — {a.action}</span>
-                {a.detail && <span className="text-xs text-muted-foreground"> ({a.detail})</span>}
-              </div>
-              <span className="text-[10px] text-muted-foreground shrink-0">{relTime(a.timestamp)}</span>
+          ) : (
+            <div className="divide-y max-h-96 overflow-y-auto" style={{ borderColor: "oklch(0.18 0.06 280)" }}>
+              {activities.map(a => (
+                <div key={a.id} className="flex items-start gap-3 px-4 py-3">
+                  <UserCheck className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: accentColor }} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground">{a.username} — {a.action}</p>
+                    {a.detail && <p className="text-[10px] text-muted-foreground truncate">{a.detail}</p>}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{relTime(a.timestamp)}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
