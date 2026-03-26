@@ -284,10 +284,10 @@ export function AdminDashboardPage() {
           {stats.lastCommit ? (
             <div>
               <p className="text-xs font-medium text-foreground truncate">
-                {stats.lastCommit.sha}
+                {stats.lastCommit.message}
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                {timeAgo(stats.lastCommit.date)}
+                <span className="font-mono opacity-50">{stats.lastCommit.sha}</span> · {timeAgo(stats.lastCommit.date)}
               </p>
             </div>
           ) : (
