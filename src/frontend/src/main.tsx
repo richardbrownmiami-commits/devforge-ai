@@ -1,3 +1,20 @@
+
+// Global error logger for admin error log
+window.addEventListener("error", (e) => {
+  try {
+    const log = JSON.parse(localStorage.getItem("bf_error_log") || "[]");
+    log.unshift({ message: e.message, stack: e.error?.stack, url: e.filename, line: e.lineno, timestamp: new Date().toISOString() });
+    localStorage.setItem("bf_error_log", JSON.stringify(log.slice(0, 100)));
+  } catch {}
+});
+window.addEventListener("unhandledrejection", (e) => {
+  try {
+    const log = JSON.parse(localStorage.getItem("bf_error_log") || "[]");
+    log.unshift({ message: String(e.reason), stack: e.reason?.stack, url: "promise", timestamp: new Date().toISOString() });
+    localStorage.setItem("bf_error_log", JSON.stringify(log.slice(0, 100)));
+  } catch {}
+});
+
 import ReactDOM from "react-dom/client";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
