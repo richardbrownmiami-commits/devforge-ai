@@ -10,6 +10,13 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_HEADERS });
     }
+    const url = new URL(request.url);
+    const path = url.pathname;
+    // Public routes -- no auth needed
+    if (path.startsWith('/p/') && request.method === 'GET') {
+      try { return await handleServeApp(env, path.slice(3)); }
+      catch (err) { return new Response('Not found', { status: 404 }); }
+    }
     const secret = request.headers.get('X-BrainForge-Secret');
     if (!env.BRAINFORGE_SECRET || secret !== env.BRAINFORGE_SECRET) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -17,8 +24,6 @@ export default {
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
-    const url = new URL(request.url);
-    const path = url.pathname;
     try {
       if (path === '/api/stats' && request.method === 'GET') return await handleStats(env);
       if (path === '/api/projects' && request.method === 'GET') return await handleGetProjects(env);
@@ -34,6 +39,11 @@ export default {
       if (path === '/api/search' && request.method === 'GET') return await handleSearch(url.searchParams.get('q'));
       // AI Proxy -- route AI calls through Worker (keys sent from client, adds one layer of indirection)
       if (path === '/api/ai' && request.method === 'POST') return await handleAiProxy(await request.json());
+      // Inbuilt Publish -- KV storage (no auth required for GET /p/)
+      if (path.startsWith('/p/') && request.method === 'GET') return await handleServeApp(env, path.slice(3));
+      if (path === '/api/publish' && request.method === 'POST') return await handlePublishApp(env, await request.json());
+      if (path === '/api/publish' && request.method === 'GET') return await handleListPublished(env);
+      if (path.startsWith('/api/publish/') && request.method === 'DELETE') return await handleDeletePublished(env, path.slice(13));
       return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
     } catch (err) {
       return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
@@ -179,6 +189,43 @@ async function handleAiProxy(body) {
   }
   return json({ reply });
 }
+
+// ===== KV Inbuilt Publish =====
+async function handlePublishApp(env, body) {
+  if (!env.APPS_KV) return json({ error: 'KV not configured' }, 500);
+  const { html, slug, projectName } = body || {};
+  if (!html) return new Response(JSON.stringify({ error: 'html required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+  const id = slug || (projectName || 'app').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').slice(0, 40) + '-' + Math.random().toString(36).slice(2, 7);
+  const meta = { id, projectName: projectName || id, publishedAt: new Date().toISOString(), size: html.length };
+  await env.APPS_KV.put(`app:${id}`, html, { metadata: meta });
+  await env.APPS_KV.put(`meta:${id}`, JSON.stringify(meta));
+  return json({ ok: true, id, url: `/p/${id}` });
+}
+
+async function handleServeApp(env, id) {
+  if (!env.APPS_KV || !id) return new Response('Not found', { status: 404 });
+  const html = await env.APPS_KV.get(`app:${id}`);
+  if (!html) return new Response('App not found', { status: 404 });
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+async function handleListPublished(env) {
+  if (!env.APPS_KV) return json([]);
+  const list = await env.APPS_KV.list({ prefix: 'meta:' });
+  const apps = await Promise.all(list.keys.map(async k => {
+    const v = await env.APPS_KV.get(k.name);
+    try { return JSON.parse(v || '{}'); } catch { return null; }
+  }));
+  return json(apps.filter(Boolean).sort((a, b) => b.publishedAt?.localeCompare(a.publishedAt)));
+}
+
+async function handleDeletePublished(env, id) {
+  if (!env.APPS_KV || !id) return json({ error: 'invalid' }, 400);
+  await env.APPS_KV.delete(`app:${id}`);
+  await env.APPS_KV.delete(`meta:${id}`);
+  return json({ ok: true });
+}
+
 
 async function backupToGitHub(env, token, repo) {
   const data = await collectAllData(env);
