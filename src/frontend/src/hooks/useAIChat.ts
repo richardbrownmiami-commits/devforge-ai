@@ -465,14 +465,15 @@ export function useAIChat(opts: UseAIChatOptions) {
       }
       if (detected && onLanguageDetected) onLanguageDetected(detected);
       setMessages(p => { const n = [...p, { role: "assistant", content: finalReply } as ChatMessage]; persist(projectName, n); scheduleSessionPush(projectName, n); return n; });
-      // Extract code block and save as project file
-      const codeBlockMatch = finalReply.match(/```(\w+)[^
-]*
-([\s\S]*?)```/);
-      if (codeBlockMatch) {
-        const codeLang = codeBlockMatch[1].toLowerCase();
-        const codeBody = codeBlockMatch[2];
-        saveProjectFile(projectName, codeLang, codeBody);
+            // Extract code block and save as project file
+      const tickIdx = finalReply.indexOf("```");
+      if (tickIdx !== -1) {
+        const afterTick = finalReply.slice(tickIdx + 3);
+        const nlIdx = afterTick.indexOf("\n");
+        const codeLang = nlIdx !== -1 ? afterTick.slice(0, nlIdx).trim().split(" ")[0] : "html";
+        const endIdx = afterTick.indexOf("\n```");
+        const codeBody = nlIdx !== -1 && endIdx !== -1 ? afterTick.slice(nlIdx + 1, endIdx) : "";
+        if (codeBody) saveProjectFile(projectName, codeLang, codeBody);
       }
     } catch (e: unknown) { if (e instanceof Error && e.name !== "AbortError") setError(e.message); setActiveModel(""); }
     finally { setIsLoading(false); }
