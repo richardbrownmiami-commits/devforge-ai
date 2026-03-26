@@ -45,6 +45,56 @@ After "LANGUAGE: xxx", output "---" then generate complete code following these 
 
 STEP 2.5 -- DATA DETECTION:
 Before generating code, scan if the app needs data persistence.
+
+BACKUP/RESTORE RULE (CRITICAL):
+For ALL apps that save any data (todo, notes, expense, contacts, inventory, etc.):
+- ALWAYS use IndexedDB for storage (NOT localStorage - IndexedDB survives more scenarios)
+- ALWAYS add an Export Backup button that saves data as .json file to device Downloads
+- ALWAYS add an Import/Restore button that loads .json backup file
+- Put these buttons somewhere visible (settings icon, toolbar, or footer)
+- Auto-load data from IndexedDB when app opens
+- Auto-save to IndexedDB on every data change
+
+IndexedDB pattern to use in every data app:
+async function saveDB(key, data) {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('app-data', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('store');
+    req.onsuccess = e => {
+      const tx = e.target.result.transaction('store', 'readwrite');
+      tx.objectStore('store').put(data, key).onsuccess = () => res();
+    };
+    req.onerror = rej;
+  });
+}
+async function loadDB(key) {
+  return new Promise((res) => {
+    const req = indexedDB.open('app-data', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('store');
+    req.onsuccess = e => {
+      const tx = e.target.result.transaction('store', 'readonly');
+      const r = tx.objectStore('store').get(key);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => res(null);
+    };
+    req.onerror = () => res(null);
+  });
+}
+function exportBackup(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = filename + '-backup.json'; a.click();
+}
+function importBackup(callback) {
+  const input = document.createElement('input'); input.type = 'file'; input.accept = '.json';
+  input.onchange = e => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { try { callback(JSON.parse(ev.target.result)); } catch {} };
+    reader.readAsText(file);
+  };
+  input.click();
+}
 HIGH requirement: todo app, expense tracker, inventory, contacts, booking, blog, login, user profiles, CRM
 MEDIUM: notes, simple tracker, diary
 NONE: calculator, game (no scores), landing page, static tool
