@@ -11,6 +11,7 @@ import {
   Loader2,
   Monitor,
   Send,
+  Sparkles,
   Trash2,
   Wrench,
   X,
@@ -32,6 +33,7 @@ interface ChatPanelProps {
   hasCode?: boolean;
   initialMessage?: string;
   autoFixStatus?: string | null;
+  onSuggest?: () => void;
 }
 
 type Block =
@@ -211,6 +213,7 @@ export function ChatPanel({
   hasCode,
   initialMessage,
   autoFixStatus,
+  onSuggest,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [image, setImage] = useState<string | null>(null);
@@ -367,6 +370,17 @@ export function ChatPanel({
         {/* Attractive action bar -- Preview / History / Clear */}
         {showActionBar && (
           <div className="flex gap-2 mb-2">
+            {onSuggest && messages.length > 0 && (
+              <button
+                type="button"
+                onClick={onSuggest}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium bg-gradient-to-r from-purple-500/20 to-violet-500/20 border border-purple-500/30 text-purple-300 hover:from-purple-500/30 hover:to-violet-500/30 transition-all"
+                data-ocid="chat.suggest.button"
+                title="AI se features suggest karwao"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Suggest
+              </button>
+            )}
             {hasCode && onPreview && (
               <button
                 type="button"
