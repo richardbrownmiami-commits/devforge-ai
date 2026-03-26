@@ -1,5 +1,5 @@
-import { getActivityLog, getUsers, saveUsers, simpleHash, getSessionRecord, forceLogoutUser, hasActiveSession, type BFUser } from "../../lib/userUtils";
-import { Activity, AlertCircle, Brain, Clock, LogOut, Monitor, Plus, Shield, Trash2, UserCheck, Users, Wifi, WifiOff } from "lucide-react";
+import { getActivityLog, getUsers, saveUsers, simpleHash, getSessionRecord, forceLogoutUser, hasActiveSession, getTodayMessageCount, type BFUser } from "../../lib/userUtils";
+import { Activity, AlertCircle, Brain, Clock, LogOut, Monitor, Plus, Shield, Trash2, UserCheck, Users, Wifi, WifiOff, Zap } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -52,6 +52,21 @@ export function UsersAdminPage() {
   const handleForceLogout = (username: string) => {
     forceLogoutUser(username);
     toast.success(`${username} ka session end kar diya`);
+  };
+
+  const handleSetQuota = (username: string) => {
+    const current = users.find(u => u.username === username);
+    const limit = prompt(`${username} ka daily message limit daalo (0 = unlimited):`, String(current?.dailyMessageLimit || 0));
+    if (limit === null) return;
+    const maxP = prompt(`Max projects (0 = unlimited):`, String(current?.maxProjects || 0));
+    if (maxP === null) return;
+    const updated = users.map(u => u.username === username
+      ? { ...u, dailyMessageLimit: parseInt(limit) || 0, maxProjects: parseInt(maxP) || 0 }
+      : u
+    );
+    saveUsers(updated);
+    setUsers(updated);
+    toast.success(`Quota updated: ${limit === "0" ? "unlimited" : limit + " msgs/day"}`);
   };
 
   const saveDefaultKey = () => {
@@ -189,6 +204,7 @@ export function UsersAdminPage() {
                       <p className="text-[10px] text-muted-foreground mt-0.5">
                         {userProjects(u.username)} projects · Last active: {relTime(session?.lastActive || u.lastActive)}
                         {u.email && ` · ${u.email}`}
+                        {u.dailyMessageLimit ? ` · ${getTodayMessageCount(u.username)}/${u.dailyMessageLimit} msgs today` : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -199,6 +215,11 @@ export function UsersAdminPage() {
                           <LogOut className="w-3.5 h-3.5" />
                         </button>
                       )}
+                      <button type="button" onClick={() => handleSetQuota(u.username)} title="Set quota"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                        style={{ color: u.dailyMessageLimit ? "oklch(0.65 0.25 60)" : undefined }}>
+                        <Zap className="w-3.5 h-3.5" />
+                      </button>
                       <button type="button" onClick={() => handleResetPw(u.username)} title="Reset password"
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
                         <Shield className="w-3.5 h-3.5" />
