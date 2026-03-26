@@ -456,6 +456,19 @@ export function useAIChat(opts: UseAIChatOptions) {
 
   const sendMessage = useCallback(async (message: string, imageBase64?: string) => {
     setError(null);
+    // Check user quota before sending
+    try {
+      const _qUser = sessionStorage.getItem("bf_session_user");
+      if (_qUser) {
+        const { checkMessageQuota, incrementMessageCount } = await import("../lib/userUtils");
+        const quota = checkMessageQuota(_qUser);
+        if (!quota.allowed) {
+          setError(`Daily message limit (${quota.limit}) reach ho gaya. Kal wapas aao ya admin se limit badhwao.`);
+          return;
+        }
+        incrementMessageCount(_qUser);
+      }
+    } catch {}
     const prev = loadChatMessages(projectName);
     const next = [...prev, { role: "user", content: message } as ChatMessage];
     setMessages(next); persist(projectName, next);
