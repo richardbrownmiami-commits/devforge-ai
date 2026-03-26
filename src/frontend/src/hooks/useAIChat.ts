@@ -424,7 +424,13 @@ export function useAIChat(opts: UseAIChatOptions) {
   const supabaseAddon = (supabaseUrl && supabaseKey)
     ? `\n\nSUPABASE INTEGRATION:\nThis app should use Supabase for database. Include this CDN: <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\nInitialize: const supabase = window.supabase.createClient("${supabaseUrl}", "${supabaseKey}");\nUse supabase.from('table').select/insert/update/delete for all data operations.`
     : "";
-  const sysPrompt = (PROMPTS[language] || PROMPTS.html) + supabaseAddon;
+  // Load global rules + project memory and inject into system prompt
+  const globalRules = localStorage.getItem("bf_global_ai_rules") || "";
+  const _memUser = (() => { try { return sessionStorage.getItem("bf_session_user") || "owner"; } catch { return "owner"; } })();
+  const projectMemory = localStorage.getItem(`bf_memory_${_memUser}_${projectName}`) || "";
+  const sysPrompt = (PROMPTS[language] || PROMPTS.html) + supabaseAddon
+    + (globalRules ? `\n\n--- GLOBAL AI RULES (Always follow these) ---\n${globalRules}` : "")
+    + (projectMemory ? `\n\n--- PROJECT MEMORY (Context from previous sessions) ---\n${projectMemory}` : "");
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatMessages(projectName));
   const [isLoading, setIsLoading] = useState(false);
@@ -515,6 +521,16 @@ export function useAIChat(opts: UseAIChatOptions) {
       }
       if (detected && onLanguageDetected) onLanguageDetected(detected);
       setMessages(p => { const n = [...p, { role: "assistant", content: finalReply } as ChatMessage]; persist(projectName, n); scheduleSessionPush(projectName, n); return n; });
+      // Auto-sync project memory every 5 exchanges
+      const _mu = (() => { try { return sessionStorage.getItem("bf_session_user") || "owner"; } catch { return "owner"; } })();
+      const _mk = `bf_memory_${_mu}_${projectName}`;
+      const _existMem = localStorage.getItem(_mk) || "";
+      const _msgCount = loadChatMessages(projectName).length;
+      if (_msgCount % 5 === 0 || _msgCount <= 2) {
+        const _recent = `[${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}] User said: "${message.substring(0, 60)}"`;
+        const _newMem = (_existMem ? _existMem + "\n" + _recent : _recent).slice(-6000);
+        localStorage.setItem(_mk, _newMem);
+      }
             // Extract code block and save as project file
       const tickIdx = finalReply.indexOf("```");
       if (tickIdx !== -1) {
