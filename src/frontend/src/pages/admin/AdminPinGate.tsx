@@ -263,6 +263,7 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
 
   // ===== PIN LOGIN =====
   if (screen === "pin_login") {
+    const hasPwSetup = !!localStorage.getItem("bf_admin_pw_hash");
     return (
       <Overlay>
         <Box style={boxStyle}>
@@ -276,12 +277,19 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
           />
           {err && <p className="text-xs text-red-400 text-center">{err}</p>}
           <Btn onClick={handlePinLogin} disabled={pin.length < 4}>Unlock Admin Panel</Btn>
-          {localStorage.getItem("bf_admin_pw_hash") && (
-            <button type="button" onClick={() => { setScreen("pw_login"); setPin(""); setErr(""); }}
-              className="w-full text-xs text-center py-1" style={{ color: "oklch(0.65 0.25 280)" }}>
-              Password se login karo →
-            </button>
-          )}
+          <div className="flex flex-col gap-1">
+            {hasPwSetup ? (
+              <button type="button" onClick={() => { setScreen("pw_login"); setPin(""); setErr(""); }}
+                className="w-full text-xs text-center py-1" style={{ color: "oklch(0.65 0.25 280)" }}>
+                Password se login karo →
+              </button>
+            ) : (
+              <button type="button" onClick={() => { setScreen("setup"); setPin(""); setErr(""); }}
+                className="w-full text-xs text-center py-1" style={{ color: "oklch(0.65 0.20 160)" }}>
+                + Username/Password setup karo →
+              </button>
+            )}
+          </div>
         </Box>
       </Overlay>
     );
