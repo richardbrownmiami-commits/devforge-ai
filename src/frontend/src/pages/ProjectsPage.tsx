@@ -118,6 +118,11 @@ export function ProjectsPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
+      // Delete project memory on deletion
+      try {
+        const u = sessionStorage.getItem("bf_session_user") || "owner";
+        localStorage.removeItem(`bf_memory_${u}_${deleteTarget}`);
+      } catch {}
       await deleteProject.mutateAsync(deleteTarget);
       toast.success(`Project "${deleteTarget}" deleted`);
       setDeleteTarget(null);
