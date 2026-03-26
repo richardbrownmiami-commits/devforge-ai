@@ -1,21 +1,35 @@
 /**
  * useBackend.ts
  * All data stored in localStorage -- no ICP actor dependency.
- * Works on Cloudflare Pages and any static host.
+ * User-scoped storage for multi-user testing support.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Project, Settings } from "../backend.d";
 
 const SETTINGS_KEY = "bf_settings";
-const PROJECTS_KEY = "bf_projects";
+
+// User-scoped project key
+function getProjectsKey(): string {
+  const user = sessionStorage.getItem("bf_session_user");
+  return user ? `bf_projects_${user}` : "bf_projects";
+}
 
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return JSON.parse(raw) as Settings;
+    if (raw) {
+      const s = JSON.parse(raw) as Settings;
+      // Inject default OR key if user has none set
+      if (!s.openRouterApiKey) {
+        const defaultKey = localStorage.getItem("bf_default_or_key") || "";
+        s.openRouterApiKey = defaultKey;
+      }
+      return s;
+    }
   } catch {}
+  const defaultOrKey = localStorage.getItem("bf_default_or_key") || "";
   return {
-    openRouterApiKey: "",
+    openRouterApiKey: defaultOrKey,
     defaultModel: "qwen/qwen3-coder:free",
     termuxUrl: "",
     githubToken: "",
@@ -30,7 +44,6 @@ function loadSettings(): Settings {
     autoFix: true,
     proactiveAI: false,
     masterAIEnabled: true,
-    // AI provider settings
     aiProvider: "auto",
     geminiApiKey: "",
     geminiModel: "gemini-2.0-flash",
@@ -47,14 +60,14 @@ function saveSettingsToStorage(s: Settings) {
 
 function loadProjects(): Project[] {
   try {
-    const raw = localStorage.getItem(PROJECTS_KEY);
+    const raw = localStorage.getItem(getProjectsKey());
     if (raw) return JSON.parse(raw) as Project[];
   } catch {}
   return [];
 }
 
 function saveProjectsToStorage(projects: Project[]) {
-  localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+  localStorage.setItem(getProjectsKey(), JSON.stringify(projects));
 }
 
 export function useSettings() {
@@ -105,6 +118,15 @@ export function useCreateProject() {
       } as unknown as Project;
       const updated = [...projects, newProject];
       saveProjectsToStorage(updated);
+      // Log activity
+      try {
+        const user = sessionStorage.getItem("bf_session_user");
+        if (user) {
+          const log = JSON.parse(localStorage.getItem("bf_activity_log") || "[]");
+          log.unshift({ id: Date.now().toString(), username: user, action: "project_create", detail: name, timestamp: new Date().toISOString() });
+          localStorage.setItem("bf_activity_log", JSON.stringify(log.slice(0, 500)));
+        }
+      } catch {}
       return newProject;
     },
     onSuccess: () => {
@@ -119,8 +141,11 @@ export function useDeleteProject() {
     mutationFn: async (name: string) => {
       const projects = loadProjects().filter((p) => p.name !== name);
       saveProjectsToStorage(projects);
-      // Also remove chat history
-      localStorage.removeItem(`bf_chat_${name}`);
+      // Remove chat history (user-scoped)
+      const user = sessionStorage.getItem("bf_session_user");
+      const chatKey = user ? `bf_chat_${user}_${name}` : `bf_chat_${name}`;
+      localStorage.removeItem(chatKey);
+      localStorage.removeItem(`bf_chat_${name}`); // also remove non-scoped
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
