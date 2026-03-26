@@ -445,6 +445,36 @@ export function EditorPage() {
         </button>
       </div>
 
+      {/* Supabase Warning Banner */}
+      {hasCode && !hasSupabase && (
+        <div
+          className="mx-3 mt-2 mb-0 flex items-center gap-2 px-3 py-2 rounded-lg text-xs shrink-0"
+          style={{
+            background: "oklch(0.45 0.20 280 / 0.12)",
+            border: "1px solid oklch(0.55 0.25 280 / 0.35)",
+            color: "oklch(0.75 0.20 280)",
+          }}
+        >
+          <span className="text-sm">⚠️</span>
+          <span className="flex-1">
+            <strong>Data Warning:</strong> Abhi localStorage use ho raha hai — browser cache delete hua to data reset ho jayega.
+          </span>
+          <button
+            type="button"
+            onClick={() => navigate({ to: "/settings" })}
+            className="shrink-0 px-2 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+            style={{
+              background: "oklch(0.55 0.25 280 / 0.25)",
+              border: "1px solid oklch(0.55 0.25 280 / 0.4)",
+              color: "oklch(0.80 0.25 280)",
+            }}
+            title="Settings mein Supabase connect karo"
+          >
+            Connect Supabase →
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-hidden">
         <ChatPanel
           messages={messages as any}
