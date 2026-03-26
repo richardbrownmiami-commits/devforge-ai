@@ -21,6 +21,7 @@ import { DeployLogPage } from "./pages/admin/DeployLogPage";
 import { IssueTrackerPage } from "./pages/admin/IssueTrackerPage";
 import { MasterAIAdminPage } from "./pages/admin/MasterAIAdminPage";
 import { StatusPage } from "./pages/admin/StatusPage";
+import { NotesPage } from "./pages/admin/NotesPage";
 
 // ---- PIN Lock Component ----
 function PinLock({ children }: { children: React.ReactNode }) {
@@ -214,6 +215,12 @@ const adminDeployLogRoute = createRoute({
   component: DeployLogPage,
 });
 
+const adminNotesRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/notes",
+  component: NotesPage,
+});
+
 adminLayoutRoute.addChildren([
   adminIndexRoute,
   adminMasterAIRoute,
@@ -221,6 +228,7 @@ adminLayoutRoute.addChildren([
   adminBackupRoute,
   adminIssuesRoute,
   adminDeployLogRoute,
+  adminNotesRoute,
 ]);
 
 const mainRouteTree = rootRoute.addChildren([
