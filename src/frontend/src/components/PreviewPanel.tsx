@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { ChevronRight, Code2, Download, ExternalLink, FileCode, FileText, Loader2, Monitor, RefreshCw, Rocket, RotateCcw, Save, Smartphone } from "lucide-react";
+import { ChevronRight, Code2, Download, ExternalLink, FileCode, FileText, Loader2, Monitor, RefreshCw, Rocket, RotateCcw, Save, Smartphone, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppLanguage } from "../hooks/useAIChat";
 import type { ChatMessage } from "../hooks/useTermux";
@@ -27,17 +27,26 @@ function extractCode(messages: ChatMessage[]) {
   return { html, css, js };
 }
 
+// Detect if project looks like a website (needs deploy) vs a tool/app
+function detectIsWebsite(html: string, projectName: string, messages: ChatMessage[]): boolean {
+  const combined = (html + " " + projectName + " " + messages.map(m => m.content).join(" ")).toLowerCase();
+  const websiteKeywords = ["landing page", "website", "portfolio", "blog", "homepage", "about us", "contact", "hero section", "navbar", "header", "footer", "seo", "og:", "meta description", "business website", "company site"];
+  const appKeywords = ["todo", "calculator", "game", "expense", "tracker", "timer", "converter", "generator", "tool", "quiz", "chat", "pomodoro", "notes app", "budget", "counter", "stopwatch", "puzzle"];
+  const websiteScore = websiteKeywords.filter(k => combined.includes(k)).length;
+  const appScore = appKeywords.filter(k => combined.includes(k)).length;
+  if (websiteScore > 0 && websiteScore >= appScore) return true;
+  if (appScore > 0) return false;
+  // Default: if has nav + multiple sections = website
+  return html.includes("<nav") || html.includes("hero") || (html.match(/<section/g) || []).length >= 2;
+}
+
 const SAFETY = `<scr`+`ipt>try{Object.defineProperty(window,'parent',{get:()=>window,configurable:true});Object.defineProperty(window,'top',{get:()=>window,configurable:true});}catch(e){}var _ce=console.error;console.error=function(){try{window.parent.postMessage({type:'PREVIEW_ERROR',error:[...arguments].join(' ')},'*');}catch(e){}_ce.apply(console,arguments);};window.onerror=function(m,s,l){try{window.parent.postMessage({type:'PREVIEW_ERROR',error:m+' (line '+l+')'},'*');}catch(e){}return true;};window.addEventListener('unhandledrejection',e=>{try{window.parent.postMessage({type:'PREVIEW_ERROR',error:String(e.reason)},'*');}catch(e2){}});</scr`+`ipt>`;
 
 function buildDoc(html: string, css: string, js: string, language: AppLanguage = "html"): string {
   if (!html && !css && !js) return "";
-
-  // Full HTML document -- inject safety script and return
   if (html.includes("<!DOCTYPE") || html.includes("<html")) {
     return html.replace(/<head>/i, `<head>${SAFETY}`);
   }
-
-  // React mode -- wrap JSX in Babel
   if (language === "react" || language === "react-tailwind") {
     const tailwindCDN = language === "react-tailwind" ? '<script src="https://cdn.tailwindcss.com"></script>' : "";
     return `<!DOCTYPE html><html><head>
@@ -53,8 +62,6 @@ ${SAFETY}
 ${js || html}
 </scr`+`ipt></body></html>`;
   }
-
-  // TypeScript mode -- Babel with TS preset
   if (language === "typescript") {
     return `<!DOCTYPE html><html><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -66,12 +73,121 @@ ${SAFETY}
 ${js || html}
 </scr`+`ipt></body></html>`;
   }
-
-  // Default HTML/CSS/JS
   return `<!DOCTYPE html><html><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 ${SAFETY}<style>*{box-sizing:border-box}${css}</style>
 </head><body>${html}<scr`+`ipt>${js}</scr`+`ipt></body></html>`;
+}
+
+// ===== APK Export Modal =====
+function ApkModal({ projectName, onClose, onPublishFirst, publishedUrl }: {
+  projectName: string; onClose: () => void; onPublishFirst: () => Promise<string | null>; publishedUrl?: string;
+}) {
+  const [step, setStep] = useState<"choice" | "publishing" | "pwabuilder" | "iphone">("choice");
+  const [liveUrl, setLiveUrl] = useState(publishedUrl || "");
+  const [publishing, setPublishing] = useState(false);
+
+  const handleAndroid = async () => {
+    if (liveUrl) { setStep("pwabuilder"); return; }
+    setPublishing(true);
+    const url = await onPublishFirst();
+    setPublishing(false);
+    if (url) { setLiveUrl(url); setStep("pwabuilder"); }
+    else { alert("Pehle app publish karo ya GitHub deploy karo."); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" style={{ background: "oklch(0 0 0 / 0.7)" }}>
+      <div className="w-full max-w-sm rounded-2xl border p-6 space-y-4 shadow-2xl" style={{ background: "oklch(0.10 0.025 280)", borderColor: "oklch(0.30 0.15 280 / 0.5)" }}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">📱 App Export</h3>
+          <button type="button" onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+
+        {step === "choice" && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Platform chunno:</p>
+            <button type="button" onClick={handleAndroid} disabled={publishing}
+              className="w-full p-4 rounded-xl text-left transition-all hover:scale-[1.01]"
+              style={{ background: "oklch(0.55 0.25 120 / 0.1)", border: "1px solid oklch(0.55 0.25 120 / 0.3)" }}>
+              <div className="flex items-center gap-3">
+                {publishing ? <Loader2 className="w-5 h-5 animate-spin text-green-400" /> : <span className="text-xl">🤖</span>}
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Android APK</p>
+                  <p className="text-xs text-muted-foreground">PWABuilder se APK banao</p>
+                </div>
+              </div>
+            </button>
+            <button type="button" onClick={() => setStep("iphone")}
+              className="w-full p-4 rounded-xl text-left transition-all hover:scale-[1.01]"
+              style={{ background: "oklch(0.55 0.10 240 / 0.1)", border: "1px solid oklch(0.55 0.10 240 / 0.3)" }}>
+              <div className="flex items-center gap-3">
+                <span className="text-xl">🍎</span>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">iPhone (iOS)</p>
+                  <p className="text-xs text-muted-foreground">Home Screen pe add karo (PWA)</p>
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {step === "pwabuilder" && (
+          <div className="space-y-3">
+            <div className="rounded-lg p-3 text-xs" style={{ background: "oklch(0.55 0.25 120 / 0.1)", border: "1px solid oklch(0.55 0.25 120 / 0.3)" }}>
+              <p className="text-green-300 font-semibold mb-2">✅ App URL ready hai!</p>
+              <p className="font-mono text-[10px] text-muted-foreground break-all">{liveUrl}</p>
+            </div>
+            <div className="space-y-2 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground">Steps:</p>
+              <p>1. Neeche wala button dabao → PWABuilder khulega</p>
+              <p>2. URL already fill hoga → "Package for stores" click karo</p>
+              <p>3. Android → "Generate Package" → APK download karo</p>
+              <p>4. Phone mein install karo (Unknown sources allow karo)</p>
+            </div>
+            <a href={`https://www.pwabuilder.com/?url=${encodeURIComponent(liveUrl)}`} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-white text-sm font-semibold"
+              style={{ background: "oklch(0.55 0.25 120)" }}>
+              <ExternalLink className="w-4 h-4" /> PWABuilder Kholo
+            </a>
+            <button type="button" onClick={() => setStep("choice")} className="w-full text-xs text-center py-1 text-muted-foreground">← Wapas</button>
+          </div>
+        )}
+
+        {step === "iphone" && (
+          <div className="space-y-3">
+            <div className="space-y-2 text-xs">
+              <p className="font-semibold text-foreground">iPhone pe App Install Karne Ka Tarika:</p>
+              <div className="space-y-1.5 text-muted-foreground">
+                <p>1. <span className="text-foreground">App publish karo</span> → Live URL lo</p>
+                <p>2. iPhone mein <span className="text-foreground">Safari</span> se woh URL kholo</p>
+                <p>3. Neeche Share button <span className="text-foreground">⎋</span> dabao</p>
+                <p>4. <span className="text-foreground">"Add to Home Screen"</span> select karo</p>
+                <p>5. Name confirm karo → <span className="text-foreground">Add</span></p>
+              </div>
+              <div className="rounded-lg p-2.5 mt-2" style={{ background: "oklch(0.50 0.15 40 / 0.15)", border: "1px solid oklch(0.50 0.15 40 / 0.3)" }}>
+                <p className="text-amber-300 text-[10px]">⚠️ Data Warning: iOS mein agar 7 din app na kholo toh Safari data clear kar sakta hai. Backup/Restore feature use karo.</p>
+              </div>
+            </div>
+            {liveUrl ? (
+              <a href={liveUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-white text-sm font-semibold"
+                style={{ background: "oklch(0.50 0.10 240)" }}>
+                <ExternalLink className="w-4 h-4" /> App URL Kholo
+              </a>
+            ) : (
+              <button type="button" onClick={handleAndroid} disabled={publishing}
+                className="w-full py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
+                style={{ background: "oklch(0.50 0.10 240)" }}>
+                {publishing ? "Publishing..." : "Pehle Publish Karo"}
+              </button>
+            )}
+            <button type="button" onClick={() => setStep("choice")} className="w-full text-xs text-center py-1 text-muted-foreground">← Wapas</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function PreviewPanel({ messages, projectName, language = "html" }: PreviewPanelProps) {
@@ -82,11 +198,13 @@ export function PreviewPanel({ messages, projectName, language = "html" }: Previ
   const [exporting, setExporting] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [deployUrl, setDeployUrl] = useState(() => localStorage.getItem(`bf_deploy_url_${projectName}`) || "");
+  const [publishedUrl, setPublishedUrl] = useState(() => localStorage.getItem(`bf_published_url_${projectName}`) || "");
   const [editHtml, setEditHtml] = useState("");
   const [editCss, setEditCss] = useState("");
   const [editJs, setEditJs] = useState("");
   const [unsaved, setUnsaved] = useState(false);
   const [liveDoc, setLiveDoc] = useState("");
+  const [showApkModal, setShowApkModal] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const prevHtml = useRef("");
 
@@ -102,6 +220,9 @@ export function PreviewPanel({ messages, projectName, language = "html" }: Previ
   const html = editHtml || aiHtml, css = editCss || aiCss, js = editJs || aiJs;
   const srcDoc = useMemo(() => liveDoc || buildDoc(html, css, js, language), [liveDoc, html, css, js, language]);
   const hasCode = !!(html || css || js);
+
+  // Smart deploy: show deploy only for websites
+  const isWebsite = hasCode ? detectIsWebsite(html, projectName, messages) : false;
 
   const getContent = (f: string) => f === "index.html" ? (html || "<!-- No HTML yet -->") : f === "style.css" ? (css || "/* No CSS yet */") : (js || "// No JS yet");
   const setContent = (f: string, v: string) => { if (f === "index.html") setEditHtml(v); else if (f === "style.css") setEditCss(v); else setEditJs(v); setUnsaved(true); };
@@ -133,6 +254,28 @@ export function PreviewPanel({ messages, projectName, language = "html" }: Previ
     } catch { alert("Export failed."); } finally { setExporting(false); }
   };
 
+  // Publish to BrainForge KV (for APK export URL)
+  const publishToKv = async (): Promise<string | null> => {
+    const doc = liveDoc || buildDoc(html, css, js, language);
+    if (!doc) return null;
+    try {
+      const saved = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+      const workerUrl = saved.workerUrl || "https://brainforge-api.richard-brown-miami.workers.dev";
+      const secret = saved.workerSecret || "";
+      const res = await fetch(`${workerUrl}/api/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BrainForge-Secret": secret },
+        body: JSON.stringify({ html: doc, projectName }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const url = `https://brainforge-7xn.pages.dev${data.url}`;
+      setPublishedUrl(url);
+      localStorage.setItem(`bf_published_url_${projectName}`, url);
+      return url;
+    } catch { return null; }
+  };
+
   const deployApp = async () => {
     const saved = JSON.parse(localStorage.getItem("bf_settings") || "{}");
     const token = saved.githubToken || "", repo = saved.githubRepo || "";
@@ -158,22 +301,48 @@ export function PreviewPanel({ messages, projectName, language = "html" }: Previ
 
   return (
     <div className="flex flex-col h-full bg-background" data-ocid="preview.panel">
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border shrink-0">
+      {showApkModal && (
+        <ApkModal
+          projectName={projectName}
+          onClose={() => setShowApkModal(false)}
+          onPublishFirst={publishToKv}
+          publishedUrl={publishedUrl || deployUrl}
+        />
+      )}
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border shrink-0 flex-wrap">
         <div className="flex items-center rounded-md border border-border overflow-hidden shrink-0">
           <button type="button" onClick={() => setView("preview")} className={cn("flex items-center gap-1 px-2.5 py-1 text-[11px] transition-colors", view==="preview" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}><Monitor className="w-3 h-3" /> Preview</button>
           <button type="button" onClick={() => setView("edit")} className={cn("flex items-center gap-1 px-2.5 py-1 text-[11px] border-l border-border transition-colors", view==="edit" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}><Code2 className="w-3 h-3" /> Edit{unsaved?" *":""}</button>
         </div>
         <div className="flex-1" />
         {hasCode && (<>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={exportZip} disabled={exporting}>{exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}</Button>
-          {view==="preview" && (<>
-            <Button variant={mobile?"default":"ghost"} size="icon" className="h-7 w-7" onClick={() => setMobile(v=>!v)}><Smartphone className="w-3.5 h-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setPreviewKey(k=>k+1)}><RefreshCw className="w-3.5 h-3.5" /></Button>
-          </>)}
-          {deployUrl && <a href={deployUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-green-400 hover:underline shrink-0"><ExternalLink className="w-3 h-3" /> Live</a>}
-          <button type="button" onClick={deployApp} disabled={deploying} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-medium shrink-0 disabled:opacity-50">
-            {deploying ? <><Loader2 className="w-3 h-3 animate-spin" /> Deploying...</> : <><Rocket className="w-3 h-3" /> Deploy</>}
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={exportZip} disabled={exporting} title="Download ZIP">{exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}</Button>
+
+          {/* APK/PWA Export Button - always show when has code */}
+          <button type="button" onClick={() => setShowApkModal(true)}
+            title="Export as Android APK or iOS PWA"
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all hover:scale-105"
+            style={{ background: "oklch(0.55 0.25 120 / 0.15)", border: "1px solid oklch(0.55 0.25 120 / 0.3)", color: "oklch(0.70 0.25 120)" }}>
+            <Smartphone className="w-3 h-3" /> App
           </button>
+
+          {view==="preview" && (
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setPreviewKey(k=>k+1)} title="Refresh"><RefreshCw className="w-3.5 h-3.5" /></Button>
+          )}
+          {(deployUrl || publishedUrl) && <a href={deployUrl || publishedUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-green-400 hover:underline shrink-0" title="Open live app"><ExternalLink className="w-3 h-3" /> Live</a>}
+
+          {/* Smart Deploy - only show for websites */}
+          {isWebsite ? (
+            <button type="button" onClick={deployApp} disabled={deploying} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-[11px] font-medium shrink-0 disabled:opacity-50">
+              {deploying ? <><Loader2 className="w-3 h-3 animate-spin" /> Deploying...</> : <><Rocket className="w-3 h-3" /> Deploy</>}
+            </button>
+          ) : (
+            <button type="button" onClick={publishToKv}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium shrink-0 transition-all hover:scale-105"
+              style={{ background: "oklch(0.55 0.25 280 / 0.15)", border: "1px solid oklch(0.55 0.25 280 / 0.3)", color: "oklch(0.75 0.25 280)" }}>
+              <Rocket className="w-3 h-3" /> Publish
+            </button>
+          )}
         </>)}
       </div>
 
@@ -198,41 +367,26 @@ export function PreviewPanel({ messages, projectName, language = "html" }: Previ
 
       {view === "edit" && (
         <div className="flex flex-1 overflow-hidden">
-          <div className="w-36 shrink-0 border-r border-border bg-muted/20 flex flex-col">
-            <div className="px-3 py-2 border-b border-border"><p className="text-[10px] font-semibold text-muted-foreground uppercase">Files</p></div>
-            <div className="flex-1 py-1">
-              {files.map(f => (
-                <button key={f.name} type="button" onClick={() => setSelFile(f.name)}
-                  className={cn("w-full flex items-center gap-2 px-3 py-1.5 text-[11px] transition-colors text-left", selFile===f.name ? "bg-primary/15 text-foreground font-medium border-r-2 border-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40")}>
-                  {f.icon}<span className="truncate font-mono">{f.name}</span>
-                  {selFile===f.name && <ChevronRight className="w-3 h-3 ml-auto shrink-0" />}
-                </button>
-              ))}
-            </div>
-            <div className="px-2 py-2 border-t border-border space-y-1">
-              <button type="button" onClick={applyEdits} className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90">
-                <Save className="w-3 h-3" /> Apply
-              </button>
-              {(editHtml !== aiHtml || editCss !== aiCss || editJs !== aiJs) && (
-                <button type="button" onClick={resetToAi} className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[10px] border border-border hover:border-primary/30 text-muted-foreground hover:text-foreground">
-                  <RotateCcw className="w-3 h-3" /> Reset
-                </button>
-              )}
-              <p className="text-[9px] text-muted-foreground/50 text-center">{hasCode ? (unsaved ? "✏️ Unsaved" : "✅ Saved") : "⏳ Waiting"}</p>
-            </div>
+          <div className="w-32 shrink-0 border-r border-border">
+            <ScrollArea className="h-full">
+              <div className="p-2 space-y-1">
+                {files.map(f => (
+                  <button type="button" key={f.name} onClick={() => setSelFile(f.name)}
+                    className={cn("w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] transition-colors", selFile===f.name ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/30")}>
+                    {f.icon}{f.name.split(".")[1].toUpperCase()}
+                  </button>
+                ))}
+                <div className="pt-2 space-y-1">
+                  <button type="button" onClick={applyEdits} className="w-full flex items-center gap-1 px-2 py-1.5 rounded text-[11px] text-green-400 hover:bg-green-400/10 transition-colors"><Save className="w-3 h-3" /> Apply</button>
+                  {unsaved && <button type="button" onClick={resetToAi} className="w-full flex items-center gap-1 px-2 py-1.5 rounded text-[11px] text-muted-foreground hover:bg-muted/30 transition-colors"><RotateCcw className="w-3 h-3" /> Reset</button>}
+                </div>
+              </div>
+            </ScrollArea>
           </div>
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/10 shrink-0">
-              {files.find(f=>f.name===selFile)?.icon}
-              <span className="text-[11px] font-mono">{selFile}</span>
-              <span className="text-[10px] text-muted-foreground ml-auto">{getContent(selFile).split("\n").length} lines</span>
-            </div>
-            <textarea ref={taRef} key={selFile} defaultValue={getContent(selFile)}
-              onChange={e => setContent(selFile, e.target.value)}
-              spellCheck={false}
-              className="flex-1 p-3 text-[11px] font-mono leading-relaxed text-green-300 resize-none focus:outline-none"
-              style={{ background: "oklch(0.07 0 0)", tabSize: 2, lineHeight: "1.7", caretColor: "oklch(0.76 0.16 158)" }}
-              data-ocid="preview.editor" />
+          <div className="flex-1 flex flex-col min-w-0">
+            <textarea ref={taRef} value={getContent(selFile)} onChange={e => setContent(selFile, e.target.value)}
+              className="flex-1 resize-none font-mono text-[12px] p-3 bg-background text-foreground outline-none"
+              spellCheck={false} />
           </div>
         </div>
       )}
