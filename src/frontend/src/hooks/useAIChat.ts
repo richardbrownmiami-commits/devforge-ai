@@ -235,6 +235,26 @@ CRITICAL RULES:
 
 };
 
+
+// Save AI-generated code as a project file
+function saveProjectFile(projectName: string, lang: string, code: string) {
+  const langToFile: Record<string, string> = {
+    html: "index.html", python: "main.py", sql: "query.sql",
+    css: "style.css", js: "script.js", javascript: "script.js",
+    typescript: "main.ts", ts: "main.ts", tsx: "App.tsx", jsx: "App.jsx",
+    markdown: "README.md", p5js: "sketch.js", threejs: "scene.js", chartjs: "chart.js",
+  };
+  const filename = langToFile[lang.toLowerCase()] || "index.html";
+  const key = `bf_project_files_${projectName}`;
+  try {
+    const files: Array<{name: string; content: string; updatedAt: number}> = JSON.parse(localStorage.getItem(key) || "[]");
+    const idx = files.findIndex(f => f.name === filename);
+    const entry = { name: filename, content: code, updatedAt: Date.now() };
+    if (idx >= 0) files[idx] = entry; else files.push(entry);
+    localStorage.setItem(key, JSON.stringify(files));
+  } catch {}
+}
+
 const OR_FALLBACKS = ["qwen/qwen3-coder:free", "meta-llama/llama-3.3-70b-instruct:free", "google/gemma-3-27b-it:free", "mistralai/mistral-small-3.1-24b-instruct:free"];
 const GEMINI_FALLBACKS = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
 const GROQ_FALLBACKS = ["llama-3.3-70b-versatile", "qwen-qwq-32b", "llama-3.1-8b-instant"];
@@ -445,6 +465,15 @@ export function useAIChat(opts: UseAIChatOptions) {
       }
       if (detected && onLanguageDetected) onLanguageDetected(detected);
       setMessages(p => { const n = [...p, { role: "assistant", content: finalReply } as ChatMessage]; persist(projectName, n); scheduleSessionPush(projectName, n); return n; });
+      // Extract code block and save as project file
+      const codeBlockMatch = finalReply.match(/```(\w+)[^
+]*
+([\s\S]*?)```/);
+      if (codeBlockMatch) {
+        const codeLang = codeBlockMatch[1].toLowerCase();
+        const codeBody = codeBlockMatch[2];
+        saveProjectFile(projectName, codeLang, codeBody);
+      }
     } catch (e: unknown) { if (e instanceof Error && e.name !== "AbortError") setError(e.message); setActiveModel(""); }
     finally { setIsLoading(false); }
   }, [provider, language, openRouterKey, openRouterModel, geminiKey, geminiModel, groqKey, groqModel, githubModelsKey, githubModelsModel, projectName, sysPrompt, onLanguageDetected, supabaseUrl, supabaseKey]);
