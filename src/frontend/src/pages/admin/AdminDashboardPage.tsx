@@ -78,7 +78,7 @@ export function AdminDashboardPage() {
         fetch("https://brainforge-7xn.pages.dev")
           .then((r) => (r.ok ? "online" : "offline"))
           .catch(() => "offline"),
-        fetch(`${CF_WORKER}/health`, { headers: { "x-secret": WORKER_SECRET } })
+        fetch(`${CF_WORKER}/api/stats`, { headers: { "X-BrainForge-Secret": WORKER_SECRET } })
           .then((r) => (r.ok ? "online" : "offline"))
           .catch(() => "offline"),
         fetch(`https://api.github.com/repos/${GH_REPO}/commits?per_page=5`, {
