@@ -1,7 +1,7 @@
-import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Link } from "@tanstack/react-router";
 import {
   Bot,
   Brain,
@@ -1072,11 +1072,24 @@ export function SettingsPage() {
             );
           })}
         </div>
-        <div className="text-center mt-6 space-y-1.5">
+        <div className="mt-4">
+          <a
+            href="/admin"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]"
+            style={{
+              background: "oklch(0.55 0.25 280 / 0.12)",
+              border: "1px solid oklch(0.55 0.25 280 / 0.3)",
+              color: "oklch(0.70 0.25 280)",
+            }}
+            data-ocid="settings.admin_panel.link"
+          >
+            2699Fe0f Admin Panel
+          </a>
+        </div>
+        <div className="text-center mt-4 space-y-1.5">
           <p className="text-[10px] text-muted-foreground/30">
             Made with love by{" "}
-            <span className="text-violet-400/60">Richard Brown</span>
-            {" "}&amp;{" "}
+            <span className="text-violet-400/60">Richard Brown</span> &amp;{" "}
             <span className="text-cyan-400/60">Claude (Ara)</span>
           </p>
           <Link
@@ -1090,4 +1103,3 @@ export function SettingsPage() {
     </div>
   );
 }
-
