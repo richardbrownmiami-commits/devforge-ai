@@ -17,6 +17,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminDatabasePage } from "./pages/admin/AdminDatabasePage";
+import { AdminAIRulesPage } from "./pages/admin/AdminAIRulesPage";
 import { BackupPage } from "./pages/admin/BackupPage";
 import { DeployLogPage } from "./pages/admin/DeployLogPage";
 import { FeedbackAdminPage } from "./pages/admin/FeedbackAdminPage";
@@ -120,11 +121,12 @@ const adminTermuxRoute = createRoute({ getParentRoute: () => adminLayoutRoute, p
 const adminUsersRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/users", component: UsersAdminPage });
 const adminFeedbackRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/feedback", component: FeedbackAdminPage });
 const adminDatabaseRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/database", component: AdminDatabasePage });
+const adminAIRulesRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/ai-rules", component: AdminAIRulesPage });
 
 adminLayoutRoute.addChildren([
   adminIndexRoute, adminMasterAIRoute, adminStatusRoute, adminBackupRoute,
   adminIssuesRoute, adminDeployLogRoute, adminNotesRoute, adminTermuxRoute,
-  adminUsersRoute, adminFeedbackRoute, adminDatabaseRoute,
+  adminUsersRoute, adminFeedbackRoute, adminDatabaseRoute, adminAIRulesRoute,
 ]);
 
 const mainRouteTree = rootRoute.addChildren([indexRoute, projectsRoute, editorRoute, settingsRoute, policyRoute]);
