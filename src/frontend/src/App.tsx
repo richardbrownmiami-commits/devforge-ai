@@ -19,6 +19,10 @@ import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminDatabasePage } from "./pages/admin/AdminDatabasePage";
 import { AdminAIRulesPage } from "./pages/admin/AdminAIRulesPage";
 import { CloudflarePage } from "./pages/admin/CloudflarePage";
+import { BroadcastPage } from "./pages/admin/BroadcastPage";
+import { APIMonitorPage } from "./pages/admin/APIMonitorPage";
+import { AnalyticsPage } from "./pages/admin/AnalyticsPage";
+import { SystemPage } from "./pages/admin/SystemPage";
 import { BackupPage } from "./pages/admin/BackupPage";
 import { DeployLogPage } from "./pages/admin/DeployLogPage";
 import { FeedbackAdminPage } from "./pages/admin/FeedbackAdminPage";
@@ -87,8 +91,29 @@ function PinLock({ children }: { children: React.ReactNode }) {
   );
 }
 
+function MaintenanceGate({ children }: { children: React.ReactNode }) {
+  const isAdmin = window.location.pathname.startsWith("/admin");
+  const [maintenance] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("bf_maintenance_mode") || "false"); } catch { return false; }
+  });
+  if (maintenance && !isAdmin) {
+    return (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: "oklch(0.05 0.02 280)" }}>
+        <div className="w-80 p-8 rounded-2xl border text-center space-y-4" style={{ background: "oklch(0.10 0.025 280)", borderColor: "oklch(0.55 0.25 40 / 0.4)" }}>
+          <div className="text-4xl">🔧</div>
+          <h2 className="text-lg font-bold text-foreground">Maintenance Mode</h2>
+          <p className="text-sm text-muted-foreground">BrainForge abhi maintenance mein hai. Thodi der mein wapas aao.</p>
+          <p className="text-xs text-muted-foreground/50">Admin se contact karo agar urgent kaam ho.</p>
+        </div>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 const rootRoute = createRootRoute({
   component: () => (
+    <MaintenanceGate>
     <PinLock>
       <div className="flex bg-background overflow-hidden" style={{ height: "100dvh" }}>
         <Sidebar />
@@ -97,6 +122,7 @@ const rootRoute = createRootRoute({
         <Toaster />
       </div>
     </PinLock>
+    </MaintenanceGate>
   ),
 });
 
@@ -124,11 +150,16 @@ const adminFeedbackRoute = createRoute({ getParentRoute: () => adminLayoutRoute,
 const adminDatabaseRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/database", component: AdminDatabasePage });
 const adminAIRulesRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/ai-rules", component: AdminAIRulesPage });
 const adminCloudflareRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/cloudflare", component: CloudflarePage });
+const adminBroadcastRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/broadcast", component: BroadcastPage });
+const adminAPIMonitorRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/api-monitor", component: APIMonitorPage });
+const adminAnalyticsRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/analytics", component: AnalyticsPage });
+const adminSystemRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/system", component: SystemPage });
 
 adminLayoutRoute.addChildren([
   adminIndexRoute, adminMasterAIRoute, adminStatusRoute, adminBackupRoute,
   adminIssuesRoute, adminDeployLogRoute, adminNotesRoute, adminTermuxRoute,
   adminUsersRoute, adminFeedbackRoute, adminDatabaseRoute, adminAIRulesRoute, adminCloudflareRoute,
+  adminBroadcastRoute, adminAPIMonitorRoute, adminAnalyticsRoute, adminSystemRoute,
 ]);
 
 const mainRouteTree = rootRoute.addChildren([indexRoute, projectsRoute, editorRoute, settingsRoute, policyRoute]);
