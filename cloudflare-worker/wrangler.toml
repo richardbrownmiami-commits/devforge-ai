@@ -1,0 +1,7 @@
+name = "brainforge-api"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "APPS_KV"
+id = "c62f444539254734869f4fae5dc74755"
