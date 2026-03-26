@@ -23,7 +23,6 @@ type Page =
   | "ai"
   | "termux"
   | "github"
-  | "aifiles"
   | "pinlock";
 
 const HUB_BUTTONS = [
@@ -294,69 +293,6 @@ function GithubPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-function AiFilesPage({ onBack }: { onBack: () => void }) {
-  const [projects] = useState<string[]>(() => {
-    try { const ps = JSON.parse(localStorage.getItem("bf_projects") || "[]"); return ps.map((p: any) => p.name); } catch { return []; }
-  });
-  const [selectedProject, setSelectedProject] = useState<string | null>(null);
-  const [projMem, setProjMem] = useState("");
-  const [projRules, setProjRules] = useState("");
-  const [saved, setSaved] = useState(false);
-
-  const loadProject = (name: string) => {
-    setSelectedProject(name);
-    setProjMem(localStorage.getItem(`bf_memory_${name}`) || "");
-    setProjRules(localStorage.getItem(`bf_rules_${name}`) || "");
-  };
-
-  const handleSave = () => {
-    if (!selectedProject) return;
-    localStorage.setItem(`bf_memory_${selectedProject}`, projMem);
-    localStorage.setItem(`bf_rules_${selectedProject}`, projRules);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  return (
-    <div className="flex flex-col h-full">
-      <SubPageHeader title="AI Files" onBack={onBack} />
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        <div className="p-3 rounded-lg border border-teal-500/20 bg-teal-500/5">
-          <p className="text-[10px] text-teal-300/70">View and edit AI memory and rules for each project.</p>
-        </div>
-        {projects.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-6">No projects yet.</p>
-        ) : (
-          <>
-            <FieldGroup label="Select Project">
-              <select value={selectedProject || ""} onChange={(e) => loadProject(e.target.value)}
-                className="w-full h-8 bg-card border border-border rounded-md px-2 text-xs text-foreground">
-                <option value="">-- choose project --</option>
-                {projects.map((p) => (<option key={p} value={p}>{p}</option>))}
-              </select>
-            </FieldGroup>
-            {selectedProject && (
-              <>
-                <FieldGroup label={`Memory (${selectedProject})`}>
-                  <textarea value={projMem} onChange={(e) => setProjMem(e.target.value)} placeholder="AI memory..." rows={5}
-                    className="w-full bg-card border border-border rounded-md px-3 py-2 text-xs text-foreground resize-none focus:outline-none focus:border-primary/50" />
-                </FieldGroup>
-                <FieldGroup label={`Rules (${selectedProject})`}>
-                  <textarea value={projRules} onChange={(e) => setProjRules(e.target.value)} placeholder="AI rules..." rows={5}
-                    className="w-full bg-card border border-border rounded-md px-3 py-2 text-xs text-foreground resize-none focus:outline-none focus:border-primary/50" />
-                </FieldGroup>
-                <Button onClick={handleSave} className="w-full h-8 text-xs" data-ocid="settings.aifiles.save_button">
-                  <Save className="w-3.5 h-3.5 mr-1.5" />{saved ? "Saved ✓" : "Save AI Files"}
-                </Button>
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function PinLockPage({ onBack }: { onBack: () => void }) {
   const { data: settings } = useSettings();
   const save = useSaveSettings();
@@ -406,7 +342,6 @@ export function SettingsPage() {
   if (page === "ai") return <AiSettingsPage onBack={() => setPage(null)} />;
   if (page === "termux") return <TermuxPage onBack={() => setPage(null)} />;
   if (page === "github") return <GithubPage onBack={() => setPage(null)} />;
-  if (page === "aifiles") return <AiFilesPage onBack={() => setPage(null)} />;
   if (page === "pinlock") return <PinLockPage onBack={() => setPage(null)} />;
 
   return (
