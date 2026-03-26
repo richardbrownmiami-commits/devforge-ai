@@ -13,8 +13,10 @@ import {
   Terminal,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdminPinGate } from "./AdminPinGate";
+
+const IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
 const NAV_ITEMS = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/admin" },
@@ -26,6 +28,62 @@ const NAV_ITEMS = [
   { icon: StickyNote, label: "Notes", path: "/admin/notes" },
   { icon: Terminal, label: "Termux", path: "/admin/termux" },
 ];
+
+function useIdleLogout() {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const reset = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        localStorage.removeItem("bf_admin_last_unlock");
+        window.location.reload();
+      }, IDLE_TIMEOUT);
+    };
+
+    const events = ["mousemove", "keydown", "click", "scroll", "touchstart", "touchmove"];
+    events.forEach(ev => window.addEventListener(ev, reset, { passive: true }));
+    reset(); // start timer
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      events.forEach(ev => window.removeEventListener(ev, reset));
+    };
+  }, []);
+}
+
+function IdleWarning() {
+  const [remaining, setRemaining] = useState(IDLE_TIMEOUT);
+  const lastActivity = useRef(Date.now());
+
+  useEffect(() => {
+    const resetActivity = () => { lastActivity.current = Date.now(); };
+    const events = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach(ev => window.addEventListener(ev, resetActivity, { passive: true }));
+
+    const interval = setInterval(() => {
+      const idle = Date.now() - lastActivity.current;
+      setRemaining(Math.max(0, IDLE_TIMEOUT - idle));
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+      events.forEach(ev => window.removeEventListener(ev, resetActivity));
+    };
+  }, []);
+
+  const mins = Math.floor(remaining / 60000);
+  const secs = Math.floor((remaining % 60000) / 1000);
+  const isWarning = remaining < 2 * 60 * 1000; // warn at 2 min
+
+  if (!isWarning) return null;
+  return (
+    <div className="fixed bottom-4 right-4 z-50 px-4 py-2 rounded-xl text-xs font-medium shadow-lg"
+      style={{ background: "oklch(0.50 0.25 40 / 0.9)", color: "white", border: "1px solid oklch(0.60 0.25 40)" }}>
+      ⏱ Idle logout: {mins}:{secs.toString().padStart(2, "0")}
+    </div>
+  );
+}
 
 function AdminSidebar({ onClose }: { onClose?: () => void }) {
   const router = useRouter();
@@ -91,30 +149,39 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
   );
 }
 
-export function AdminLayout() {
+function AdminContent() {
+  useIdleLogout();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
-    <AdminPinGate>
-      <div className="flex h-screen overflow-hidden" style={{ background: "oklch(0.06 0.02 280)" }}>
-        <div className="hidden md:flex w-56 shrink-0 flex-col">
-          <AdminSidebar />
-        </div>
-        {sidebarOpen && (
-          <div className="md:hidden fixed inset-0 z-50 flex">
-            <div className="w-56 flex flex-col"><AdminSidebar onClose={() => setSidebarOpen(false)} /></div>
-            <button type="button" aria-label="Close sidebar" className="flex-1" onClick={() => setSidebarOpen(false)} style={{ background: "oklch(0 0 0 / 0.6)" }} />
-          </div>
-        )}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <div className="md:hidden flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid oklch(0.18 0.06 280)", background: "oklch(0.08 0.025 280)" }}>
-            <button type="button" onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg" style={{ background: "oklch(0.55 0.25 280 / 0.15)" }}>
-              <Menu className="w-4 h-4" style={{ color: "oklch(0.65 0.25 280)" }} />
-            </button>
-            <span className="text-sm font-semibold text-foreground">⚙️ BrainForge Admin</span>
-          </div>
-          <div className="flex-1 overflow-auto"><Outlet /></div>
-        </div>
+    <div className="flex h-screen overflow-hidden" style={{ background: "oklch(0.06 0.02 280)" }}>
+      <div className="hidden md:flex w-56 shrink-0 flex-col">
+        <AdminSidebar />
       </div>
+      {sidebarOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          <div className="w-56 flex flex-col"><AdminSidebar onClose={() => setSidebarOpen(false)} /></div>
+          <button type="button" aria-label="Close sidebar" className="flex-1" onClick={() => setSidebarOpen(false)} style={{ background: "oklch(0 0 0 / 0.6)" }} />
+        </div>
+      )}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="md:hidden flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid oklch(0.18 0.06 280)", background: "oklch(0.08 0.025 280)" }}>
+          <button type="button" onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg" style={{ background: "oklch(0.55 0.25 280 / 0.15)" }}>
+            <Menu className="w-4 h-4" style={{ color: "oklch(0.65 0.25 280)" }} />
+          </button>
+          <span className="text-sm font-semibold text-foreground">⚙️ BrainForge Admin</span>
+        </div>
+        <div className="flex-1 overflow-auto"><Outlet /></div>
+      </div>
+      <IdleWarning />
+    </div>
+  );
+}
+
+export function AdminLayout() {
+  return (
+    <AdminPinGate>
+      <AdminContent />
     </AdminPinGate>
   );
 }
