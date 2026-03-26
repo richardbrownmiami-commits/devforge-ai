@@ -28,22 +28,98 @@ export interface Feedback {
   status: 'open' | 'replied' | 'closed';
 }
 
+export interface SessionRecord {
+  username: string;
+  token: string;
+  deviceInfo: string;
+  loginAt: string;
+  lastActive: string;
+}
+
 export function simpleHash(s: string): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
   return h.toString(16);
 }
 
+function generateToken(): string {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
+export function getDeviceInfo(): string {
+  try {
+    return `${navigator.userAgent.substring(0, 60)} | ${screen.width}x${screen.height} | ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+  } catch { return 'Unknown device'; }
+}
+
 // ===== Session =====
 export function getCurrentUser(): string | null {
   return sessionStorage.getItem('bf_session_user');
 }
+
+export function getSessionRecord(username: string): SessionRecord | null {
+  try { return JSON.parse(localStorage.getItem(`bf_session_${username}`) || 'null'); } catch { return null; }
+}
+
 export function setCurrentUser(username: string) {
+  const token = generateToken();
+  const record: SessionRecord = {
+    username,
+    token,
+    deviceInfo: getDeviceInfo(),
+    loginAt: new Date().toISOString(),
+    lastActive: new Date().toISOString(),
+  };
+  localStorage.setItem(`bf_session_${username}`, JSON.stringify(record));
+  sessionStorage.setItem('bf_session_token', token);
   sessionStorage.setItem('bf_session_user', username);
   updateLastActive(username);
 }
+
+export function validateCurrentSession(): boolean {
+  const user = getCurrentUser();
+  if (!user) return false;
+  const token = sessionStorage.getItem('bf_session_token');
+  const record = getSessionRecord(user);
+  if (!record || record.token !== token) return false;
+  // Update last active
+  localStorage.setItem(`bf_session_${user}`, JSON.stringify({ ...record, lastActive: new Date().toISOString() }));
+  return true;
+}
+
+export function hasActiveSession(username: string): boolean {
+  const record = getSessionRecord(username);
+  if (!record || record.token === '__force_logged_out__') return false;
+  // Consider session active if last active within 24h
+  const diff = Date.now() - new Date(record.lastActive).getTime();
+  return diff < 24 * 60 * 60 * 1000;
+}
+
+export function forceLogoutUser(username: string) {
+  const record = getSessionRecord(username);
+  if (record) {
+    localStorage.setItem(`bf_session_${username}`, JSON.stringify({
+      ...record,
+      token: '__force_logged_out__',
+      lastActive: new Date().toISOString(),
+    }));
+  }
+}
+
 export function logoutUser() {
+  const user = getCurrentUser();
+  if (user) {
+    const record = getSessionRecord(user);
+    if (record) {
+      localStorage.setItem(`bf_session_${user}`, JSON.stringify({
+        ...record,
+        token: '__logged_out__',
+        lastActive: new Date().toISOString(),
+      }));
+    }
+  }
   sessionStorage.removeItem('bf_session_user');
+  sessionStorage.removeItem('bf_session_token');
 }
 
 // ===== Users =====
