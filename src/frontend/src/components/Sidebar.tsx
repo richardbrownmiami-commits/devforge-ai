@@ -35,7 +35,7 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
     <div className="flex flex-col h-full" style={{ background: "oklch(var(--sidebar))" }}>
       <div className="px-5 py-5 border-b border-sidebar-border">
         <Link to="/projects" className="flex items-center gap-2 group" data-ocid="sidebar.link" onClick={onClose}>
-          <img src="/assets/generated/brainforge-icon-3d.dim_512x512.png" alt="BrainForge" className="w-7 h-7 rounded-lg object-cover" />
+          <img src="/assets/generated/brainforge-icon-3d.dim_512x512.png" alt="BrainForge" className="w-10 h-10 rounded-xl object-cover" />
           <span className="font-bold text-base text-foreground tracking-tight group-hover:text-primary transition-colors">
             BrainForge
           </span>
@@ -85,6 +85,23 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
         <p className="mt-2 text-[10px] text-muted-foreground/50">
           &copy; {new Date().getFullYear()} BrainForge
         </p>
+      {/* Neon Tagline */}
+        <div className="mt-3 px-1 text-center">
+          <p
+            className="text-[11px] font-bold leading-snug tracking-wide"
+            style={{
+              color: "oklch(0.80 0.30 160)",
+              textShadow: "0 0 8px oklch(0.70 0.35 160), 0 0 20px oklch(0.60 0.30 160 / 0.6)",
+              fontStyle: "italic",
+            }}
+          >
+            Soocho Mat — Bana Dalo
+            <br />
+            <span style={{ color: "oklch(0.85 0.28 280)", textShadow: "0 0 8px oklch(0.75 0.35 280), 0 0 20px oklch(0.65 0.30 280 / 0.6)" }}>
+              KHUD Ka App ⚡
+            </span>
+          </p>
+        </div>
       </div>
     </div>
   );
