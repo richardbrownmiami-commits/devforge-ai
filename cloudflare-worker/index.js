@@ -44,6 +44,8 @@ export default {
       if (path === '/api/publish' && request.method === 'POST') return await handlePublishApp(env, await request.json());
       if (path === '/api/publish' && request.method === 'GET') return await handleListPublished(env);
       if (path.startsWith('/api/publish/') && request.method === 'DELETE') return await handleDeletePublished(env, path.slice(13));
+      // Admin OTP send (email recovery)
+      if (path === '/api/admin/send-otp' && request.method === 'POST') return await handleSendAdminOtp(env, await request.json());
       return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
     } catch (err) {
       return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
@@ -223,6 +225,37 @@ async function handleDeletePublished(env, id) {
   if (!env.APPS_KV || !id) return json({ error: 'invalid' }, 400);
   await env.APPS_KV.delete(`app:${id}`);
   await env.APPS_KV.delete(`meta:${id}`);
+  return json({ ok: true });
+}
+
+
+// ===== Admin OTP Email =====
+async function handleSendAdminOtp(env, body) {
+  const { email, otp } = body || {};
+  if (!email || !otp) return json({ error: 'email and otp required' }, 400);
+  if (!env.RESEND_API_KEY) {
+    // No email service configured -- return success anyway (OTP shown in frontend console)
+    return json({ ok: true, warning: 'RESEND_API_KEY not set, OTP not sent' });
+  }
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'BrainForge Admin <noreply@brainforge.app>',
+      to: [email],
+      subject: 'BrainForge Admin - Password Recovery OTP',
+      html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;">
+        <h2 style="color:#7c3aed;">BrainForge Admin Recovery</h2>
+        <p>Tumhara 6-digit OTP:</p>
+        <div style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#7c3aed;padding:20px;background:#f3f0ff;border-radius:8px;text-align:center;">${otp}</div>
+        <p style="color:#666;font-size:12px;margin-top:20px;">Yeh OTP 10 minute ke liye valid hai. Agar tumne yeh request nahi ki toh ignore karo.</p>
+      </div>`,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Email send failed');
+  }
   return json({ ok: true });
 }
 
