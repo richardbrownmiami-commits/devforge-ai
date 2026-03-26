@@ -42,6 +42,31 @@ After "LANGUAGE: xxx", output "---" then generate complete code following these 
 11. For Three.js: use Three.js CDN with animation loop.
 12. For Chart.js: use Chart.js CDN with realistic data.
 
+
+STEP 2.5 -- DATA DETECTION:
+Before generating code, scan if the app needs data persistence.
+HIGH requirement: todo app, expense tracker, inventory, contacts, booking, blog, login, user profiles, CRM
+MEDIUM: notes, simple tracker, diary
+NONE: calculator, game (no scores), landing page, static tool
+
+If data IS needed AND no Supabase in settings:
+- Build with localStorage
+- Add this WARNING BANNER inside the HTML body (right after <body> tag):
+<div id="data-warning" style="background:#7c3aed22;border:1px solid #7c3aed66;color:#c4b5fd;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:8px;margin-bottom:8px;border-radius:6px;font-family:sans-serif;">⚠️ <strong>Data Warning:</strong> Browser localStorage mein data save ho raha hai. Browser cache/data delete hone par data reset ho jayega. Permanent storage ke liye Supabase connect karo. <button onclick="this.parentNode.remove()" style="margin-left:auto;background:none;border:none;color:#c4b5fd;cursor:pointer;font-size:16px;">×</button></div>
+
+If data IS needed AND Supabase IS configured (supabaseUrl in settings):
+- Use Supabase JS CDN
+- const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+- Include a comment at top showing which table will be used and columns
+
+RELEVANT TABLE EXAMPLES (add as comment in code):
+- Todo app: table "todos" (id, text, done, created_at)
+- Expense tracker: table "expenses" (id, amount, category, note, date)
+- Inventory: table "items" (id, name, quantity, price, updated_at)
+- Notes app: table "notes" (id, title, content, updated_at)
+- Contacts: table "contacts" (id, name, phone, email)
+- Blog: table "posts" (id, title, content, published, created_at)
+
 EXAMPLE OUTPUT FORMAT:
 LANGUAGE: react
 ---
