@@ -1,6 +1,4 @@
 import { Toaster } from "@/components/ui/sonner";
-import { OnboardingWizard, useOnboarding } from "./components/OnboardingWizard";
-import { PolicyPage } from "./pages/PolicyPage";
 import {
   Outlet,
   RouterProvider,
@@ -10,10 +8,19 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { OnboardingWizard, useOnboarding } from "./components/OnboardingWizard";
 import { Sidebar } from "./components/Sidebar";
 import { EditorPage } from "./pages/EditorPage";
+import { PolicyPage } from "./pages/PolicyPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
+import { AdminLayout } from "./pages/admin/AdminLayout";
+import { BackupPage } from "./pages/admin/BackupPage";
+import { DeployLogPage } from "./pages/admin/DeployLogPage";
+import { IssueTrackerPage } from "./pages/admin/IssueTrackerPage";
+import { MasterAIAdminPage } from "./pages/admin/MasterAIAdminPage";
+import { StatusPage } from "./pages/admin/StatusPage";
 
 // ---- PIN Lock Component ----
 function PinLock({ children }: { children: React.ReactNode }) {
@@ -29,8 +36,8 @@ function PinLock({ children }: { children: React.ReactNode }) {
     if (Date.now() - last > timeout) {
       setLocked(true);
     }
-    // Track activity to reset timeout
-    const resetTimer = () => localStorage.setItem("bf_last_unlock", Date.now().toString());
+    const resetTimer = () =>
+      localStorage.setItem("bf_last_unlock", Date.now().toString());
     window.addEventListener("pointerdown", resetTimer);
     window.addEventListener("keydown", resetTimer);
     return () => {
@@ -63,8 +70,12 @@ function PinLock({ children }: { children: React.ReactNode }) {
           <div className="w-14 h-14 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center mx-auto mb-3 text-2xl">
             🔒
           </div>
-          <h2 className="text-base font-semibold text-foreground">BrainForge Locked</h2>
-          <p className="text-xs text-muted-foreground mt-1">Enter your PIN to continue</p>
+          <h2 className="text-base font-semibold text-foreground">
+            BrainForge Locked
+          </h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Enter your PIN to continue
+          </p>
         </div>
         <input
           type="password"
@@ -75,7 +86,6 @@ function PinLock({ children }: { children: React.ReactNode }) {
           placeholder="• • • •"
           maxLength={6}
           className="w-full bg-black/40 border border-red-500/30 rounded-lg px-3 py-2.5 text-center text-2xl tracking-[0.5em] text-foreground focus:outline-none focus:border-red-400/60 transition-colors"
-          autoFocus
         />
         {err && <p className="text-xs text-red-400 text-center">{err}</p>}
         <button
@@ -91,6 +101,7 @@ function PinLock({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Main app root (with sidebar)
 const rootRoute = createRootRoute({
   component: () => (
     <PinLock>
@@ -114,6 +125,16 @@ const rootRoute = createRootRoute({
         <Toaster />
       </div>
     </PinLock>
+  ),
+});
+
+// Admin root (no sidebar, own layout)
+const adminRootRoute = createRootRoute({
+  component: () => (
+    <>
+      <Outlet />
+      <Toaster />
+    </>
   ),
 });
 
@@ -150,14 +171,74 @@ const policyRoute = createRoute({
   component: PolicyPage,
 });
 
-const routeTree = rootRoute.addChildren([
+// Admin routes
+const adminLayoutRoute = createRoute({
+  getParentRoute: () => adminRootRoute,
+  path: "/admin",
+  component: AdminLayout,
+});
+
+const adminIndexRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/",
+  component: AdminDashboardPage,
+});
+
+const adminMasterAIRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/master-ai",
+  component: MasterAIAdminPage,
+});
+
+const adminStatusRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/status",
+  component: StatusPage,
+});
+
+const adminBackupRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/backup",
+  component: BackupPage,
+});
+
+const adminIssuesRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/issues",
+  component: IssueTrackerPage,
+});
+
+const adminDeployLogRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: "/deploy-log",
+  component: DeployLogPage,
+});
+
+adminLayoutRoute.addChildren([
+  adminIndexRoute,
+  adminMasterAIRoute,
+  adminStatusRoute,
+  adminBackupRoute,
+  adminIssuesRoute,
+  adminDeployLogRoute,
+]);
+
+const mainRouteTree = rootRoute.addChildren([
   indexRoute,
   projectsRoute,
   editorRoute,
   settingsRoute,
   policyRoute,
 ]);
-const router = createRouter({ routeTree });
+
+const adminRouteTree = adminRootRoute.addChildren([adminLayoutRoute]);
+
+// Use admin router if path starts with /admin, else main router
+const isAdminPath = window.location.pathname.startsWith("/admin");
+
+const router = createRouter({
+  routeTree: isAdminPath ? adminRouteTree : mainRouteTree,
+});
 
 declare module "@tanstack/react-router" {
   interface Register {
@@ -170,8 +251,9 @@ export default function App() {
   return (
     <>
       <RouterProvider router={router} />
-      {showWizard && <OnboardingWizard onComplete={() => setShowWizard(false)} />}
+      {!isAdminPath && showWizard && (
+        <OnboardingWizard onComplete={() => setShowWizard(false)} />
+      )}
     </>
   );
 }
-
