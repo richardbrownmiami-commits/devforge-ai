@@ -348,6 +348,24 @@ export function EditorPage() {
     saveSnapshot(projectName, messages);
     sendMessage(msg, img);
   };
+
+  const handleSuggest = () => {
+    const SUGGEST_PROMPT = `Mera current project dekho aur mujhe 5 specific features suggest karo jo main is project mein add kar sakta hoon. 
+
+Har suggestion ke liye batao:
+1. Feature ka naam
+2. Kyun useful hai
+3. Ek line implementation tip
+
+Format:
+✨ **Feature 1: [Naam]**
+Why: [1 line reason]
+How: [1 line tip]
+
+Sirf relevant aur practical features suggest karo jo is specific project ke liye best hoon.`;
+    handleSend(SUGGEST_PROMPT);
+  };
+
   const restoreSnapshot = (snap: Snapshot) => {
     localStorage.setItem(
       `bf_chat_${projectName}`,
@@ -488,6 +506,7 @@ export function EditorPage() {
           onPreview={() => setPreviewOpen(true)}
           onHistory={() => setSidebarOpen(true)}
           autoFixStatus={autoFixStatus}
+          onSuggest={handleSuggest}
         />
       </div>
 
