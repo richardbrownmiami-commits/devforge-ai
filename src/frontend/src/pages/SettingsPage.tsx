@@ -1083,7 +1083,7 @@ export function SettingsPage() {
             }}
             data-ocid="settings.admin_panel.link"
           >
-            2699Fe0f Admin Panel
+            ⚙️ Admin Panel
           </a>
         </div>
         <div className="text-center mt-4 space-y-1.5">
