@@ -16,6 +16,7 @@ import { ProjectsPage } from "./pages/ProjectsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
+import { AdminDatabasePage } from "./pages/admin/AdminDatabasePage";
 import { BackupPage } from "./pages/admin/BackupPage";
 import { DeployLogPage } from "./pages/admin/DeployLogPage";
 import { FeedbackAdminPage } from "./pages/admin/FeedbackAdminPage";
@@ -61,7 +62,6 @@ function PinLock({ children }: { children: React.ReactNode }) {
   };
 
   if (!locked) return <>{children}</>;
-
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: "oklch(0.05 0.02 280)" }}>
       <div className="w-72 p-6 rounded-2xl border border-red-500/30 bg-red-500/5 space-y-4 shadow-2xl">
@@ -119,11 +119,12 @@ const adminNotesRoute = createRoute({ getParentRoute: () => adminLayoutRoute, pa
 const adminTermuxRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/termux", component: TermuxAdminPage });
 const adminUsersRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/users", component: UsersAdminPage });
 const adminFeedbackRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/feedback", component: FeedbackAdminPage });
+const adminDatabaseRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/database", component: AdminDatabasePage });
 
 adminLayoutRoute.addChildren([
   adminIndexRoute, adminMasterAIRoute, adminStatusRoute, adminBackupRoute,
   adminIssuesRoute, adminDeployLogRoute, adminNotesRoute, adminTermuxRoute,
-  adminUsersRoute, adminFeedbackRoute,
+  adminUsersRoute, adminFeedbackRoute, adminDatabaseRoute,
 ]);
 
 const mainRouteTree = rootRoute.addChildren([indexRoute, projectsRoute, editorRoute, settingsRoute, policyRoute]);
