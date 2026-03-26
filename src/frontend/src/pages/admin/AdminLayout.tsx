@@ -9,8 +9,10 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageSquare,
   Rocket,
   Terminal,
+  Users,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -20,6 +22,8 @@ const IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
 const NAV_ITEMS = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/admin" },
+  { icon: Users, label: "Users", path: "/admin/users" },
+  { icon: MessageSquare, label: "Feedback", path: "/admin/feedback" },
   { icon: Bot, label: "Master AI", path: "/admin/master-ai" },
   { icon: Activity, label: "Status", path: "/admin/status" },
   { icon: HardDrive, label: "Backup", path: "/admin/backup" },
