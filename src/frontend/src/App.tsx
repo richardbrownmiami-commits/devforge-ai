@@ -122,7 +122,7 @@ adminLayoutRoute.addChildren([
 const mainRouteTree = rootRoute.addChildren([indexRoute, projectsRoute, editorRoute, settingsRoute, policyRoute]);
 const adminRouteTree = adminRootRoute.addChildren([adminLayoutRoute]);
 
-const isAdminPath = window.location.pathname.startsWith("/admin");
+const isAdminPath = window.location.pathname.startsWith("/admin") || window.location.hash.startsWith("#/admin");
 const router = createRouter({ routeTree: isAdminPath ? adminRouteTree : mainRouteTree });
 
 declare module "@tanstack/react-router" {
