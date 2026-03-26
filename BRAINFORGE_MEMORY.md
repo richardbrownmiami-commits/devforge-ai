@@ -1,6 +1,6 @@
 # BrainForge Memory
 **Project:** BrainForge
-**Date:** March 22, 2026
+**Date Updated:** March 26, 2026
 **Repository:** github.com/richardbrownmiami-commits/devforge-ai
 **Live App:** https://brainforge-7xn.pages.dev
 
@@ -23,97 +23,114 @@
 
 ---
 
+## Session Restore Command
+```
+CLOUDFLARE_API_TOKEN="OBYob5EKKSE9cS0Xu-rZMkkKs46YnHIR0qN94lZj" CLOUDFLARE_ACCOUNT_ID="913f3a2576a358054eba9a58a9573949" npx wrangler pages deploy dist --project-name brainforge
+```
+
+---
+
+## March 26, 2026 -- Session Updates
+
+### Features Built & Deployed Today
+
+| Feature | Status |
+|---|---|
+| Onboarding Wizard (3-step: Welcome, API Key, Ready) | ✅ Live |
+| Real Deploy Flow (Cloudflare Pages + GitHub Pages wizard) | ✅ Live |
+| Settings footer: "Made with love by Richard Brown & Claude (Ara)" | ✅ Live |
+| Legal Policy Page (IP, permitted use, prohibited use + legal action) | ✅ Live |
+| 3D BrainForge icon (brain + circuit + lightning, purple/cyan) | ✅ Live |
+| Sidebar + favicon updated with 3D icon | ✅ Live |
+| Screenshot-to-code (Figma-like image upload) | ✅ Live |
+| Supabase integration for project databases | ✅ Live |
+| 10 language support (HTML, React, React+TW, TS, Python, SQL, Markdown, p5.js, Three.js, Chart.js) | ✅ Live |
+| Auto language detection (Option B: single AI call) | ✅ Live |
+| Auto error fix loop (Phase 2) | ✅ Live |
+| Editable code editor with Apply/Reset (Phase 3) | ✅ Live |
+| Chat sidebar, colorful bubbles, code badge | ✅ Live |
+
+### Post-Stability Roadmap (Future -- After App Stable)
+
+**Phase A -- Authentication**
+- Google Login via Supabase Auth + Google OAuth
+- User profiles (name, email, avatar)
+
+**Phase B -- Admin Panel**
+- Owner-only dashboard (Richard)
+- User management, usage stats, announcements
+- All published apps list
+
+**Phase C -- Credits & Plans**
+- Free: 10 credits/day, 3 projects, basic models
+- Pro: 50 credits/day, unlimited projects, fast models, inbuilt publish
+- Premium: Unlimited everything
+
+**Phase D -- Inbuilt Publish**
+- Netlify API integration (no user account needed)
+- URL: appname.netlify.app
+- Published gallery in Supabase
+
+**Phase E -- Support**
+- Contact form → Supabase
+- FAQ page
+- In-app bug report
+
+---
+
 ## Project Description
 
 BrainForge is a self-hosted, AI-powered app builder inspired by Caffeine and bolt.diy.
-It enables users to describe app ideas, have AI generate and refine code (HTML/CSS/JS/React),
-preview live, auto-fix errors, edit code, and deploy to GitHub and Cloudflare Pages.
+It enables users to describe app ideas, have AI generate and refine code (HTML/CSS/JS/React/Python/SQL/Three.js/Chart.js/p5.js/Markdown/TypeScript),
+preview live, auto-fix errors, edit code, and deploy to GitHub Pages or Cloudflare Pages.
+
+### Current Status: STABLE
+- App is live on Cloudflare Pages
+- All Phase 1, 2, 3 features deployed
+- 10 language support with auto-detection
+- 4 AI providers with auto-rotation
+- Onboarding wizard for new users
+- Real deploy wizard (GitHub Pages + Cloudflare Pages)
+- Legal policy page
+- 3D branded icon
 
 ---
 
-## Tech Stack
+## Architecture
 
-- **Frontend:** React + TypeScript (Caffeine-style UI)
-- **Backend:** Cloudflare Workers + D1
-- **AI Providers:** Gemini, OpenRouter, Groq, GitHub Models
-- **Storage:** Cloudflare D1 + IndexedDB (localForage)
-- **Deploy:** GitHub + Cloudflare Pages
-- **Telegram Bot:** Cloudflare Worker using free models
-
----
-
-## Key Features Built
-
-- Multi-provider AI with auto-rotation (Gemini, OpenRouter, Groq, GitHub Models)
-- Live preview in sandboxed iframe (srcDoc, cross-origin fixed permanently)
-- Code folder: all generated files viewable in sidebar
-- Deploy button: pushes code to GitHub, saves Cloudflare URL
-- Version history: snapshots with timestamps, one-click restore
-- Auto error fix loop: AI retries up to 3 times before asking user
-- Template picker when creating new projects
-- Matrix overlay animation when AI generates code
-- Dark/Light theme toggle
-- PWA export (installable on Android/iOS)
-- Persistent Ara Telegram bot (@araislivingbot)
-- Master AI with dedicated memory and rules files
-- Per-project AI with isolated memory and rules
+| Layer | Tech | Purpose |
+|---|---|---|
+| Frontend | React + Tailwind + Vite | UI, chat, preview, editor |
+| Backend API | Cloudflare Worker | AI proxy, backup, internet search |
+| Database | Cloudflare D1 (SQLite) | Project data, settings, AI memory |
+| Storage | GitHub repo | Code, assets, session restore |
+| Optional DB | Supabase (Postgres) | User-generated project databases |
+| AI Providers | OpenRouter, Gemini, Groq, GitHub Models | Code generation |
+| Deployment | Cloudflare Pages | App hosting |
 
 ---
 
-## AI Identity (Ara)
+## Key Files
 
-- Name: Ara
-- Files: `.opencode/instructions/ara-identity.md`
-- Context: `ARA_CONTEXT.md` in GitHub repo
-- Memory: `memories/master-ai-memory.md`
-- Rules: `rules/master-ai-rules.md`
-- Per-project: `memories/project-<name>-memory.md`, `rules/project-ai-rules.md`
-
----
-
-## Settings Pages (7 color-coded buttons)
-
-1. API Keys
-2. AI Settings
-3. Termux
-4. GitHub & Deploy
-5. Master AI
-6. AI Files
-7. Database
+- `src/frontend/src/App.tsx` - Main app, PIN lock, routing, onboarding
+- `src/frontend/src/pages/EditorPage.tsx` - Chat, AI, preview, deploy wizard
+- `src/frontend/src/pages/ProjectsPage.tsx` - Project list, templates
+- `src/frontend/src/pages/SettingsPage.tsx` - Settings hub (8 sections)
+- `src/frontend/src/pages/PolicyPage.tsx` - Legal policy
+- `src/frontend/src/components/Sidebar.tsx` - Navigation, theme toggle
+- `src/frontend/src/components/PreviewPanel.tsx` - Live preview, code editor
+- `src/frontend/src/components/OnboardingWizard.tsx` - First-run wizard
+- `src/frontend/src/components/DeployWizard.tsx` - Deploy to CF/GitHub
+- `src/frontend/src/hooks/useAIChat.ts` - AI chat logic, language detection
+- `src/frontend/public/assets/generated/brainforge-icon-3d.dim_512x512.png` - 3D app icon
 
 ---
 
-## Security
+## Deploy Steps (Each Session)
 
-- Repo: private
-- Worker protected by BRAINFORGE_SECRET=2200 header
-- D1 backup to GitHub planned daily
-- No API keys committed to repo
-- PIN lock planned
+1. Fetch key files from GitHub
+2. Make changes
+3. `cd src/frontend && pnpm build`
+4. `CLOUDFLARE_API_TOKEN="..." CLOUDFLARE_ACCOUNT_ID="..." npx wrangler pages deploy dist --project-name brainforge`
+5. Push changed source files back to GitHub
 
----
-
-## Unresolved / Pending
-
-- Master AI memory/rules not yet dynamically loaded into system prompt
-- D1 backup to GitHub not yet automated
-- PIN lock and session timeout not yet implemented
-- API keys routing through Worker (not yet fully done)
-- TradeArena: planned but not started
-
----
-
-## Session Files
-
-- `ARA_CONTEXT.md` -- full context restore file in repo root
-- `.opencode/instructions/ara-identity.md` -- AI identity
-- `.opencode/instructions/brainforge-reminder.md` -- layout lock reminder
-- `BRAINFORGE_MEMORY.md` -- this file
-
----
-
-## How to Continue This Project
-
-Paste this reminder at the start of a new session:
-
-> BrainForge project. GitHub: richardbrownmiami-commits/devforge-ai. Token: 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. Cloudflare: 913f3a2576a358054eba9a58a9573949. Worker: brainforge-api. Secret: BRAINFORGE_SECRET=2200. Live: https://brainforge-7xn.pages.dev. Telegram: @araislivingbot
