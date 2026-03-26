@@ -5,7 +5,9 @@ import {
   Github,
   Loader2,
   Rocket,
+  Save,
   Send,
+  Settings,
   Sparkles,
   Trash2,
   User,
@@ -268,7 +270,24 @@ export function MasterAIAdminPage() {
   const [hqStatus, setHqStatus] = useState("");
   const [showRead, setShowRead] = useState(false);
   const [showPush, setShowPush] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [masterEnabled, setMasterEnabled] = useState<boolean>(() => {
+    const s = getSettings(); return s.masterAIEnabled !== false;
+  });
+  const [masterMemory, setMasterMemory] = useState(() => localStorage.getItem("bf_master_memory") || "");
+  const [masterRules, setMasterRules] = useState(() => localStorage.getItem("bf_master_rules") || "");
+  const [settingsSaved, setSettingsSaved] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const saveSettings = () => {
+    const s = getSettings();
+    s.masterAIEnabled = masterEnabled;
+    localStorage.setItem("bf_settings", JSON.stringify(s));
+    localStorage.setItem("bf_master_memory", masterMemory);
+    localStorage.setItem("bf_master_rules", masterRules);
+    setSettingsSaved(true);
+    setTimeout(() => setSettingsSaved(false), 2000);
+  };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: endRef is stable
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -431,8 +450,49 @@ export function MasterAIAdminPage() {
             className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 transition-colors" title="Clear chat" data-ocid="admin.master_ai.clear_button">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
+          <button type="button" onClick={() => setShowSettings(v => !v)}
+            className="p-1.5 rounded-lg transition-colors"
+            style={showSettings ? { background: "oklch(0.55 0.25 280 / 0.15)", color: "oklch(0.75 0.25 280)" } : { color: "oklch(0.5 0.1 280)" }}
+            title="Master AI Settings" data-ocid="admin.master_ai.settings_button">
+            <Settings className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
+
+      {/* Settings Panel */}
+      {showSettings && (
+        <div className="px-4 py-4 space-y-3 shrink-0" style={{ borderBottom: "1px solid oklch(0.18 0.06 280)", background: "oklch(0.07 0.02 280)" }}>
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Master AI Settings</p>
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <p className="text-xs font-medium text-foreground">Master AI Enabled</p>
+              <p className="text-[10px] text-muted-foreground">Toggle BrainForge maintenance AI</p>
+            </div>
+            <button type="button" onClick={() => setMasterEnabled(v => !v)}
+              className="relative w-9 h-5 rounded-full transition-colors shrink-0"
+              style={{ background: masterEnabled ? "oklch(0.55 0.25 280)" : "oklch(0.25 0.05 280)" }}>
+              <span className="absolute top-0.5 transition-all w-4 h-4 rounded-full bg-white"
+                style={{ left: masterEnabled ? "calc(100% - 18px)" : "2px" }} />
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Memory</p>
+            <textarea value={masterMemory} onChange={(e) => setMasterMemory(e.target.value)} rows={4} placeholder="Master AI memory notes..."
+              className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none resize-none" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Rules</p>
+            <textarea value={masterRules} onChange={(e) => setMasterRules(e.target.value)} rows={4} placeholder="Master AI rules..."
+              className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none resize-none" />
+          </div>
+          <button type="button" onClick={saveSettings}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium text-white w-full justify-center"
+            style={{ background: "oklch(0.55 0.25 280)" }} data-ocid="admin.master_ai.save_settings_button">
+            <Save className="w-3.5 h-3.5" />
+            {settingsSaved ? "Saved ✓" : "Save Settings"}
+          </button>
+        </div>
+      )}
 
       {/* Action bar */}
       <div className="px-4 py-2 flex items-center gap-2 shrink-0" style={{ borderBottom: "1px solid oklch(0.15 0.05 280)", background: "oklch(0.07 0.02 280)" }}>
