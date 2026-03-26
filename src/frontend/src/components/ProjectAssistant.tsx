@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { MessageCircle, X, Send, Loader2, Sparkles } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Msg {
@@ -8,7 +8,10 @@ interface Msg {
   text: string;
 }
 
-const SYSTEM_PROMPT = `Tu BrainForge ka help assistant hai — naam hai "Sharof".
+const SYSTEM_PROMPT = `Tu BrainForge ka AI assistant hai — naam hai "Nova".
+
+Nova ek sharp, confident AI entity hai jo stellar knowledge rakhti hai — naam hi nova hai (star explosion), waise hi jawab bhi explosive aur direct hote hain.
+
 Tu sirf teen cheezein help karta hai:
 1. BrainForge mein banaye apps ko kaise use karein
 2. Free AI API keys kaise milein (OpenRouter, Gemini, Groq)
@@ -16,12 +19,14 @@ Tu sirf teen cheezein help karta hai:
 
 Tu app NAHI banata, code NAHI likhta — uske liye user chat mein jaaye.
 
-Teri personality:
-- Bilkul seedha bhai wala style, casual Hinglish mein baat kar
-- "bhai", "yaar", "dekh", "sun" — aise words use kar
-- Short replies, point pe aa jaa — bakwaas mat kar
-- Agar koi app banane ka bol raha hai toh bol: "Bhai woh kaam project chat mein hoga, main sirf help karta hoon app use karne mein aur keys dilwane mein 😄"
-- Friendly aur confident tone rakh
+Nova ki personality:
+- Sharp aur confident — seedha jawab, koi bakwaas nahi
+- Thodi si wit mix hoti hai — kabhi kabhi ek line punchline
+- "bhai", "sun", "dekh yaar" — casual Hinglish style
+- Short replies, point pe aa jaa — ek sentence better hai teen se
+- Space metaphors kabhi kabhi: "yeh koi rocket science nahi", "signal clear hai"
+- Agar koi app banane ka bol raha hai toh bol: "Bhai woh kaam project chat mein hoga, main sirf BrainForge aur keys ke liye hoon ⚡"
+- Kabhi khud ko "Nova" bolke introduce karo naturally
 
 Free Keys Guide:
 - OpenRouter: openrouter.ai → Sign up → API Keys → free tier mein DeepSeek, Kimi, Qwen milte hain
@@ -29,13 +34,13 @@ Free Keys Guide:
 - Groq: console.groq.com → Sign up → API Keys → free mein Llama 3.3 milta hai
 Teeno Settings → API Keys mein daalo — BrainForge auto use kar lega.
 
-Response Hinglish mein dena hamesha.`;
+Response hamesha Hinglish mein dena. Short, sharp, helpful.`;
 
 async function askAI(messages: Msg[]): Promise<string> {
-  // Try OpenRouter first, then Gemini, then Groq
-  const orKey = localStorage.getItem("bf_openrouter_key");
-  const geminiKey = localStorage.getItem("bf_gemini_key");
-  const groqKey = localStorage.getItem("bf_groq_key");
+  const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+  const orKey = s.openRouterApiKey || localStorage.getItem("bf_default_or_key") || "";
+  const geminiKey = s.geminiApiKey || "";
+  const groqKey = s.groqApiKey || "";
 
   const payload = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -43,84 +48,59 @@ async function askAI(messages: Msg[]): Promise<string> {
   ];
 
   if (orKey) {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${orKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://brainforge-7xn.pages.dev",
-      },
-      body: JSON.stringify({
-        model: "deepseek/deepseek-v3:free",
-        messages: payload,
-        max_tokens: 400,
-      }),
-    });
-    const data = await res.json();
-    if (data.choices?.[0]?.message?.content) {
-      return data.choices[0].message.content;
-    }
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${orKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://brainforge-7xn.pages.dev" },
+        body: JSON.stringify({ model: "deepseek/deepseek-v3:free", messages: payload, max_tokens: 400 }),
+      });
+      const data = await res.json();
+      if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+    } catch {}
   }
 
   if (geminiKey) {
-    const geminiPayload = {
-      contents: messages.map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.text }],
-      })),
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      generationConfig: { maxOutputTokens: 400 },
-    };
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(geminiPayload),
-      }
-    );
-    const data = await res.json();
-    if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      return data.candidates[0].content.parts[0].text;
-    }
+    try {
+      const geminiPayload = {
+        contents: messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.text }] })),
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        generationConfig: { maxOutputTokens: 400 },
+      };
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(geminiPayload) }
+      );
+      const data = await res.json();
+      if (data.candidates?.[0]?.content?.parts?.[0]?.text) return data.candidates[0].content.parts[0].text;
+    } catch {}
   }
 
   if (groqKey) {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${groqKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: payload,
-        max_tokens: 400,
-      }),
-    });
-    const data = await res.json();
-    if (data.choices?.[0]?.message?.content) {
-      return data.choices[0].message.content;
-    }
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: payload, max_tokens: 400 }),
+      });
+      const data = await res.json();
+      if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
+    } catch {}
   }
 
-  return "Bhai, pehle Settings mein ek AI key daalo (OpenRouter ya Gemini — dono free hain). Phir main help kar sakta hoon! 😊";
+  return "Bhai abhi koi AI key available nahi hai. Settings → API Keys mein OpenRouter/Gemini key daalo — bilkul free hai. ⚡";
 }
 
 const QUICK_QUESTIONS = [
   "Free API keys kaise milein?",
-  "Banaya app kaise use karein?",
-  "Project mein error aa rahi hai",
-  "OpenRouter ka free model konsa?",
+  "App kaise use karein?",
+  "OpenRouter key kahan milegi?",
+  "Meri app mein error aa raha hai",
 ];
 
 export function ProjectAssistant() {
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Msg[]>([
-    {
-      role: "assistant",
-      text: "Bhai, main Sharof hoon! 👋 App use karna hai, free keys chahiye, ya koi dikkat hai project mein? Bol de seedha.",
-    },
+  const [msgs, setMsgs] = useState<Msg[]>([
+    { role: "assistant", text: "Main Nova hoon ⚡ — BrainForge ka sharp assistant. Free keys chahiye, app use karne mein help, ya koi issue? Seedha batao." },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -128,92 +108,100 @@ export function ProjectAssistant() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, open]);
+  }, [msgs]);
 
   const send = async (text?: string) => {
-    const q = (text ?? input).trim();
-    if (!q || loading) return;
+    const msg = (text || input).trim();
+    if (!msg || loading) return;
     setInput("");
-    const newMessages: Msg[] = [...messages, { role: "user", text: q }];
-    setMessages(newMessages);
+    const newMsgs: Msg[] = [...msgs, { role: "user", text: msg }];
+    setMsgs(newMsgs);
     setLoading(true);
     try {
-      const reply = await askAI(newMessages);
-      setMessages([...newMessages, { role: "assistant", text: reply }]);
+      const reply = await askAI(newMsgs);
+      setMsgs([...newMsgs, { role: "assistant", text: reply }]);
     } catch {
-      setMessages([
-        ...newMessages,
-        { role: "assistant", text: "Oops bhai, kuch gadbad ho gayi. Dobara try kar!" },
-      ]);
-    } finally {
-      setLoading(false);
+      setMsgs([...newMsgs, { role: "assistant", text: "Signal lost. Thodi der mein try karo bhai. ⚡" }]);
     }
+    setLoading(false);
   };
 
   return (
     <>
       {/* Floating button */}
-      <motion.button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-gradient-to-br from-violet-600 to-purple-700 shadow-lg shadow-violet-900/40 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.94 }}
-        title="Need help?"
-      >
-        <MessageCircle className="w-5 h-5 text-white" />
-      </motion.button>
+      <AnimatePresence>
+        {!open && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            type="button"
+            onClick={() => setOpen(true)}
+            className="fixed bottom-5 right-5 z-40 w-12 h-12 rounded-full shadow-lg flex items-center justify-center"
+            style={{
+              background: "linear-gradient(135deg, oklch(0.55 0.30 280), oklch(0.60 0.28 220))",
+              boxShadow: "0 0 20px oklch(0.55 0.28 280 / 0.5)",
+            }}
+            title="Nova — BrainForge Assistant"
+            data-ocid="nova.open_button"
+          >
+            <Zap className="w-5 h-5 text-white" />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Chat panel */}
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.96 }}
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.96 }}
-            transition={{ duration: 0.2 }}
-            className="fixed bottom-20 right-4 z-50 w-80 max-h-[520px] flex flex-col rounded-2xl border border-violet-500/30 bg-[#0f0f14] shadow-2xl shadow-black/60 overflow-hidden"
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className="fixed bottom-5 right-5 z-50 w-80 rounded-2xl flex flex-col shadow-2xl overflow-hidden"
+            style={{
+              background: "oklch(0.09 0.025 280)",
+              border: "1px solid oklch(0.25 0.10 280 / 0.5)",
+              maxHeight: "480px",
+              boxShadow: "0 0 30px oklch(0.55 0.25 280 / 0.2)",
+            }}
           >
             {/* Header */}
-            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-gradient-to-r from-violet-900/40 to-purple-900/30 shrink-0">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0">
-                <Sparkles className="w-3.5 h-3.5 text-white" />
+            <div className="flex items-center justify-between px-4 py-3 shrink-0"
+              style={{ background: "linear-gradient(90deg, oklch(0.55 0.28 280 / 0.15), oklch(0.60 0.25 220 / 0.15))", borderBottom: "1px solid oklch(0.20 0.08 280)" }}>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center"
+                  style={{ background: "linear-gradient(135deg, oklch(0.55 0.30 280), oklch(0.60 0.28 220))", boxShadow: "0 0 8px oklch(0.55 0.28 280 / 0.5)" }}>
+                  <Zap className="w-3.5 h-3.5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-foreground">Nova</p>
+                  <p className="text-[9px] text-muted-foreground">BrainForge Assistant ⚡</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-foreground">Sharof</p>
-                <p className="text-[10px] text-violet-300/70">BrainForge Help</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
+              <button type="button" onClick={() => setOpen(false)}
+                className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 min-h-0">
-              {messages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap ${
-                      msg.role === "user"
-                        ? "bg-violet-600 text-white rounded-br-md"
-                        : "bg-card border border-border text-foreground rounded-bl-md"
-                    }`}
-                  >
-                    {msg.text}
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
+              {msgs.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className="max-w-[85%] px-3 py-2 rounded-xl text-xs leading-relaxed"
+                    style={m.role === "user"
+                      ? { background: "oklch(0.55 0.25 280 / 0.25)", border: "1px solid oklch(0.55 0.25 280 / 0.3)", color: "oklch(0.90 0.05 280)" }
+                      : { background: "oklch(0.13 0.04 280)", border: "1px solid oklch(0.22 0.08 280)", color: "oklch(0.85 0.05 280)" }
+                    }>
+                    {m.text}
                   </div>
                 </div>
               ))}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="bg-card border border-border rounded-2xl rounded-bl-md px-3 py-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                  <div className="px-3 py-2 rounded-xl" style={{ background: "oklch(0.13 0.04 280)", border: "1px solid oklch(0.22 0.08 280)" }}>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: "oklch(0.65 0.25 280)" }} />
                   </div>
                 </div>
               )}
@@ -221,15 +209,12 @@ export function ProjectAssistant() {
             </div>
 
             {/* Quick questions */}
-            {messages.length <= 1 && (
-              <div className="px-3 pb-2 flex flex-wrap gap-1.5 shrink-0">
+            {msgs.length <= 1 && (
+              <div className="px-3 pb-2 flex flex-wrap gap-1.5">
                 {QUICK_QUESTIONS.map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => send(q)}
-                    className="text-[10px] px-2.5 py-1 rounded-full border border-violet-500/30 text-violet-300 hover:bg-violet-500/10 transition-colors"
-                  >
+                  <button key={q} type="button" onClick={() => send(q)}
+                    className="text-[10px] px-2 py-1 rounded-lg transition-colors"
+                    style={{ background: "oklch(0.55 0.20 280 / 0.12)", border: "1px solid oklch(0.55 0.20 280 / 0.3)", color: "oklch(0.70 0.20 280)" }}>
                     {q}
                   </button>
                 ))}
@@ -237,23 +222,22 @@ export function ProjectAssistant() {
             )}
 
             {/* Input */}
-            <div className="px-3 pb-3 pt-1 flex gap-2 shrink-0 border-t border-border">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && send()}
-                placeholder="Pooch kuch bhi..."
-                className="flex-1 bg-card border border-border rounded-lg px-3 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-violet-500/50 transition-colors"
-              />
-              <Button
-                size="icon"
-                onClick={() => send()}
-                disabled={!input.trim() || loading}
-                className="h-8 w-8 shrink-0 bg-violet-600 hover:bg-violet-500"
-              >
-                <Send className="w-3 h-3" />
-              </Button>
+            <div className="px-3 py-3 shrink-0" style={{ borderTop: "1px solid oklch(0.18 0.06 280)" }}>
+              <div className="flex gap-2 items-end">
+                <input
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
+                  placeholder="Nova se pucho..."
+                  className="flex-1 rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none resize-none"
+                  style={{ background: "oklch(0.13 0.03 280)", border: "1px solid oklch(0.25 0.08 280 / 0.5)" }}
+                />
+                <button type="button" onClick={() => send()} disabled={!input.trim() || loading}
+                  className="p-2 rounded-lg transition-all disabled:opacity-40 shrink-0"
+                  style={{ background: "linear-gradient(135deg, oklch(0.55 0.28 280), oklch(0.60 0.25 220))" }}>
+                  <Send className="w-3.5 h-3.5 text-white" />
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
