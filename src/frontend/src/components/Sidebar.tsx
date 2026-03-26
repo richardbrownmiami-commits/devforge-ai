@@ -1,8 +1,9 @@
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import { FolderOpen, Menu, Moon, Settings, Sun, Zap } from "lucide-react";
+import { FolderOpen, LogOut, Menu, Moon, Settings, Sun, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
+import { getCurrentUser, logoutUser } from "../lib/userUtils";
 
 // Apply theme from localStorage on module load (prevents flash)
 function applyStoredTheme() {
