@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Bot,
+  Brain,
   Clock,
   FolderOpen,
   Lock,
@@ -239,6 +240,13 @@ export function EditorPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(() =>
     loadSnapshots(projectName),
   );
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memoryText, setMemoryText] = useState(() => {
+    try {
+      const u = sessionStorage.getItem("bf_session_user") || "owner";
+      return localStorage.getItem(`bf_memory_${u}_${projectName}`) || "";
+    } catch { return ""; }
+  });
   const [autoFixStatus, setAutoFixStatus] = useState<string | null>(null);
   const supabaseUrl = localStorage.getItem("bf_supabase_url") || "";
   const supabaseKey = localStorage.getItem("bf_supabase_key") || "";
@@ -374,6 +382,27 @@ Sirf relevant aur practical features suggest karo jo is specific project ke liye
     window.location.reload();
   };
 
+  const saveMemory = (text: string) => {
+    try {
+      const u = sessionStorage.getItem("bf_session_user") || "owner";
+      localStorage.setItem(`bf_memory_${u}_${projectName}`, text);
+    } catch {}
+    setMemoryText(text);
+  };
+
+  // Auto-create blank memory template for new projects
+  useEffect(() => {
+    try {
+      const u = sessionStorage.getItem("bf_session_user") || "owner";
+      const k = `bf_memory_${u}_${projectName}`;
+      if (!localStorage.getItem(k)) {
+        const template = `# ${projectName} — AI Memory\n\n## Project Description\n(Describe what this project is)\n\n## Features Built\n- \n\n## Pending Tasks\n- \n\n## Notes\n`;
+        localStorage.setItem(k, template);
+        setMemoryText(template);
+      }
+    } catch {}
+  }, [projectName]);
+
   const activeLang =
     LANG_OPTIONS.find((l) => l.value === language) ?? LANG_OPTIONS[0];
 
@@ -450,6 +479,19 @@ Sirf relevant aur practical features suggest karo jo is specific project ke liye
           <span className="ml-1 hidden sm:inline">
             {hasCode ? "Preview ✓" : "Preview"}
           </span>
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs shrink-0 transition-all"
+          style={{ color: memoryText ? "oklch(0.65 0.25 280)" : undefined }}
+          onClick={() => setMemoryOpen(true)}
+          data-ocid="editor.memory.button"
+          title="AI Memory"
+        >
+          <Brain className="w-3.5 h-3.5" />
+          <span className="ml-1 hidden sm:inline">Memory</span>
         </Button>
 
         <button
