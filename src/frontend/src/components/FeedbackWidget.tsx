@@ -8,6 +8,61 @@ const TYPES = [
   { value: "issue" as const, label: "🐛 Issue", color: "oklch(0.60 0.25 30)" },
 ];
 
+
+// Broadcast announcement banner for users
+function BroadcastBanner() {
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const check = () => {
+      try {
+        const list = JSON.parse(localStorage.getItem("bf_announcements") || "[]");
+        const seen = new Set<string>(JSON.parse(localStorage.getItem("bf_announcements_seen") || "[]"));
+        const unread = list.filter((a: any) => !seen.has(a.id));
+        setAnnouncements(unread);
+        setDismissed(seen);
+      } catch {}
+    };
+    check();
+    const interval = setInterval(check, 15000); // check every 15s
+    return () => clearInterval(interval);
+  }, []);
+
+  const dismiss = (id: string) => {
+    const newSeen = new Set([...dismissed, id]);
+    localStorage.setItem("bf_announcements_seen", JSON.stringify([...newSeen]));
+    setAnnouncements(prev => prev.filter(a => a.id !== id));
+    setDismissed(newSeen);
+  };
+
+  if (announcements.length === 0) return null;
+
+  const typeColors: Record<string, { bg: string; border: string; text: string }> = {
+    info: { bg: "oklch(0.55 0.25 220 / 0.12)", border: "oklch(0.55 0.25 220 / 0.4)", text: "oklch(0.80 0.20 220)" },
+    warning: { bg: "oklch(0.55 0.25 60 / 0.12)", border: "oklch(0.55 0.25 60 / 0.4)", text: "oklch(0.80 0.25 60)" },
+    success: { bg: "oklch(0.50 0.20 160 / 0.12)", border: "oklch(0.50 0.20 160 / 0.4)", text: "oklch(0.75 0.20 160)" },
+  };
+
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4 space-y-2">
+      {announcements.slice(0, 2).map(a => {
+        const c = typeColors[a.type] || typeColors.info;
+        return (
+          <div key={a.id} className="rounded-xl px-4 py-3 flex items-start gap-3 shadow-xl"
+            style={{ background: c.bg, border: `1px solid ${c.border}`, backdropFilter: "blur(12px)" }}>
+            <span className="text-base shrink-0">{a.type === "warning" ? "⚠️" : a.type === "success" ? "✅" : "📢"}</span>
+            <p className="flex-1 text-sm leading-relaxed" style={{ color: c.text }}>{a.message}</p>
+            <button type="button" onClick={() => dismiss(a.id)}
+              className="shrink-0 text-lg leading-none opacity-60 hover:opacity-100 transition-opacity"
+              style={{ color: c.text }}>×</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function FeedbackWidget() {
   const [open, setOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -45,6 +100,7 @@ export function FeedbackWidget() {
 
   return (
     <>
+      <BroadcastBanner />
       {/* Notification bell */}
       {myFeedback.length > 0 && (
         <button type="button" onClick={handleOpenNotif}
