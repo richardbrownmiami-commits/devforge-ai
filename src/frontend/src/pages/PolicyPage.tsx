@@ -26,7 +26,7 @@ export function PolicyPage() {
           </div>
           <h2 className="text-xl font-bold text-foreground">BrainForge Legal Policy</h2>
           <p className="text-xs text-muted-foreground">
-            Developed by <span className="text-violet-400 font-medium">Richard Brown</span> &amp;{" "}
+            Developed by <span className="text-violet-400 font-medium">Pinka</span> &amp;{" "}
             <span className="text-cyan-400 font-medium">Claude (Ara)</span> &bull; Effective: January 2025
           </p>
         </div>
@@ -40,7 +40,7 @@ export function PolicyPage() {
           <div className="bg-blue-500/5 border border-blue-500/15 rounded-xl p-4 space-y-2 text-xs text-muted-foreground leading-relaxed">
             <p>
               BrainForge is an original concept and platform designed and developed by{" "}
-              <strong className="text-foreground">Richard Brown (richardbrownmiami)</strong> in
+              <strong className="text-foreground">Pinka (pinka-dev)</strong> in
               collaboration with AI assistant Claude (Ara). The name &ldquo;BrainForge&rdquo;, its logo, UI
               design, system architecture, and all associated branding are proprietary.
             </p>
@@ -160,7 +160,7 @@ export function PolicyPage() {
           </p>
           <p className="text-[10px] text-muted-foreground/40">
             Made with love by{" "}
-            <span className="text-violet-400/70">Richard Brown</span> &amp;{" "}
+            <span className="text-violet-400/70">Pinka</span> &amp;{" "}
             <span className="text-cyan-400/70">Claude (Ara)</span>
           </p>
         </div>
