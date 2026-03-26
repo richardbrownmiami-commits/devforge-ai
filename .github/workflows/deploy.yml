@@ -1,8 +1,10 @@
 name: Deploy to Cloudflare Pages
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -14,13 +16,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: pnpm install
+      - name: Install dependencies
+        run: pnpm install
         working-directory: src/frontend
-      - run: pnpm build
+      - name: Build
+        run: pnpm build
         working-directory: src/frontend
-      - uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: 913f3a2576a358054eba9a58a9573949
-          command: pages deploy dist --project-name=brainforge --commit-dirty=true
-          workingDirectory: src/frontend
+      - name: Install Wrangler
+        run: npm install -g wrangler
+      - name: Deploy to Cloudflare Pages
+        run: wrangler pages deploy dist --project-name=brainforge --commit-dirty=true
+        working-directory: src/frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 913f3a2576a358054eba9a58a9573949
