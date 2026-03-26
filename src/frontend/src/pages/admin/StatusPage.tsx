@@ -77,8 +77,8 @@ export function StatusPage() {
       })(),
       (async () => {
         const t = Date.now();
-        const r = await fetch(`${CF_WORKER}/health`, {
-          headers: { "x-secret": WORKER_SECRET },
+        const r = await fetch(`${CF_WORKER}/api/projects`, {
+          headers: { "X-BrainForge-Secret": WORKER_SECRET },
         });
         return { ok: r.ok, ms: Date.now() - t };
       })(),
