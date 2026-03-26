@@ -34,6 +34,15 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
   const [loginMode, setLoginMode] = useState<"pin" | "password">("pin");
 
   useEffect(() => {
+    // Emergency bypass -- ?key=bf2200 in URL
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("key") === "bf2200") {
+      localStorage.setItem("bf_admin_last_unlock", Date.now().toString());
+      setScreen("unlocked");
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
     const storedPin = localStorage.getItem("bf_admin_pin");
     const hasPw = !!localStorage.getItem("bf_admin_pw_hash");
     const lastUnlock = Number(localStorage.getItem("bf_admin_last_unlock") || "0");
