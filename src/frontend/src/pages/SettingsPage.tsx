@@ -55,13 +55,7 @@ const HUB_BUTTONS = [
     color: "from-orange-500/20 to-amber-500/20 border-orange-500/30 text-orange-300",
     desc: "Token, repo, Cloudflare deploy",
   },
-  {
-    id: "aifiles" as Page,
-    label: "AI Files",
-    icon: FileText,
-    color: "from-teal-500/20 to-cyan-500/20 border-teal-500/30 text-teal-300",
-    desc: "View and edit AI memory & rules files",
-  },
+
   {
     id: "pinlock" as Page,
     label: "PIN Lock",
