@@ -2,6 +2,7 @@ import { Link, Outlet, useRouter } from "@tanstack/react-router";
 import {
   Activity,
   Bot,
+  StickyNote,
   ChevronLeft,
   ClipboardList,
   HardDrive,
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { icon: HardDrive, label: "Backup", path: "/admin/backup" },
   { icon: ClipboardList, label: "Issues", path: "/admin/issues" },
   { icon: Rocket, label: "Deploy Log", path: "/admin/deploy-log" },
+  { icon: StickyNote, label: "Notes", path: "/admin/notes" },
 ];
 
 function AdminSidebar({ onClose }: { onClose?: () => void }) {
