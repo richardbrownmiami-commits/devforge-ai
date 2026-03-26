@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CheckCircle, Cloud, ExternalLink, Globe, Loader2, RefreshCw, Server, XCircle, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BarChart2, CheckCircle, Cloud, ExternalLink, Globe, Loader2, RefreshCw, Server, XCircle, Zap } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 const CF_WORKER = "https://brainforge-api.richard-brown-miami.workers.dev";
@@ -37,6 +37,7 @@ export function CloudflarePage() {
   const [buildHistory, setBuildHistory] = useState<Array<{ status: string; date: string; sha: string; duration?: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [cfToken, setCfToken] = useState(() => localStorage.getItem("bf_cf_api_token") || "");
+  const [monthlyStats, setMonthlyStats] = useState<{ used: number; limit: number; remaining: number; runs: any[] } | null>(null);
 
   const cardStyle = { background: "oklch(0.10 0.025 280)", border: "1px solid oklch(0.20 0.08 280)" };
 
@@ -135,6 +136,29 @@ export function CloudflarePage() {
       updateCard("pages", { status: "degraded", detail: "GitHub API error" });
     }
 
+    // Fetch monthly deployment count
+    try {
+      const token = getGHToken();
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      let page = 1, allRuns: any[] = [];
+      while (true) {
+        const res = await fetch(
+          `https://api.github.com/repos/${GH_REPO}/actions/runs?per_page=100&page=${page}&created=>=${monthStart}`,
+          { headers: { Authorization: `token ${token}` } }
+        );
+        if (!res.ok) break;
+        const data = await res.json();
+        const runs = data.workflow_runs || [];
+        allRuns = [...allRuns, ...runs];
+        if (runs.length < 100) break;
+        page++;
+      }
+      const limit = 500; // Cloudflare Pages free tier
+      const used = allRuns.length;
+      setMonthlyStats({ used, limit, remaining: Math.max(0, limit - used), runs: allRuns });
+    } catch {}
+
     setLoading(false);
   }, []);
 
@@ -229,6 +253,47 @@ export function CloudflarePage() {
           </div>
         ))}
       </div>
+
+      {/* Monthly Deployments */}
+      {monthlyStats && (
+        <div className="rounded-xl p-5 space-y-4" style={cardStyle}>
+          <div className="flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-orange-400" />
+            <p className="text-sm font-semibold text-foreground">This Month's Deployments</p>
+            <span className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground" style={{ background: "oklch(0.12 0.03 280)" }}>
+              {new Date().toLocaleString("default", { month: "long", year: "numeric" })}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Used", val: monthlyStats.used, color: monthlyStats.used > 400 ? "oklch(0.65 0.25 25)" : "oklch(0.65 0.20 280)" },
+              { label: "Remaining", val: monthlyStats.remaining, color: monthlyStats.remaining < 100 ? "oklch(0.65 0.25 40)" : "oklch(0.65 0.20 160)" },
+              { label: "Limit", val: monthlyStats.limit, color: "oklch(0.55 0.05 280)" },
+            ].map(item => (
+              <div key={item.label} className="text-center p-3 rounded-lg" style={{ background: "oklch(0.08 0.02 280)", border: "1px solid oklch(0.16 0.05 280)" }}>
+                <p className="text-xl font-bold" style={{ color: item.color }}>{item.val}</p>
+                <p className="text-[10px] text-muted-foreground">{item.label}</p>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>{monthlyStats.used} / {monthlyStats.limit} builds used</span>
+              <span>{Math.round((monthlyStats.used / monthlyStats.limit) * 100)}%</span>
+            </div>
+            <div className="w-full h-3 rounded-full" style={{ background: "oklch(0.15 0.04 280)" }}>
+              <div className="h-3 rounded-full transition-all"
+                style={{
+                  width: `${Math.min(100, (monthlyStats.used / monthlyStats.limit) * 100)}%`,
+                  background: monthlyStats.used > 400 ? "oklch(0.60 0.25 25)" : monthlyStats.used > 300 ? "oklch(0.65 0.25 60)" : "oklch(0.55 0.20 160)"
+                }} />
+            </div>
+            {monthlyStats.used > 400 && (
+              <p className="text-[10px] text-orange-400">⚠️ Monthly limit ke qareeb! Unnecessary deploys rok do.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Build History */}
       {buildHistory.length > 0 && (
