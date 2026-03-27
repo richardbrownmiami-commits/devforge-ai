@@ -36,11 +36,36 @@ Teeno Settings → API Keys mein daalo — BrainForge auto use kar lega.
 
 Response hamesha Hinglish mein dena. Short, sharp, helpful.`;
 
+function getOrKey(): string {
+  // Try all possible sources where OR key might be stored
+  try {
+    const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    if (s.openRouterApiKey) return s.openRouterApiKey;
+  } catch {}
+  return localStorage.getItem("bf_default_or_key") || 
+         localStorage.getItem("bf_or_key") || "";
+}
+
+function getGeminiKey(): string {
+  try {
+    const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    if (s.geminiApiKey) return s.geminiApiKey;
+  } catch {}
+  return "";
+}
+
+function getGroqKey(): string {
+  try {
+    const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    if (s.groqApiKey) return s.groqApiKey;
+  } catch {}
+  return "";
+}
+
 async function askAI(messages: Msg[]): Promise<string> {
-  const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
-  const orKey = s.openRouterApiKey || localStorage.getItem("bf_default_or_key") || "";
-  const geminiKey = s.geminiApiKey || "";
-  const groqKey = s.groqApiKey || "";
+  const orKey = getOrKey();
+  const geminiKey = getGeminiKey();
+  const groqKey = getGroqKey();
 
   const payload = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -52,7 +77,7 @@ async function askAI(messages: Msg[]): Promise<string> {
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${orKey}`, "Content-Type": "application/json", "HTTP-Referer": "https://brainforge-7xn.pages.dev" },
-        body: JSON.stringify({ model: "deepseek/deepseek-v3:free", messages: payload, max_tokens: 400 }),
+        body: JSON.stringify({ model: "openrouter/auto", messages: payload, max_tokens: 400 }),
       });
       const data = await res.json();
       if (data.choices?.[0]?.message?.content) return data.choices[0].message.content;
@@ -67,7 +92,7 @@ async function askAI(messages: Msg[]): Promise<string> {
         generationConfig: { maxOutputTokens: 400 },
       };
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(geminiPayload) }
       );
       const data = await res.json();
