@@ -1,20 +1,19 @@
 import { KeyRound, Lock, Mail, RefreshCw, Shield } from "lucide-react";
 import { useEffect, useState } from "react";
+import { sha256, getBruteForceStatus, recordFailedAttempt, clearBruteForce } from "../../lib/userUtils";
 
-// Generate a random recovery key like: BF-ABCD-1234-EFGH-5678
+// SHA-256 of the emergency bypass key (never store key in plaintext)
+const BYPASS_HASH = "48746e5b333c5a692118bc37fcb388b2479d7dc471b9381285de764ae8ce7ced";
+
 function generateRecoveryKey() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const seg = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `BF-${seg()}-${seg()}-${seg()}-${seg()}`;
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  const seg = (offset: number) => Array.from(arr.slice(offset, offset + 4), b => chars[b % chars.length]).join("");
+  return `BF-${seg(0)}-${seg(4)}-${seg(8)}-${seg(12)}`;
 }
 
-function simpleHash(s: string) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  return h.toString(16);
-}
-
-type Screen = "loading" | "setup" | "pin_login" | "pw_login" | "unlocked" | "forgot_choice" | "recover_key" | "recover_otp" | "otp_sent" | "set_new_pw";
+type Screen = "loading" | "setup" | "pin_login" | "pw_login" | "unlocked" | "forgot_choice" | "recover_key" | "recover_otp" | "otp_sent" | "set_new_pw" | "show_key" | "locked_out";
 
 export function AdminPinGate({ children }: { children: React.ReactNode }) {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -31,40 +30,55 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
   const [generatedKey, setGeneratedKey] = useState("");
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
-  const [loginMode, setLoginMode] = useState<"pin" | "password">("pin");
 
   useEffect(() => {
-    // Emergency bypass -- ?key=bf2200 in URL
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("key") === "bf2200") {
-      localStorage.setItem("bf_admin_last_unlock", Date.now().toString());
-      setScreen("unlocked");
-      // Clean URL
-      window.history.replaceState({}, "", window.location.pathname);
-      return;
-    }
-    const storedPin = localStorage.getItem("bf_admin_pin");
-    const hasPw = !!localStorage.getItem("bf_admin_pw_hash");
-    const lastUnlock = Number(localStorage.getItem("bf_admin_last_unlock") || "0");
-    const TIMEOUT = 10 * 60 * 1000; // 10 minutes
-    if (!storedPin && !hasPw) {
-      setScreen("setup");
-    } else if (Date.now() - lastUnlock < TIMEOUT) {
-      setScreen("unlocked");
-    } else {
-      setScreen(hasPw ? "pw_login" : "pin_login");
-      setLoginMode(hasPw ? "password" : "pin");
-    }
+    (async () => {
+      // Emergency bypass -- compare hash, not plaintext
+      const params = new URLSearchParams(window.location.search);
+      const keyParam = params.get("key") || "";
+      if (keyParam) {
+        const h = await sha256(keyParam);
+        if (h === BYPASS_HASH) {
+          clearBruteForce("admin");
+          localStorage.setItem("bf_admin_last_unlock", Date.now().toString());
+          setScreen("unlocked");
+          window.history.replaceState({}, "", window.location.pathname);
+          return;
+        }
+      }
+      const storedPin = localStorage.getItem("bf_admin_pin");
+      const hasPw = !!localStorage.getItem("bf_admin_pw_hash");
+      const lastUnlock = Number(localStorage.getItem("bf_admin_last_unlock") || "0");
+      const TIMEOUT = 10 * 60 * 1000;
+      if (!storedPin && !hasPw) {
+        setScreen("setup");
+      } else if (Date.now() - lastUnlock < TIMEOUT) {
+        setScreen("unlocked");
+      } else {
+        setScreen(hasPw ? "pw_login" : "pin_login");
+      }
+    })();
   }, []);
 
-  const unlock = () => {
+  const unlock = (scope = "admin") => {
+    clearBruteForce(scope);
     localStorage.setItem("bf_admin_last_unlock", Date.now().toString());
     setScreen("unlocked");
     setErr("");
   };
 
+  const checkLockout = (scope: string): boolean => {
+    const status = getBruteForceStatus(scope);
+    if (status.locked) {
+      setErr(`Bahut zyada galat attempts. ${status.remaining} minute baad try karo.`);
+      setScreen("locked_out");
+      return true;
+    }
+    return false;
+  };
+
   // ===== Setup =====
-  const handleSetup = () => {
+  const handleSetup = async () => {
     setErr("");
     if (!username.trim()) return setErr("Username zaroori hai");
     if (password.length < 6) return setErr("Password kam se kam 6 characters ka ho");
@@ -75,57 +89,84 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
     setGeneratedKey(key);
 
     localStorage.setItem("bf_admin_username", username);
-    localStorage.setItem("bf_admin_pw_hash", simpleHash(password));
-    localStorage.setItem("bf_admin_recovery_key", simpleHash(key));
+    localStorage.setItem("bf_admin_pw_hash", await sha256(password));
+    localStorage.setItem("bf_admin_recovery_key", await sha256(key));
     if (pin.length >= 4) {
-      localStorage.setItem("bf_admin_pin", pin);
+      localStorage.setItem("bf_admin_pin", await sha256(pin));
     }
     if (email.trim()) localStorage.setItem("bf_admin_email", email.trim());
-    // Show the recovery key before unlocking
-    setScreen("setup" as Screen);
-    // show modal within setup state
     localStorage.setItem("bf_admin_last_unlock", Date.now().toString());
-    setScreen("show_key" as Screen);
+    setScreen("show_key");
   };
 
   // ===== PIN Login =====
-  const handlePinLogin = () => {
+  const handlePinLogin = async () => {
+    if (checkLockout("admin_pin")) return;
     const stored = localStorage.getItem("bf_admin_pin");
-    if (pin === stored) { unlock(); }
-    else { setErr("Galat PIN. Dobara try karo."); setPin(""); }
+    const h = await sha256(pin);
+    if (h === stored) { unlock("admin_pin"); }
+    else {
+      const result = recordFailedAttempt("admin_pin");
+      if (result.locked) {
+        setErr(`Bahut zyada galat attempts. ${result.remaining} minute baad try karo.`);
+        setScreen("locked_out");
+      } else {
+        setErr(`Galat PIN. ${5 - result.attempts} aur tries baaki hain.`);
+      }
+      setPin("");
+    }
   };
 
   // ===== Password Login =====
-  const handlePwLogin = () => {
+  const handlePwLogin = async () => {
+    if (checkLockout("admin_pw")) return;
     const storedUser = localStorage.getItem("bf_admin_username") || "";
     const storedHash = localStorage.getItem("bf_admin_pw_hash") || "";
-    if (username.trim().toLowerCase() === storedUser.toLowerCase() && simpleHash(password) === storedHash) {
-      unlock();
+    const h = await sha256(password);
+    if (username.trim().toLowerCase() === storedUser.toLowerCase() && h === storedHash) {
+      unlock("admin_pw");
     } else {
-      setErr("Galat username ya password.");
+      const result = recordFailedAttempt("admin_pw");
+      if (result.locked) {
+        setErr(`Bahut zyada galat attempts. ${result.remaining} minute baad try karo.`);
+        setScreen("locked_out");
+      } else {
+        setErr(`Galat username ya password. ${5 - result.attempts} aur tries baaki hain.`);
+      }
       setPassword("");
     }
   };
 
   // ===== Recovery Key =====
-  const handleRecoveryKey = () => {
+  const handleRecoveryKey = async () => {
+    if (checkLockout("admin_recovery")) return;
     const storedHash = localStorage.getItem("bf_admin_recovery_key") || "";
-    if (simpleHash(recoveryInput.trim().toUpperCase()) === storedHash) {
+    const h = await sha256(recoveryInput.trim().toUpperCase());
+    if (h === storedHash) {
+      clearBruteForce("admin_recovery");
       setScreen("set_new_pw");
       setErr("");
     } else {
-      setErr("Recovery key galat hai. Dobara check karo.");
+      const result = recordFailedAttempt("admin_recovery");
+      if (result.locked) {
+        setErr(`Bahut zyada galat attempts. ${result.remaining} minute baad try karo.`);
+        setScreen("locked_out");
+      } else {
+        setErr(`Recovery key galat hai. ${5 - result.attempts} aur tries baaki hain.`);
+      }
     }
   };
 
-  // ===== OTP Send =====
+  // ===== OTP Send -- store in sessionStorage (not localStorage) =====
   const handleSendOtp = async () => {
     const storedEmail = localStorage.getItem("bf_admin_email") || "";
     const emailToUse = email.trim() || storedEmail;
     if (!emailToUse) return setErr("Pehle apna email daalo");
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    localStorage.setItem("bf_admin_otp", simpleHash(otp));
-    localStorage.setItem("bf_admin_otp_exp", (Date.now() + 10 * 60 * 1000).toString());
+    const otp = Array.from(crypto.getRandomValues(new Uint8Array(3)))
+      .map(b => String(b % 10)).join("").padStart(6, "0").substring(0, 6);
+    const finalOtp = String(parseInt(otp) % 1000000).padStart(6, "0");
+    sessionStorage.setItem("bf_admin_otp", await sha256(finalOtp));
+    sessionStorage.setItem("bf_admin_otp_exp", (Date.now() + 10 * 60 * 1000).toString());
 
     try {
       const workerUrl = localStorage.getItem("bf_worker_url") || "https://brainforge-api.richard-brown-miami.workers.dev";
@@ -133,51 +174,54 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
       await fetch(`${workerUrl}/api/admin/send-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-BrainForge-Secret": secret },
-        body: JSON.stringify({ email: emailToUse, otp }),
+        body: JSON.stringify({ email: emailToUse, otp: finalOtp }),
       });
       setMsg(`OTP ${emailToUse} pe bheja gaya. 10 minute valid hai.`);
     } catch {
-      setMsg(`Email send nahi ho saka. OTP testing ke liye console mein dikh raha hai.`);
-      console.log("Admin OTP (testing only):", otp);
+      setMsg("Email send nahi ho saka. OTP testing ke liye console mein dikh raha hai.");
+      console.log("Admin OTP (testing only):", finalOtp);
     }
     setScreen("otp_sent");
     setErr("");
   };
 
   // ===== OTP Verify =====
-  const handleVerifyOtp = () => {
-    const storedHash = localStorage.getItem("bf_admin_otp") || "";
-    const exp = Number(localStorage.getItem("bf_admin_otp_exp") || "0");
+  const handleVerifyOtp = async () => {
+    if (checkLockout("admin_otp")) return;
+    const storedHash = sessionStorage.getItem("bf_admin_otp") || "";
+    const exp = Number(sessionStorage.getItem("bf_admin_otp_exp") || "0");
     if (Date.now() > exp) return setErr("OTP expire ho gaya. Naya OTP maango.");
-    if (simpleHash(otpInput.trim()) === storedHash) {
+    const h = await sha256(otpInput.trim());
+    if (h === storedHash) {
+      clearBruteForce("admin_otp");
+      sessionStorage.removeItem("bf_admin_otp");
+      sessionStorage.removeItem("bf_admin_otp_exp");
       setScreen("set_new_pw");
       setErr("");
     } else {
-      setErr("Galat OTP. Dobara check karo.");
+      const result = recordFailedAttempt("admin_otp");
+      if (result.locked) {
+        setErr(`Bahut zyada galat attempts. ${result.remaining} minute baad try karo.`);
+        setScreen("locked_out");
+      } else {
+        setErr(`Galat OTP. ${5 - result.attempts} aur tries baaki hain.`);
+      }
     }
   };
 
   // ===== Set New Password =====
-  const handleSetNewPw = () => {
+  const handleSetNewPw = async () => {
     if (newPw.length < 6) return setErr("Password kam se kam 6 characters");
     if (newPw !== newPwConfirm) return setErr("Passwords match nahi kar rahe");
-    localStorage.setItem("bf_admin_pw_hash", simpleHash(newPw));
-    localStorage.removeItem("bf_admin_otp");
-    localStorage.removeItem("bf_admin_otp_exp");
+    localStorage.setItem("bf_admin_pw_hash", await sha256(newPw));
     unlock();
   };
 
   if (screen === "loading") return null;
   if (screen === "unlocked") return <>{children}</>;
 
-  const boxStyle = {
-    background: "oklch(0.10 0.025 280)",
-    borderColor: "oklch(0.30 0.15 280 / 0.5)",
-  };
-  const inputStyle = {
-    background: "oklch(0.08 0.02 280)",
-    border: "1px solid oklch(0.30 0.15 280 / 0.5)",
-  };
+  const boxStyle = { background: "oklch(0.10 0.025 280)", borderColor: "oklch(0.30 0.15 280 / 0.5)" };
+  const inputStyle = { background: "oklch(0.08 0.02 280)", border: "1px solid oklch(0.30 0.15 280 / 0.5)" };
   const btnStyle = { background: "oklch(0.55 0.25 280)" };
   const btnSecStyle = { background: "oklch(0.18 0.05 280)", border: "1px solid oklch(0.30 0.15 280 / 0.4)" };
 
@@ -201,6 +245,26 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
     </button>
   );
 
+  // ===== LOCKED OUT =====
+  if (screen === "locked_out") {
+    const status = getBruteForceStatus("admin_pw");
+    return (
+      <Overlay>
+        <Box style={boxStyle}>
+          <Header icon={<Lock />} title="Account Locked" subtitle="Bahut zyada galat attempts" />
+          <div className="rounded-xl p-4 text-center text-sm text-muted-foreground"
+            style={{ background: "oklch(0.55 0.25 0 / 0.1)", border: "1px solid oklch(0.55 0.25 0 / 0.3)" }}>
+            🔒 {status.remaining > 0 ? `${status.remaining} minute baad try karo` : "Thodi der baad try karo"}
+          </div>
+          <button type="button" onClick={() => { setErr(""); setScreen("forgot_choice"); }}
+            className="w-full text-xs text-center py-1" style={{ color: "oklch(0.65 0.25 280)" }}>
+            Recovery option use karo →
+          </button>
+        </Box>
+      </Overlay>
+    );
+  }
+
   // ===== SETUP SCREEN =====
   if (screen === "setup") {
     return (
@@ -208,7 +272,7 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
         <Box style={boxStyle}>
           <Header icon={<Shield />} title="Admin Setup" subtitle="Pehli baar credentials set karo" />
           <div className="space-y-2.5">
-            <Input value={username} onChange={setUsername} placeholder="Admin username" onEnter={() => {}} />
+            <Input value={username} onChange={setUsername} placeholder="Admin username" />
             <Input value={password} onChange={setPassword} placeholder="Password (6+ characters)" type="password" />
             <Input value={confirmPw} onChange={setConfirmPw} placeholder="Password confirm karo" type="password" />
             <Input value={email} onChange={setEmail} placeholder="Email (OTP recovery ke liye, optional)" />
@@ -216,8 +280,7 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
               <p className="text-[10px] text-muted-foreground mb-1.5">PIN (optional - quick access ke liye)</p>
               <input type="password" inputMode="numeric" value={pin}
                 onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setErr(""); }}
-                placeholder="4-6 digit PIN (optional)"
-                maxLength={6}
+                placeholder="4-6 digit PIN (optional)" maxLength={6}
                 className="w-full rounded-lg px-3 py-2.5 text-center text-xl tracking-[0.4em] text-foreground focus:outline-none"
                 style={inputStyle}
               />
@@ -225,8 +288,7 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
               {pin.length >= 4 && (
                 <input type="password" inputMode="numeric" value={confirmPin}
                   onChange={e => { setConfirmPin(e.target.value.replace(/\D/g, "")); setErr(""); }}
-                  placeholder="PIN confirm karo"
-                  maxLength={6}
+                  placeholder="PIN confirm karo" maxLength={6}
                   className="w-full rounded-lg px-3 py-2.5 text-center text-xl tracking-[0.4em] text-foreground focus:outline-none mt-2"
                   style={inputStyle}
                 />
@@ -242,7 +304,6 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ===== SHOW RECOVERY KEY =====
   if ((screen as string) === "show_key") {
     return (
       <Overlay>
@@ -260,7 +321,7 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
               className="flex-1 py-2 rounded-lg text-xs font-medium transition-all" style={btnSecStyle}>
               📋 Copy Key
             </button>
-            <button type="button" onClick={() => { setScreen("unlocked"); }}
+            <button type="button" onClick={() => setScreen("unlocked")}
               className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold" style={btnStyle}>
               Save Kiya ✓ Andar Jao
             </button>
@@ -270,9 +331,9 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ===== PIN LOGIN =====
   if (screen === "pin_login") {
     const hasPwSetup = !!localStorage.getItem("bf_admin_pw_hash");
+    const bf = getBruteForceStatus("admin_pin");
     return (
       <Overlay>
         <Box style={boxStyle}>
@@ -282,20 +343,16 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
             onKeyDown={e => e.key === "Enter" && handlePinLogin()}
             placeholder="• • • •" maxLength={6}
             className="w-full rounded-lg px-3 py-2.5 text-center text-xl tracking-[0.4em] text-foreground focus:outline-none"
-            style={inputStyle}
+            style={inputStyle} disabled={bf.locked}
           />
-          {err && <p className="text-xs text-red-400 text-center">{err}</p>}
-          <Btn onClick={handlePinLogin} disabled={pin.length < 4}>Unlock Admin Panel</Btn>
+          {bf.locked && <p className="text-xs text-red-400 text-center">🔒 Locked — {bf.remaining} min baad try karo</p>}
+          {err && !bf.locked && <p className="text-xs text-red-400 text-center">{err}</p>}
+          <Btn onClick={handlePinLogin} disabled={pin.length < 4 || bf.locked}>Unlock Admin Panel</Btn>
           <div className="flex flex-col gap-1">
-            {hasPwSetup ? (
+            {hasPwSetup && (
               <button type="button" onClick={() => { setScreen("pw_login"); setPin(""); setErr(""); }}
                 className="w-full text-xs text-center py-1" style={{ color: "oklch(0.65 0.25 280)" }}>
                 Password se login karo →
-              </button>
-            ) : (
-              <button type="button" onClick={() => { setScreen("setup"); setPin(""); setErr(""); }}
-                className="w-full text-xs text-center py-1" style={{ color: "oklch(0.65 0.20 160)" }}>
-                + Username/Password setup karo →
               </button>
             )}
           </div>
@@ -304,18 +361,19 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ===== PASSWORD LOGIN =====
   if (screen === "pw_login") {
+    const bf = getBruteForceStatus("admin_pw");
     return (
       <Overlay>
         <Box style={boxStyle}>
           <Header icon={<Lock />} title="Admin Login" subtitle="Username aur password se login karo" />
           <div className="space-y-2.5">
-            <Input value={username} onChange={setUsername} placeholder="Username" onEnter={() => {}} />
+            <Input value={username} onChange={setUsername} placeholder="Username" />
             <Input value={password} onChange={setPassword} placeholder="Password" type="password" onEnter={handlePwLogin} />
           </div>
-          {err && <p className="text-xs text-red-400 text-center">{err}</p>}
-          <Btn onClick={handlePwLogin} disabled={!username || !password}>Login Karo</Btn>
+          {bf.locked && <p className="text-xs text-red-400 text-center">🔒 Locked — {bf.remaining} min baad try karo</p>}
+          {err && !bf.locked && <p className="text-xs text-red-400 text-center">{err}</p>}
+          <Btn onClick={handlePwLogin} disabled={!username || !password || bf.locked}>Login Karo</Btn>
           <div className="flex flex-col gap-1.5">
             <button type="button" onClick={() => { setScreen("forgot_choice"); setErr(""); setUsername(""); setPassword(""); }}
               className="w-full text-xs text-center py-1" style={{ color: "oklch(0.65 0.25 280)" }}>
@@ -333,7 +391,6 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ===== FORGOT CHOICE =====
   if (screen === "forgot_choice") {
     return (
       <Overlay>
@@ -363,33 +420,26 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
               </div>
             </button>
           </div>
-          <button type="button" onClick={() => setScreen("pw_login")}
-            className="w-full text-xs text-center py-1 text-muted-foreground">
-            ← Wapas Login Pe
-          </button>
+          <button type="button" onClick={() => setScreen("pw_login")} className="w-full text-xs text-center py-1 text-muted-foreground">← Wapas Login Pe</button>
         </Box>
       </Overlay>
     );
   }
 
-  // ===== RECOVER VIA KEY =====
   if (screen === "recover_key") {
     return (
       <Overlay>
         <Box style={boxStyle}>
           <Header icon={<KeyRound />} title="Recovery Key" subtitle="BF-XXXX-XXXX-XXXX-XXXX format mein daalo" />
-          <Input value={recoveryInput} onChange={v => setRecoveryInput(v.toUpperCase())}
-            placeholder="BF-XXXX-XXXX-XXXX-XXXX" onEnter={handleRecoveryKey} />
+          <Input value={recoveryInput} onChange={v => setRecoveryInput(v.toUpperCase())} placeholder="BF-XXXX-XXXX-XXXX-XXXX" onEnter={handleRecoveryKey} />
           {err && <p className="text-xs text-red-400 text-center">{err}</p>}
           <Btn onClick={handleRecoveryKey} disabled={recoveryInput.length < 10}>Verify Key</Btn>
-          <button type="button" onClick={() => setScreen("forgot_choice")}
-            className="w-full text-xs text-center py-1 text-muted-foreground">← Wapas</button>
+          <button type="button" onClick={() => setScreen("forgot_choice")} className="w-full text-xs text-center py-1 text-muted-foreground">← Wapas</button>
         </Box>
       </Overlay>
     );
   }
 
-  // ===== RECOVER VIA OTP =====
   if (screen === "recover_otp") {
     return (
       <Overlay>
@@ -398,14 +448,12 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
           <Input value={email} onChange={setEmail} placeholder="Admin email address" onEnter={handleSendOtp} />
           {err && <p className="text-xs text-red-400 text-center">{err}</p>}
           <Btn onClick={handleSendOtp} disabled={!email.includes("@")}>OTP Bhejo</Btn>
-          <button type="button" onClick={() => setScreen("forgot_choice")}
-            className="w-full text-xs text-center py-1 text-muted-foreground">← Wapas</button>
+          <button type="button" onClick={() => setScreen("forgot_choice")} className="w-full text-xs text-center py-1 text-muted-foreground">← Wapas</button>
         </Box>
       </Overlay>
     );
   }
 
-  // ===== OTP SENT =====
   if (screen === "otp_sent") {
     return (
       <Overlay>
@@ -427,7 +475,6 @@ export function AdminPinGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ===== SET NEW PASSWORD =====
   if (screen === "set_new_pw") {
     return (
       <Overlay>
