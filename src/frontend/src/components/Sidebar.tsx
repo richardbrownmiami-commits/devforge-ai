@@ -53,8 +53,8 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
   return (
     <div className="flex flex-col h-full" style={{ background: "oklch(var(--sidebar))" }}>
       <div className="px-5 py-5 border-b border-sidebar-border">
-        <Link to="/projects" className="flex items-center gap-2 group" data-ocid="sidebar.link" onClick={onClose}>
-          <img src="/assets/generated/brainforge-icon-3d.dim_512x512.png" alt="BrainForge" className="w-10 h-10 rounded-xl object-cover" />
+        <Link to="/projects" className="flex items-center gap-3 group" data-ocid="sidebar.link" onClick={onClose}>
+          <img src="/assets/generated/brainforge-icon-3d.dim_512x512.png" alt="BrainForge" className="w-14 h-14 rounded-xl object-cover shrink-0" />
           <span className="font-bold text-base text-foreground tracking-tight group-hover:text-primary transition-colors">
             BrainForge
           </span>
@@ -162,7 +162,7 @@ export function Sidebar() {
         style={{ background: "oklch(var(--sidebar))", paddingTop: "env(safe-area-inset-top, 12px)", height: "calc(56px + env(safe-area-inset-top, 0px))" }}
       >
         <Link to="/projects" className="flex items-center gap-2">
-          <img src="/assets/generated/brainforge-icon-3d.dim_512x512.png" alt="BrainForge" className="w-6 h-6 rounded-md object-cover" />
+          <img src="/assets/generated/brainforge-icon-3d.dim_512x512.png" alt="BrainForge" className="w-9 h-9 rounded-md object-cover" />
           <span className="font-bold text-sm text-foreground">BrainForge</span>
         </Link>
         <button type="button" onClick={() => setOpen(true)}
