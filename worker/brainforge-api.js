@@ -13,57 +13,6 @@ function j(data, status) {
   return new Response(JSON.stringify(data), { status: status || 200, headers: cors() });
 }
 
-// Cloudflare Workers-safe base64 encoding (handles unicode)
-function toBase64(str) {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
-}
-
-// ---- D1 Backup to GitHub ----
-async function backupToGitHub(env, token, repo) {
-  const githubToken = token || env.GITHUB_TOKEN || "";
-  const githubRepo = repo || env.GITHUB_REPO || "";
-  if (!githubToken || !githubRepo) throw new Error("GitHub token and repo required");
-
-  const backup = { timestamp: new Date().toISOString(), tables: {} };
-  for (const table of ["projects", "messages"]) {
-    try {
-      const r = await env.DB.prepare(`SELECT * FROM ${table} LIMIT 1000`).all();
-      backup.tables[table] = r.results || [];
-    } catch { backup.tables[table] = []; }
-  }
-
-  const date = new Date().toISOString().slice(0, 10);
-  const path = `backups/d1-backup-${date}.json`;
-  const content = JSON.stringify(backup, null, 2);
-
-  const getRes = await fetch(`https://api.github.com/repos/${githubRepo}/contents/${path}`, {
-    headers: { Authorization: `Bearer ${githubToken}` }
-  });
-  const existingData = getRes.ok ? await getRes.json() : null;
-  const sha = existingData?.sha;
-
-  const putRes = await fetch(`https://api.github.com/repos/${githubRepo}/contents/${path}`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${githubToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: `backup: D1 snapshot ${date}`,
-      content: toBase64(content),
-      ...(sha ? { sha } : {})
-    })
-  });
-
-  if (!putRes.ok) {
-    const err = await putRes.json().catch(() => ({}));
-    throw new Error(err?.message || `GitHub push failed: ${putRes.status}`);
-  }
-
-  const rows = Object.values(backup.tables).reduce((a, t) => a + t.length, 0);
-  return { path, rows };
-}
-
 export default {
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
@@ -87,6 +36,22 @@ export default {
           messages: msg.value?.n || 0,
           memories: mem.value?.n || 0,
           snapshots: snap.value?.n || 0
+        });
+      }
+
+      // D1 export (returns JSON data -- frontend pushes to GitHub)
+      // GitHub blocks writes from Cloudflare IPs, so browser does the push
+      if (path === "/api/backup-export" && req.method === "GET") {
+        const backup = { timestamp: new Date().toISOString(), tables: {} };
+        for (const table of ["projects", "messages"]) {
+          try {
+            const r = await env.DB.prepare(`SELECT * FROM ${table} LIMIT 1000`).all();
+            backup.tables[table] = r.results || [];
+          } catch { backup.tables[table] = []; }
+        }
+        const rows = Object.values(backup.tables).reduce((a, t) => a + t.length, 0);
+        return new Response(JSON.stringify({ ...backup, rows }), {
+          headers: { ...cors(), "Content-Type": "application/json" }
         });
       }
 
@@ -116,16 +81,9 @@ export default {
         return j({ success: true });
       }
 
-      // D1 Backup to GitHub (manual)
-      if (path === "/api/backup" && req.method === "POST") {
-        const b = await req.json().catch(() => ({}));
-        const result = await backupToGitHub(env, b.githubToken, b.githubRepo);
-        return j({ success: true, ...result });
-      }
-
       // KV list
       if (path === "/api/kv-list" && req.method === "GET") {
-        if (!env.KV) return j({ keys: [], count: 0, note: "KV not bound" });
+        if (!env.KV) return j({ keys: [], count: 0 });
         const list = await env.KV.list({ prefix: "app:" });
         return j({ keys: list.keys || [], count: list.keys?.length || 0 });
       }
@@ -140,7 +98,7 @@ export default {
       // KV get published app
       if (path.startsWith("/p/") && req.method === "GET") {
         if (!env.KV) return new Response("Service unavailable", { status: 503 });
-        const slug = path.replace("/p/", "app:");
+        const slug = "app:" + path.slice(3);
         const val = await env.KV.get(slug);
         if (!val) return new Response("App not found", { status: 404 });
         return new Response(val, { headers: { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" } });
@@ -149,10 +107,10 @@ export default {
       // KV publish app
       if (path.startsWith("/api/kv/") && req.method === "PUT") {
         if (!env.KV) return j({ error: "KV not bound" }, 503);
-        const slug = "app:" + path.replace("/api/kv/", "");
+        const slug = "app:" + path.slice(8);
         const body = await req.text();
         await env.KV.put(slug, body, { expirationTtl: 60 * 60 * 24 * 365 });
-        return j({ success: true, url: `https://brainforge-api.richard-brown-miami.workers.dev/p/${slug.replace("app:", "")}` });
+        return j({ success: true, url: `https://brainforge-api.richard-brown-miami.workers.dev/p/${path.slice(8)}` });
       }
 
       // Internet search (DuckDuckGo)
@@ -171,10 +129,8 @@ export default {
     }
   },
 
-  // Cron: daily D1 backup at 2 AM UTC
+  // Cron placeholder (D1 backup now done from browser via /api/backup-export)
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(
-      backupToGitHub(env).catch((e) => console.error("Cron backup failed:", e.message))
-    );
+    console.log("Cron triggered at", new Date().toISOString());
   }
 };
