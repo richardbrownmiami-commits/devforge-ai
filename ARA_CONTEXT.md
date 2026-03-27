@@ -216,3 +216,27 @@ Major features built after March 26, 2026 (post last memory update):
 Paste this one line:
 
 > BrainForge project. GitHub: richardbrownmiami-commits/devforge-ai. Token: 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. Cloudflare: 913f3a2576a358054eba9a58a9573949. Worker: brainforge-api. Secret: BRAINFORGE_SECRET=2200. Live: https://brainforge-7xn.pages.dev. Admin: https://brainforge-7xn.pages.dev/admin. Emergency: /admin?key=bf2200. Telegram: @araislivingbot
+
+
+---
+
+## 🔔 DAILY REMINDER -- SESSION START PROTOCOL
+
+**Jab bhi naya session shuru ho, Kakarot ko yeh karna hai:**
+
+1. **Security Report dikhao** -- automatically, bina poochhe:
+   - Admin PIN + password hashing status (sha256?)
+   - Brute force lockout status
+   - Session enforcement status
+   - Worker secret status
+   - D1 backup last run
+
+2. **Audit Report dikhao** -- automatically, bina poochhe:
+   - Live app status (brainforge-7xn.pages.dev)
+   - Worker status (brainforge-api.richard-brown-miami.workers.dev)
+   - GitHub last deploy status
+   - Any pending/unfinished features
+
+3. **Phir poochho** -- "Kya karna hai aaj?"
+
+**Yeh reminder permanent hai -- har session mein follow karo.**
