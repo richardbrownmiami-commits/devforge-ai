@@ -7,10 +7,14 @@ binding = "DB"
 database_name = "brainforge-db"
 database_id = "3814a86b-7054-465c-ae64-8bf99019cf6b"
 
+[[kv_namespaces]]
+binding = "KV"
+id = "c62f444539254734869f4fae5dc74755"
+
 # Daily D1 backup at 2:00 AM UTC
 [triggers]
 crons = ["0 2 * * *"]
 
 # Required secrets (set via: wrangler secret put GITHUB_TOKEN)
-# GITHUB_TOKEN = your GitHub fine-grained token
-# GITHUB_REPO = richardbrownmiami-commits/devforge-ai
+# GITHUB_TOKEN -- set ✅
+# GITHUB_REPO  -- set ✅
