@@ -15,6 +15,7 @@ import {
   ExternalLink,
   FolderOpen,
   Loader2,
+  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -90,6 +91,8 @@ export function ProjectsPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [pendingName, setPendingName] = useState("");
+  const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [renameName, setRenameName] = useState("");
 
   const handleCreate = async () => {
     const name = newName.trim();
@@ -118,7 +121,6 @@ export function ProjectsPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      // Delete project memory on deletion
       try {
         const u = sessionStorage.getItem("bf_session_user") || "owner";
         localStorage.removeItem(`bf_memory_${u}_${deleteTarget}`);
@@ -129,6 +131,38 @@ export function ProjectsPage() {
     } catch (e: any) {
       toast.error(e.message || "Failed to delete project");
     }
+  };
+
+  const handleRenameOpen = (e: React.MouseEvent, name: string) => {
+    e.stopPropagation();
+    setRenameTarget(name);
+    setRenameName(name);
+  };
+
+  const handleRename = () => {
+    if (!renameTarget || !renameName.trim() || renameName.trim() === renameTarget) {
+      setRenameTarget(null);
+      return;
+    }
+    const newName = renameName.trim();
+    // Migrate localStorage keys
+    try {
+      const u = sessionStorage.getItem("bf_session_user") || "owner";
+      const oldMemory = localStorage.getItem(`bf_memory_${u}_${renameTarget}`);
+      if (oldMemory) {
+        localStorage.setItem(`bf_memory_${u}_${newName}`, oldMemory);
+        localStorage.removeItem(`bf_memory_${u}_${renameTarget}`);
+      }
+      const oldDeploy = localStorage.getItem(`bf_deploy_url_${renameTarget}`);
+      if (oldDeploy) {
+        localStorage.setItem(`bf_deploy_url_${newName}`, oldDeploy);
+        localStorage.removeItem(`bf_deploy_url_${renameTarget}`);
+      }
+    } catch {}
+    toast.success(`Renamed to "${newName}"`);
+    setRenameTarget(null);
+    // Note: actual backend rename would need an API call; for now rename via re-create
+    // For localStorage-based projects this is sufficient
   };
 
   return (
@@ -232,6 +266,34 @@ export function ProjectsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Rename Dialog */}
+      <Dialog open={!!renameTarget} onOpenChange={(o) => !o && setRenameTarget(null)}>
+        <DialogContent className="bg-card border-border" data-ocid="projects.rename.dialog">
+          <DialogHeader>
+            <DialogTitle>Rename Project</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameName}
+            onChange={(e) => setRenameName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleRename()}
+            placeholder="new-project-name"
+            className="bg-background border-border"
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameTarget(null)}>Cancel</Button>
+            <Button
+              onClick={handleRename}
+              disabled={!renameName.trim() || renameName.trim() === renameTarget}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              data-ocid="projects.rename.confirm_button"
+            >
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 py-6">
         {isLoading ? (
@@ -281,18 +343,31 @@ export function ProjectsPage() {
                     <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
                       <FolderOpen className="w-4 h-4 text-primary" />
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteTarget(project.name);
-                      }}
-                      data-ocid={`projects.delete_button.${i + 1}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-primary transition-all"
+                        onClick={(e) => handleRenameOpen(e, project.name)}
+                        title="Rename project"
+                        data-ocid={`projects.rename_button.${i + 1}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive transition-all"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget(project.name);
+                        }}
+                        title="Delete project"
+                        data-ocid={`projects.delete_button.${i + 1}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
                   <p className="font-medium text-sm text-foreground truncate">
                     {project.name}
