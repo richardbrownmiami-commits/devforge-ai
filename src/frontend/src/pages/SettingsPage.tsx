@@ -3,10 +3,8 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Link } from "@tanstack/react-router";
 import {
-  Bot,
   Brain,
   ChevronLeft,
-  FileText,
   Github,
   Key,
   Lock,
@@ -54,7 +52,6 @@ const HUB_BUTTONS = [
     color: "from-orange-500/20 to-amber-500/20 border-orange-500/30 text-orange-300",
     desc: "Token, repo, Cloudflare deploy",
   },
-
   {
     id: "pinlock" as Page,
     label: "PIN Lock",
@@ -62,6 +59,14 @@ const HUB_BUTTONS = [
     color: "from-yellow-500/20 to-amber-500/20 border-yellow-500/30 text-yellow-300",
     desc: "App PIN protection & session timeout",
   },
+];
+
+const OPENROUTER_MODELS = [
+  { label: "Qwen3 Coder (Recommended)", value: "qwen/qwen3-coder:free" },
+  { label: "DeepSeek V3", value: "deepseek/deepseek-v3:free" },
+  { label: "Llama 3.3 70B", value: "meta-llama/llama-3.3-70b-instruct:free" },
+  { label: "Gemini 2.0 Flash (via OR)", value: "google/gemini-2.0-flash-exp:free" },
+  { label: "Mistral Small", value: "mistralai/mistral-small:free" },
 ];
 
 function SubPageHeader({ title, onBack }: { title: string; onBack: () => void }) {
@@ -93,7 +98,6 @@ function ApiPage({ onBack }: { onBack: () => void }) {
   const [openRouterKey, setOpenRouterKey] = useState(s?.openRouterApiKey || "");
   const [defaultModel, setDefaultModel] = useState(s?.defaultModel || "qwen/qwen3-coder:free");
   const [geminiKey, setGeminiKey] = useState(s?.geminiApiKey || "");
-  const [geminiModel, setGeminiModel] = useState(s?.geminiModel || "gemini-2.0-flash");
   const [groqKey, setGroqKey] = useState(s?.groqApiKey || "");
   const [groqModel, setGroqModel] = useState(s?.groqModel || "llama-3.3-70b-versatile");
   const [githubModelsKey, setGithubModelsKey] = useState(s?.githubModelsKey || "");
@@ -104,7 +108,7 @@ function ApiPage({ onBack }: { onBack: () => void }) {
       openRouterApiKey: openRouterKey,
       defaultModel,
       geminiApiKey: geminiKey,
-      geminiModel,
+      geminiModel: "gemini-1.5-flash",
       groqApiKey: groqKey,
       groqModel,
       githubModelsKey,
@@ -116,24 +120,42 @@ function ApiPage({ onBack }: { onBack: () => void }) {
     <div className="flex flex-col h-full">
       <SubPageHeader title="API Keys" onBack={onBack} />
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+
+        {/* OpenRouter */}
         <div className="p-3 rounded-lg border border-violet-500/20 bg-violet-500/5 space-y-3">
           <p className="text-xs font-semibold text-violet-300">OpenRouter</p>
           <FieldGroup label="API Key">
             <Input value={openRouterKey} onChange={(e) => setOpenRouterKey(e.target.value)} placeholder="sk-or-..." type="password" className="h-8 text-xs" />
           </FieldGroup>
           <FieldGroup label="Model">
-            <Input value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} placeholder="qwen/qwen3-coder:free" className="h-8 text-xs" />
+            <select
+              value={defaultModel}
+              onChange={(e) => setDefaultModel(e.target.value)}
+              className="w-full h-8 bg-card border border-border rounded-md px-2 text-xs text-foreground"
+            >
+              {OPENROUTER_MODELS.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-muted-foreground mt-1">Sirf stable free models — rate limit wale hataaye gaye hain</p>
           </FieldGroup>
         </div>
+
+        {/* Gemini */}
         <div className="p-3 rounded-lg border border-blue-500/20 bg-blue-500/5 space-y-3">
           <p className="text-xs font-semibold text-blue-300">Google Gemini</p>
           <FieldGroup label="API Key">
             <Input value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="AIzaSy..." type="password" className="h-8 text-xs" />
           </FieldGroup>
-          <FieldGroup label="Model">
-            <Input value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)} placeholder="gemini-2.0-flash" className="h-8 text-xs" />
-          </FieldGroup>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-blue-500/20 bg-blue-500/5">
+            <span className="text-xs text-blue-300 font-medium">Model:</span>
+            <span className="text-xs text-foreground font-mono">gemini-1.5-flash</span>
+            <span className="ml-auto text-[10px] text-blue-400/70">Free tier supported ✓</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">Gemini free mein sirf 1.5-flash supported hai</p>
         </div>
+
+        {/* Groq */}
         <div className="p-3 rounded-lg border border-orange-500/20 bg-orange-500/5 space-y-3">
           <p className="text-xs font-semibold text-orange-300">Groq</p>
           <FieldGroup label="API Key">
@@ -143,6 +165,8 @@ function ApiPage({ onBack }: { onBack: () => void }) {
             <Input value={groqModel} onChange={(e) => setGroqModel(e.target.value)} placeholder="llama-3.3-70b-versatile" className="h-8 text-xs" />
           </FieldGroup>
         </div>
+
+        {/* GitHub Models */}
         <div className="p-3 rounded-lg border border-green-500/20 bg-green-500/5 space-y-3">
           <p className="text-xs font-semibold text-green-300">GitHub Models</p>
           <FieldGroup label="Token">
@@ -152,9 +176,7 @@ function ApiPage({ onBack }: { onBack: () => void }) {
             <Input value={githubModelsModel} onChange={(e) => setGithubModelsModel(e.target.value)} placeholder="gpt-4o" className="h-8 text-xs" />
           </FieldGroup>
         </div>
-        <p className="text-[10px] text-muted-foreground text-center">
-          Database (D1 + Supabase) Admin Panel mein milega → Admin → Database
-        </p>
+
         <Button onClick={handleSave} disabled={save.isPending} className="w-full h-8 text-xs" data-ocid="settings.api.save_button">
           <Save className="w-3.5 h-3.5 mr-1.5" />
           {save.isPending ? "Saving..." : save.isSuccess ? "Saved ✓" : "Save API Keys"}
@@ -366,12 +388,6 @@ export function SettingsPage() {
               </button>
             );
           })}
-        </div>
-        <div className="mt-4 p-3 rounded-lg border border-blue-500/20 bg-blue-500/5">
-          <p className="text-[11px] text-blue-300/80">
-            💾 <strong>Database</strong> (D1 + Supabase) Admin Panel mein milega:
-            <Link to="/admin" className="ml-1 underline text-blue-300">brainforge.../admin → Database</Link>
-          </p>
         </div>
         <div className="mt-3 p-3 rounded-lg" style={{ background: "oklch(0.08 0.02 280)" }}>
           <p className="text-[10px] text-muted-foreground text-center">
