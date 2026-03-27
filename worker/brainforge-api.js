@@ -79,6 +79,17 @@ export default {
     const url = new URL(req.url), path = url.pathname;
 
     try {
+      // D1 stats
+      if (path === "/api/stats" && req.method === "GET") {
+        const [proj, msg, mem, snap] = await Promise.all([
+          env.DB.prepare("SELECT COUNT(*) as n FROM projects").first().catch(() => ({ n: 0 })),
+          env.DB.prepare("SELECT COUNT(*) as n FROM messages").first().catch(() => ({ n: 0 })),
+          env.DB.prepare("SELECT COUNT(*) as n FROM memories").first().catch(() => ({ n: 0 })),
+          env.DB.prepare("SELECT COUNT(*) as n FROM snapshots").first().catch(() => ({ n: 0 })),
+        ]);
+        return j({ projects: proj?.n || 0, messages: msg?.n || 0, memories: mem?.n || 0, snapshots: snap?.n || 0 });
+      }
+
       // Projects
       if (path === "/api/projects" && req.method === "GET") {
         const r = await env.DB.prepare("SELECT * FROM projects ORDER BY updated_at DESC").all();
@@ -105,11 +116,51 @@ export default {
         return j({ success: true });
       }
 
-      // D1 Backup to GitHub (manual trigger from app)
+      // D1 Backup to GitHub (manual trigger)
       if (path === "/api/backup" && req.method === "POST") {
-        const b = await req.json();
+        const b = await req.json().catch(() => ({}));
         const result = await backupToGitHub(env, b.githubToken, b.githubRepo);
         return j({ success: true, ...result });
+      }
+
+      // KV list (inbuilt publish list)
+      if (path === "/api/kv-list" && req.method === "GET") {
+        if (!env.KV) return j({ keys: [], count: 0, note: "KV not bound" });
+        try {
+          const list = await env.KV.list({ prefix: "app:" });
+          return j({ keys: list.keys || [], count: list.keys?.length || 0 });
+        } catch (e) {
+          return j({ keys: [], count: 0, error: e.message });
+        }
+      }
+
+      // KV stats
+      if (path === "/api/kv-stats" && req.method === "GET") {
+        if (!env.KV) return j({ status: "not_bound", count: 0 });
+        try {
+          const list = await env.KV.list({ prefix: "app:" });
+          return j({ status: "ok", count: list.keys?.length || 0, cursor: list.cursor });
+        } catch (e) {
+          return j({ status: "error", error: e.message });
+        }
+      }
+
+      // KV get published app
+      if (path.startsWith("/api/kv/") && req.method === "GET") {
+        if (!env.KV) return j({ error: "KV not bound" }, 503);
+        const key = path.replace("/api/kv/", "");
+        const val = await env.KV.get(key);
+        if (!val) return j({ error: "Not found" }, 404);
+        return new Response(val, { headers: { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" } });
+      }
+
+      // KV publish app
+      if (path.startsWith("/api/kv/") && req.method === "PUT") {
+        if (!env.KV) return j({ error: "KV not bound" }, 503);
+        const key = path.replace("/api/kv/", "");
+        const body = await req.text();
+        await env.KV.put(key, body, { expirationTtl: 60 * 60 * 24 * 365 });
+        return j({ success: true, key });
       }
 
       // Internet search (DuckDuckGo)
@@ -130,10 +181,10 @@ export default {
     }
   },
 
-  // ---- Scheduled cron handler (daily D1 backup) ----
+  // ---- Scheduled cron handler (daily D1 backup at 2 AM UTC) ----
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
-      backupToGitHub(env).catch((e) => console.error("Backup failed:", e.message))
+      backupToGitHub(env).catch((e) => console.error("Cron backup failed:", e.message))
     );
   }
 };
