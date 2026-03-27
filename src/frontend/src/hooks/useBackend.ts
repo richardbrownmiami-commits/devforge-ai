@@ -24,13 +24,15 @@ function loadSettings(): Settings {
         const defaultKey = localStorage.getItem("bf_default_or_key") || "";
         s.openRouterApiKey = defaultKey;
       }
+      // Inject auto model if none set
+      if (!s.defaultModel) s.defaultModel = "openrouter/auto";
       return s;
     }
   } catch {}
   const defaultOrKey = localStorage.getItem("bf_default_or_key") || "";
   return {
     openRouterApiKey: defaultOrKey,
-    defaultModel: "qwen/qwen3-coder:free",
+    defaultModel: "openrouter/auto",
     termuxUrl: "",
     githubToken: "",
     githubRepo: "",
@@ -46,7 +48,7 @@ function loadSettings(): Settings {
     masterAIEnabled: true,
     aiProvider: "auto",
     geminiApiKey: "",
-    geminiModel: "gemini-2.0-flash",
+    geminiModel: "gemini-1.5-flash",
     groqApiKey: "",
     groqModel: "llama-3.3-70b-versatile",
     githubModelsKey: "",
