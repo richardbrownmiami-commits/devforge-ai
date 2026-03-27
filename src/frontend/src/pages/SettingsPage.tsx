@@ -62,6 +62,8 @@ const HUB_BUTTONS = [
 ];
 
 const OPENROUTER_MODELS = [
+  // ── Auto Router ───────────────────────────────────────────────
+  { label: "🤖 Auto (Best Available)", value: "openrouter/auto" },
   // ── Recommended ──────────────────────────────────────────────
   { label: "⭐ Qwen3 Coder 480B", value: "qwen/qwen3-coder:free" },
   { label: "⭐ DeepSeek V3", value: "deepseek/deepseek-v3:free" },
@@ -163,7 +165,7 @@ function ApiPage({ onBack }: { onBack: () => void }) {
   const s = settings as any;
 
   const [openRouterKey, setOpenRouterKey] = useState(s?.openRouterApiKey || "");
-  const [defaultModel, setDefaultModel] = useState(s?.defaultModel || "qwen/qwen3-coder:free");
+  const [defaultModel, setDefaultModel] = useState(s?.defaultModel || "openrouter/auto");
   const [geminiKey, setGeminiKey] = useState(s?.geminiApiKey || "");
   const [groqKey, setGroqKey] = useState(s?.groqApiKey || "");
   const [groqModel, setGroqModel] = useState(s?.groqModel || "llama-3.3-70b-versatile");
