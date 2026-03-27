@@ -1,10 +1,4 @@
 // BrainForge API Worker
-// Account: 913f3a2576a358054eba9a58a9573949
-// Worker name: brainforge-api
-// Worker URL: https://brainforge-api.richard-brown-miami.workers.dev
-// Secret: BRAINFORGE_SECRET=2200
-// Env secrets needed: GITHUB_TOKEN, GITHUB_REPO (for cron backup)
-
 const SECRET_HEADER = "2200";
 
 function cors() {
@@ -19,43 +13,44 @@ function j(data, status) {
   return new Response(JSON.stringify(data), { status: status || 200, headers: cors() });
 }
 
+// Cloudflare Workers-safe base64 encoding (handles unicode)
+function toBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
 // ---- D1 Backup to GitHub ----
 async function backupToGitHub(env, token, repo) {
   const githubToken = token || env.GITHUB_TOKEN || "";
   const githubRepo = repo || env.GITHUB_REPO || "";
-  if (!githubToken || !githubRepo) throw new Error("GitHub token and repo required for backup");
+  if (!githubToken || !githubRepo) throw new Error("GitHub token and repo required");
 
-  const tables = ["projects", "messages"];
-  const backup = {
-    timestamp: new Date().toISOString(),
-    tables: {}
-  };
-
-  for (const table of tables) {
+  const backup = { timestamp: new Date().toISOString(), tables: {} };
+  for (const table of ["projects", "messages"]) {
     try {
       const r = await env.DB.prepare(`SELECT * FROM ${table} LIMIT 1000`).all();
       backup.tables[table] = r.results || [];
-    } catch {
-      backup.tables[table] = [];
-    }
+    } catch { backup.tables[table] = []; }
   }
 
   const date = new Date().toISOString().slice(0, 10);
   const path = `backups/d1-backup-${date}.json`;
   const content = JSON.stringify(backup, null, 2);
 
-  // Check existing file SHA
   const getRes = await fetch(`https://api.github.com/repos/${githubRepo}/contents/${path}`, {
     headers: { Authorization: `Bearer ${githubToken}` }
   });
-  const sha = getRes.ok ? (await getRes.json()).sha : undefined;
+  const existingData = getRes.ok ? await getRes.json() : null;
+  const sha = existingData?.sha;
 
   const putRes = await fetch(`https://api.github.com/repos/${githubRepo}/contents/${path}`, {
     method: "PUT",
     headers: { Authorization: `Bearer ${githubToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       message: `backup: D1 snapshot ${date}`,
-      content: btoa(unescape(encodeURIComponent(content))),
+      content: toBase64(content),
       ...(sha ? { sha } : {})
     })
   });
@@ -65,11 +60,11 @@ async function backupToGitHub(env, token, repo) {
     throw new Error(err?.message || `GitHub push failed: ${putRes.status}`);
   }
 
-  return { path, rows: Object.values(backup.tables).reduce((a, t) => a + t.length, 0) };
+  const rows = Object.values(backup.tables).reduce((a, t) => a + t.length, 0);
+  return { path, rows };
 }
 
 export default {
-  // ---- HTTP fetch handler ----
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
 
@@ -81,13 +76,18 @@ export default {
     try {
       // D1 stats
       if (path === "/api/stats" && req.method === "GET") {
-        const [proj, msg, mem, snap] = await Promise.all([
-          env.DB.prepare("SELECT COUNT(*) as n FROM projects").first().catch(() => ({ n: 0 })),
-          env.DB.prepare("SELECT COUNT(*) as n FROM messages").first().catch(() => ({ n: 0 })),
-          env.DB.prepare("SELECT COUNT(*) as n FROM memories").first().catch(() => ({ n: 0 })),
-          env.DB.prepare("SELECT COUNT(*) as n FROM snapshots").first().catch(() => ({ n: 0 })),
+        const [proj, msg, mem, snap] = await Promise.allSettled([
+          env.DB.prepare("SELECT COUNT(*) as n FROM projects").first(),
+          env.DB.prepare("SELECT COUNT(*) as n FROM messages").first(),
+          env.DB.prepare("SELECT COUNT(*) as n FROM memories").first(),
+          env.DB.prepare("SELECT COUNT(*) as n FROM snapshots").first(),
         ]);
-        return j({ projects: proj?.n || 0, messages: msg?.n || 0, memories: mem?.n || 0, snapshots: snap?.n || 0 });
+        return j({
+          projects: proj.value?.n || 0,
+          messages: msg.value?.n || 0,
+          memories: mem.value?.n || 0,
+          snapshots: snap.value?.n || 0
+        });
       }
 
       // Projects
@@ -116,51 +116,43 @@ export default {
         return j({ success: true });
       }
 
-      // D1 Backup to GitHub (manual trigger)
+      // D1 Backup to GitHub (manual)
       if (path === "/api/backup" && req.method === "POST") {
         const b = await req.json().catch(() => ({}));
         const result = await backupToGitHub(env, b.githubToken, b.githubRepo);
         return j({ success: true, ...result });
       }
 
-      // KV list (inbuilt publish list)
+      // KV list
       if (path === "/api/kv-list" && req.method === "GET") {
         if (!env.KV) return j({ keys: [], count: 0, note: "KV not bound" });
-        try {
-          const list = await env.KV.list({ prefix: "app:" });
-          return j({ keys: list.keys || [], count: list.keys?.length || 0 });
-        } catch (e) {
-          return j({ keys: [], count: 0, error: e.message });
-        }
+        const list = await env.KV.list({ prefix: "app:" });
+        return j({ keys: list.keys || [], count: list.keys?.length || 0 });
       }
 
       // KV stats
       if (path === "/api/kv-stats" && req.method === "GET") {
         if (!env.KV) return j({ status: "not_bound", count: 0 });
-        try {
-          const list = await env.KV.list({ prefix: "app:" });
-          return j({ status: "ok", count: list.keys?.length || 0, cursor: list.cursor });
-        } catch (e) {
-          return j({ status: "error", error: e.message });
-        }
+        const list = await env.KV.list({ prefix: "app:" });
+        return j({ status: "ok", count: list.keys?.length || 0 });
       }
 
       // KV get published app
-      if (path.startsWith("/api/kv/") && req.method === "GET") {
-        if (!env.KV) return j({ error: "KV not bound" }, 503);
-        const key = path.replace("/api/kv/", "");
-        const val = await env.KV.get(key);
-        if (!val) return j({ error: "Not found" }, 404);
+      if (path.startsWith("/p/") && req.method === "GET") {
+        if (!env.KV) return new Response("Service unavailable", { status: 503 });
+        const slug = path.replace("/p/", "app:");
+        const val = await env.KV.get(slug);
+        if (!val) return new Response("App not found", { status: 404 });
         return new Response(val, { headers: { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" } });
       }
 
       // KV publish app
       if (path.startsWith("/api/kv/") && req.method === "PUT") {
         if (!env.KV) return j({ error: "KV not bound" }, 503);
-        const key = path.replace("/api/kv/", "");
+        const slug = "app:" + path.replace("/api/kv/", "");
         const body = await req.text();
-        await env.KV.put(key, body, { expirationTtl: 60 * 60 * 24 * 365 });
-        return j({ success: true, key });
+        await env.KV.put(slug, body, { expirationTtl: 60 * 60 * 24 * 365 });
+        return j({ success: true, url: `https://brainforge-api.richard-brown-miami.workers.dev/p/${slug.replace("app:", "")}` });
       }
 
       // Internet search (DuckDuckGo)
@@ -169,9 +161,7 @@ export default {
         if (!b.query) return j({ error: "Query required" }, 400);
         const res = await fetch("https://api.duckduckgo.com/?q=" + encodeURIComponent(b.query) + "&format=json&no_html=1&skip_disambig=1");
         const data = await res.json();
-        const results = (data.RelatedTopics || []).slice(0, 5).map((t) => ({
-          title: t.Text || "", url: t.FirstURL || ""
-        }));
+        const results = (data.RelatedTopics || []).slice(0, 5).map((t) => ({ title: t.Text || "", url: t.FirstURL || "" }));
         return j({ results });
       }
 
@@ -181,7 +171,7 @@ export default {
     }
   },
 
-  // ---- Scheduled cron handler (daily D1 backup at 2 AM UTC) ----
+  // Cron: daily D1 backup at 2 AM UTC
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
       backupToGitHub(env).catch((e) => console.error("Cron backup failed:", e.message))
