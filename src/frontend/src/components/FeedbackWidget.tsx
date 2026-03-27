@@ -1,5 +1,5 @@
 import { addFeedback, getCurrentUser, getFeedback, getUnreadCount, markNotificationsRead } from "../lib/userUtils";
-import { MessageSquare, X, Bell } from "lucide-react";
+import { X, Bell } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const TYPES = [
@@ -7,7 +7,6 @@ const TYPES = [
   { value: "feedback" as const, label: "👍 Feedback", color: "oklch(0.60 0.25 150)" },
   { value: "issue" as const, label: "🐛 Issue", color: "oklch(0.60 0.25 30)" },
 ];
-
 
 // Broadcast announcement banner for users
 function BroadcastBanner() {
@@ -25,7 +24,7 @@ function BroadcastBanner() {
       } catch {}
     };
     check();
-    const interval = setInterval(check, 15000); // check every 15s
+    const interval = setInterval(check, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -80,7 +79,18 @@ export function FeedbackWidget() {
     return () => clearInterval(interval);
   }, [user]);
 
-  if (!user) return null;
+  // Listen for sidebar "Feedback" nav click
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener("openFeedback", handler);
+    return () => window.removeEventListener("openFeedback", handler);
+  }, []);
+
+  if (!user) return (
+    <>
+      <BroadcastBanner />
+    </>
+  );
 
   const myFeedback = getFeedback().filter(f => f.username === user && f.adminReply);
 
@@ -101,10 +111,12 @@ export function FeedbackWidget() {
   return (
     <>
       <BroadcastBanner />
-      {/* Notification bell */}
+
+      {/* Notification bell (only if admin has replied) */}
       {myFeedback.length > 0 && (
         <button type="button" onClick={handleOpenNotif}
-          className="fixed bottom-20 right-4 z-40 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
+          title="Admin replies"
+          className="fixed bottom-5 right-5 z-30 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
           style={{ background: "oklch(0.55 0.25 200)", border: "1px solid oklch(0.70 0.20 200 / 0.5)" }}>
           <Bell className="w-4 h-4 text-white" />
           {unread > 0 && (
@@ -114,14 +126,7 @@ export function FeedbackWidget() {
         </button>
       )}
 
-      {/* Feedback button */}
-      <button type="button" onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 z-40 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
-        style={{ background: "oklch(0.55 0.25 280)", border: "1px solid oklch(0.70 0.20 280 / 0.5)" }}>
-        <MessageSquare className="w-4 h-4 text-white" />
-      </button>
-
-      {/* Feedback modal */}
+      {/* Feedback modal (triggered from sidebar) */}
       {open && (
         <div className="fixed inset-0 z-50 flex items-end justify-end p-4 pointer-events-none">
           <div className="w-80 rounded-2xl border p-5 space-y-4 shadow-2xl pointer-events-auto"
