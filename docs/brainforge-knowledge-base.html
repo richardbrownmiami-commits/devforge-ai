@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BrainForge – Complete Knowledge Base</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f0f1a; color: #e2e8f0; padding: 40px 20px; }
+  .container { max-width: 900px; margin: 0 auto; }
+
+  /* Header */
+  .header { text-align: center; padding: 40px 0 30px; border-bottom: 2px solid #7c3aed; margin-bottom: 40px; }
+  .header h1 { font-size: 2.5rem; background: linear-gradient(135deg, #7c3aed, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+  .header p { color: #94a3b8; font-size: 0.95rem; }
+  .badge { display: inline-block; background: #7c3aed22; border: 1px solid #7c3aed; color: #a78bfa; padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; margin-top: 10px; }
+
+  /* Sections */
+  .section { margin-bottom: 36px; }
+  .section h2 { font-size: 1.3rem; color: #a78bfa; border-left: 4px solid #7c3aed; padding-left: 12px; margin-bottom: 16px; }
+  .section h3 { font-size: 1rem; color: #06b6d4; margin: 14px 0 8px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 0.875rem; }
+  th { background: #1e1b4b; color: #a78bfa; padding: 10px 14px; text-align: left; font-weight: 600; }
+  td { padding: 8px 14px; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+  tr:hover td { background: #1e1b4b44; }
+
+  /* Code blocks */
+  pre { background: #0d1117; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; font-family: 'Courier New', monospace; font-size: 0.8rem; color: #7ee787; overflow-x: auto; margin: 10px 0; white-space: pre-wrap; word-break: break-all; }
+
+  /* Lists */
+  ul { padding-left: 20px; }
+  ul li { color: #cbd5e1; margin: 5px 0; font-size: 0.9rem; }
+  ul li::marker { color: #7c3aed; }
+
+  /* Tags */
+  .tag-green { background: #14532d44; border: 1px solid #16a34a; color: #4ade80; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+  .tag-red { background: #450a0a44; border: 1px solid #dc2626; color: #f87171; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+  .tag-yellow { background: #422006aa; border: 1px solid #d97706; color: #fbbf24; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+  .tag-blue { background: #0c4a6e44; border: 1px solid #0ea5e9; color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; }
+
+  /* Grid */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 10px 0; }
+  .card { background: #1e1b4b33; border: 1px solid #312e81; border-radius: 10px; padding: 16px; }
+  .card h4 { color: #a78bfa; margin-bottom: 8px; font-size: 0.9rem; }
+  .card p, .card li { color: #94a3b8; font-size: 0.8rem; }
+
+  /* Divider */
+  hr { border: none; border-top: 1px solid #1e293b; margin: 30px 0; }
+
+  /* Print styles */
+  @media print {
+    body { background: white; color: black; padding: 20px; }
+    .header h1 { -webkit-text-fill-color: #7c3aed; }
+    pre { background: #f8f9fa; color: #1a1a2e; border: 1px solid #ddd; }
+    th { background: #ede9fe; color: #5b21b6; }
+    td { color: #374151; }
+    .section h2 { color: #5b21b6; }
+    .section h3 { color: #0369a1; }
+    table { page-break-inside: avoid; }
+  }
+
+  .footer { text-align: center; color: #475569; font-size: 0.8rem; padding: 30px 0 10px; border-top: 1px solid #1e293b; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🧠 BrainForge</h1>
+    <p>Complete Knowledge Base — Master AI Reference Document</p>
+    <span class="badge">Last Updated: 2026-03-27</span>
+  </div>
+
+  <!-- Live Resources -->
+  <div class="section">
+    <h2>🌐 Live Resources</h2>
+    <table>
+      <tr><th>Item</th><th>Value</th></tr>
+      <tr><td>Live App</td><td>brainforge-7xn.pages.dev</td></tr>
+      <tr><td>Cloudflare Worker</td><td>brainforge-api.richard-brown-miami.workers.dev</td></tr>
+      <tr><td>GitHub Repo</td><td>richardbrownmiami-commits/devforge-ai (private)</td></tr>
+      <tr><td>Telegram Bot</td><td>@araislivingbot</td></tr>
+      <tr><td>Admin Panel</td><td>/admin &nbsp;|&nbsp; Emergency: /admin?key=bf2200</td></tr>
+      <tr><td>Worker Secret</td><td>BRAINFORGE_SECRET=2200</td></tr>
+    </table>
+  </div>
+
+  <!-- Cloudflare Setup -->
+  <div class="section">
+    <h2>⚙️ Cloudflare Setup</h2>
+    <h3>Worker API Endpoints</h3>
+    <table>
+      <tr><th>Endpoint</th><th>Method</th><th>Kaam</th></tr>
+      <tr><td>/api/stats</td><td>GET</td><td>D1 stats (projects, chats, memories)</td></tr>
+      <tr><td>/api/projects</td><td>GET/POST</td><td>Projects fetch / save</td></tr>
+      <tr><td>/api/projects/:id</td><td>DELETE</td><td>Project delete</td></tr>
+      <tr><td>/api/chat</td><td>GET/POST</td><td>Chat history fetch / save</td></tr>
+      <tr><td>/api/memory</td><td>GET/POST</td><td>Memory file fetch / save</td></tr>
+      <tr><td>/api/backup</td><td>GET/POST</td><td>D1 export / GitHub backup</td></tr>
+      <tr><td>/api/ai</td><td>POST</td><td>AI proxy (OpenRouter/Gemini)</td></tr>
+      <tr><td>/api/publish</td><td>POST</td><td>KV pe app publish</td></tr>
+      <tr><td>/p/:slug</td><td>GET</td><td>Published app serve</td></tr>
+    </table>
+    <h3>D1 Database (brainforge-db)</h3>
+    <table>
+      <tr><th>Item</th><th>Detail</th></tr>
+      <tr><td>Tables</td><td>projects, chats, memories, snapshots</td></tr>
+      <tr><td>Current Data</td><td>2 projects, 68 messages, 2 memories, 36 snapshots</td></tr>
+      <tr><td>Backup</td><td>Daily cron → GitHub/backups/ folder (2 AM UTC)</td></tr>
+    </table>
+    <h3>KV Store & Pages</h3>
+    <table>
+      <tr><th>Item</th><th>Detail</th></tr>
+      <tr><td>KV Namespace</td><td>BRAINFORGE_APPS — inbuilt publish</td></tr>
+      <tr><td>Pages Site</td><td>brainforge-7xn.pages.dev</td></tr>
+      <tr><td>Deploy Time</td><td>3–4 minutes after GitHub push</td></tr>
+      <tr><td>March 2026</td><td>100 deploys (92 ✅, 8 ❌), 400 remaining</td></tr>
+    </table>
+  </div>
+
+  <!-- GitHub Workflow -->
+  <div class="section">
+    <h2>🐙 GitHub → Cloudflare Workflow</h2>
+    <pre>Code Change (Caffeine / Manual)
+        ↓
+GitHub API push → richardbrownmiami-commits/devforge-ai
+        ↓
+GitHub Actions trigger (.github/workflows/)
+        ↓
+Cloudflare Pages auto-build + deploy
+        ↓
+Live at brainforge-7xn.pages.dev (3–4 min)</pre>
+  </div>
+
+  <!-- Features -->
+  <div class="section">
+    <h2>🎯 BrainForge Features</h2>
+    <h3>Core App Builder</h3>
+    <ul>
+      <li>AI se app describe karo → code generate ho</li>
+      <li>Multi-language: HTML/CSS/JS, React, TypeScript, Python, SQL, Markdown, p5.js, Three.js, Chart.js</li>
+      <li>Auto language detection</li>
+      <li>Live preview (sandboxed iframe, cross-origin fixed)</li>
+      <li>Full-screen preview overlay</li>
+      <li>Code folder (multiple files), Download as ZIP</li>
+      <li>Version history + one-click restore (36 snapshots)</li>
+      <li>Auto error fix loop (3 retries)</li>
+      <li>Screenshot-to-code (AI vision)</li>
+    </ul>
+    <h3>AI System</h3>
+    <ul>
+      <li>Multi-provider: OpenRouter (auto default), Gemini 1.5 Flash, Groq, GitHub Models</li>
+      <li>60+ free OpenRouter models in categories</li>
+      <li>Auto-rotation on rate limit</li>
+      <li>HQ Mode: 3 models parallel + judge AI picks best</li>
+      <li>Per-project memory files (auto-sync every 5 messages)</li>
+      <li>Global rules (master-ai-rules.md)</li>
+      <li>Voice output: Hindi/English, character modes (Vegeta/Thanos/Nova)</li>
+    </ul>
+    <h3>Settings (5 Buttons Only)</h3>
+    <table>
+      <tr><th>#</th><th>Button</th><th>Kaam</th></tr>
+      <tr><td>1</td><td>API Keys</td><td>OpenRouter, Gemini, Groq, GitHub Models</td></tr>
+      <tr><td>2</td><td>AI Settings</td><td>Model selection, temperature</td></tr>
+      <tr><td>3</td><td>Termux</td><td>URL field (execution planned)</td></tr>
+      <tr><td>4</td><td>GitHub &amp; Deploy</td><td>Token, repo, deploy config</td></tr>
+      <tr><td>5</td><td>PIN Lock</td><td>App access security</td></tr>
+    </table>
+    <h3>Admin Panel (17 Pages)</h3>
+    <table>
+      <tr><th>Page</th><th>Kaam</th></tr>
+      <tr><td>Dashboard</td><td>Analytics, stats overview</td></tr>
+      <tr><td>Users</td><td>Create, delete, password reset, quotas</td></tr>
+      <tr><td>Sessions</td><td>Single session monitor, force logout</td></tr>
+      <tr><td>Activity</td><td>Per-user last seen, project count</td></tr>
+      <tr><td>Feedback</td><td>User suggestions + admin replies</td></tr>
+      <tr><td>Broadcast</td><td>App-wide announcements</td></tr>
+      <tr><td>API Monitor</td><td>OpenRouter/Gemini/Groq live test</td></tr>
+      <tr><td>Master AI</td><td>Full AI with memory/rules, code push</td></tr>
+      <tr><td>AI Files</td><td>All memory files view/edit</td></tr>
+      <tr><td>Database</td><td>D1 SQL runner, CSV export, Supabase</td></tr>
+      <tr><td>Cloudflare</td><td>Worker/D1/KV/Pages status</td></tr>
+      <tr><td>System</td><td>Maintenance mode, audit log, error log</td></tr>
+      <tr><td>Deploy Log</td><td>All deploy history</td></tr>
+      <tr><td>Global Rules</td><td>master-ai-rules.md edit</td></tr>
+      <tr><td>Backup</td><td>Manual D1 backup to GitHub</td></tr>
+      <tr><td>Error Log</td><td>All app errors</td></tr>
+      <tr><td>Audit Log</td><td>All admin actions</td></tr>
+    </table>
+  </div>
+
+  <!-- Security -->
+  <div class="section">
+    <h2>🔒 Security</h2>
+    <table>
+      <tr><th>Feature</th><th>Detail</th></tr>
+      <tr><td>Password/PIN Hashing</td><td>SHA-256 (Web Crypto API)</td></tr>
+      <tr><td>Session Tokens</td><td>crypto.getRandomValues() — cryptographically secure</td></tr>
+      <tr><td>Brute Force</td><td>5 tries → 30 min lockout</td></tr>
+      <tr><td>OTP Storage</td><td>sessionStorage only (tab close pe delete)</td></tr>
+      <tr><td>Emergency Bypass</td><td>/admin?key=bf2200 (hash stored, not plaintext)</td></tr>
+      <tr><td>Session</td><td>Single session enforcement per user</td></tr>
+      <tr><td>Worker</td><td>X-BrainForge-Secret header required</td></tr>
+      <tr><td>Repo</td><td>Private GitHub repo</td></tr>
+    </table>
+  </div>
+
+  <!-- Pending Tasks -->
+  <div class="section">
+    <h2>📋 Pending Tasks</h2>
+    <table>
+      <tr><th>Task</th><th>Status</th></tr>
+      <tr><td>Telegram bot backend</td><td><span class="tag-yellow">Token chahiye</span></td></tr>
+      <tr><td>DuckDuckGo live search</td><td><span class="tag-yellow">Toggle hai, impl nahi</span></td></tr>
+      <tr><td>Termux real execution</td><td><span class="tag-yellow">Sirf URL field</span></td></tr>
+      <tr><td>Video remix tool</td><td><span class="tag-blue">Plan ready, baad mein</span></td></tr>
+      <tr><td>Google login</td><td><span class="tag-yellow">Planned</span></td></tr>
+      <tr><td>D1 backup via Worker</td><td><span class="tag-red">403 issue — browser se hota hai</span></td></tr>
+    </table>
+  </div>
+
+  <!-- Locked Files -->
+  <div class="section">
+    <h2>🚫 Locked Files — Kabhi Mat Chhedo</h2>
+    <table>
+      <tr><th>File</th><th>Locked Element</th></tr>
+      <tr><td>EditorPage.tsx</td><td>previewOpen state + fixed inset-0 overlay</td></tr>
+      <tr><td>ChatPanel.tsx</td><td>rows={1} textarea — never change to fixed height</td></tr>
+      <tr><td>SettingsPage.tsx</td><td>HUB_BUTTONS constant — 5 buttons only, never tabs</td></tr>
+    </table>
+  </div>
+
+  <!-- Session Restore -->
+  <div class="section">
+    <h2>🔄 Session Restore Procedure</h2>
+    <pre>1. GitHub se ARA_CONTEXT.md read karo
+2. GitHub se BRAINFORGE_MEMORY.md read karo
+3. Credentials automatically available
+4. Seedha GitHub → Cloudflare pipeline se kaam karo</pre>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <p>Made with love by <strong>Pinka &amp; Claude (Ara)</strong></p>
+    <p style="margin-top:6px;">Soocho Mat — Bana Dalo KHUD Ka App</p>
+    <p style="margin-top:10px; color:#334155;">To save as PDF: Open in browser → Ctrl+P → Save as PDF</p>
+  </div>
+
+</div>
+</body>
+</html>
