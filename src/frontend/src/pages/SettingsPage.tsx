@@ -62,11 +62,78 @@ const HUB_BUTTONS = [
 ];
 
 const OPENROUTER_MODELS = [
-  { label: "Qwen3 Coder (Recommended)", value: "qwen/qwen3-coder:free" },
-  { label: "DeepSeek V3", value: "deepseek/deepseek-v3:free" },
-  { label: "Llama 3.3 70B", value: "meta-llama/llama-3.3-70b-instruct:free" },
-  { label: "Gemini 2.0 Flash (via OR)", value: "google/gemini-2.0-flash-exp:free" },
-  { label: "Mistral Small", value: "mistralai/mistral-small:free" },
+  // ── Recommended ──────────────────────────────────────────────
+  { label: "⭐ Qwen3 Coder 480B", value: "qwen/qwen3-coder:free" },
+  { label: "⭐ DeepSeek V3", value: "deepseek/deepseek-v3:free" },
+  { label: "⭐ Llama 3.3 70B", value: "meta-llama/llama-3.3-70b-instruct:free" },
+  { label: "⭐ Gemini 2.0 Flash (OR)", value: "google/gemini-2.0-flash-exp:free" },
+  // ── DeepSeek ─────────────────────────────────────────────────
+  { label: "DeepSeek R1", value: "deepseek/deepseek-r1:free" },
+  { label: "DeepSeek R1 Distill Llama 70B", value: "deepseek/deepseek-r1-distill-llama-70b:free" },
+  { label: "DeepSeek R1 Distill Qwen 32B", value: "deepseek/deepseek-r1-distill-qwen-32b:free" },
+  { label: "DeepSeek R1 Zero", value: "deepseek/deepseek-r1-zero:free" },
+  { label: "DeepSeek Chat V3 0324", value: "deepseek/deepseek-chat-v3-0324:free" },
+  // ── Qwen ─────────────────────────────────────────────────────
+  { label: "Qwen3 235B A22B", value: "qwen/qwen3-235b-a22b:free" },
+  { label: "Qwen3 30B A3B", value: "qwen/qwen3-30b-a3b:free" },
+  { label: "Qwen3 14B", value: "qwen/qwen3-14b:free" },
+  { label: "Qwen3 8B", value: "qwen/qwen3-8b:free" },
+  { label: "Qwen 2.5 72B Instruct", value: "qwen/qwen-2.5-72b-instruct:free" },
+  { label: "Qwen 2.5 Coder 32B Instruct", value: "qwen/qwen-2.5-coder-32b-instruct:free" },
+  { label: "Qwen 2.5 7B Instruct", value: "qwen/qwen-2.5-7b-instruct:free" },
+  { label: "QwQ 32B", value: "qwen/qwq-32b:free" },
+  // ── Meta Llama ────────────────────────────────────────────────
+  { label: "Llama 4 Scout 17B", value: "meta-llama/llama-4-scout-17b-16e-instruct:free" },
+  { label: "Llama 4 Maverick 17B", value: "meta-llama/llama-4-maverick-17b-128e-instruct:free" },
+  { label: "Llama 3.1 405B Instruct", value: "meta-llama/llama-3.1-405b-instruct:free" },
+  { label: "Llama 3.1 70B Instruct", value: "meta-llama/llama-3.1-70b-instruct:free" },
+  { label: "Llama 3.1 8B Instruct", value: "meta-llama/llama-3.1-8b-instruct:free" },
+  { label: "Llama 3.2 90B Vision", value: "meta-llama/llama-3.2-90b-vision-instruct:free" },
+  { label: "Llama 3.2 11B Vision", value: "meta-llama/llama-3.2-11b-vision-instruct:free" },
+  { label: "Llama 3.2 3B Instruct", value: "meta-llama/llama-3.2-3b-instruct:free" },
+  { label: "Llama 3.2 1B Instruct", value: "meta-llama/llama-3.2-1b-instruct:free" },
+  // ── Google ────────────────────────────────────────────────────
+  { label: "Gemini 2.5 Pro Exp", value: "google/gemini-2.5-pro-exp-03-25:free" },
+  { label: "Gemini 2.0 Flash Thinking", value: "google/gemini-2.0-flash-thinking-exp:free" },
+  { label: "Gemini 2.0 Flash Lite", value: "google/gemini-2.0-flash-lite-001:free" },
+  { label: "Gemma 3 27B", value: "google/gemma-3-27b-it:free" },
+  { label: "Gemma 3 12B", value: "google/gemma-3-12b-it:free" },
+  { label: "Gemma 3 4B", value: "google/gemma-3-4b-it:free" },
+  { label: "Gemma 3 1B", value: "google/gemma-3-1b-it:free" },
+  { label: "Gemma 2 9B", value: "google/gemma-2-9b-it:free" },
+  // ── Mistral ───────────────────────────────────────────────────
+  { label: "Mistral Small 3.2 24B", value: "mistralai/mistral-small-3.2-24b-instruct:free" },
+  { label: "Mistral Small 3.1 24B", value: "mistralai/mistral-small-3.1-24b-instruct:free" },
+  { label: "Mistral 7B Instruct", value: "mistralai/mistral-7b-instruct:free" },
+  { label: "Mixtral 8x7B Instruct", value: "mistralai/mixtral-8x7b-instruct:free" },
+  // ── Microsoft ─────────────────────────────────────────────────
+  { label: "Phi 4", value: "microsoft/phi-4:free" },
+  { label: "Phi 4 Multimodal Instruct", value: "microsoft/phi-4-multimodal-instruct:free" },
+  { label: "Phi 4 Reasoning Plus", value: "microsoft/phi-4-reasoning-plus:free" },
+  { label: "Phi 3.5 Mini Instruct", value: "microsoft/phi-3.5-mini-128k-instruct:free" },
+  { label: "WizardLM 2 8x22B", value: "microsoft/wizardlm-2-8x22b:free" },
+  // ── NVIDIA ────────────────────────────────────────────────────
+  { label: "Llama 3.1 Nemotron 70B Instruct", value: "nvidia/llama-3.1-nemotron-70b-instruct:free" },
+  { label: "Llama 3.3 Nemotron Super 49B", value: "nvidia/llama-3.3-nemotron-super-49b-v1:free" },
+  // ── Nous Research ─────────────────────────────────────────────
+  { label: "Hermes 3 405B", value: "nousresearch/hermes-3-llama-3.1-405b:free" },
+  { label: "Hermes 3 70B", value: "nousresearch/hermes-3-llama-3.1-70b:free" },
+  // ── Cohere ────────────────────────────────────────────────────
+  { label: "Command R7B (Dec 2024)", value: "cohere/command-r7b-12-2024:free" },
+  // ── Alibaba ───────────────────────────────────────────────────
+  { label: "Marco O1", value: "alibaba/marco-o1:free" },
+  // ── 01.AI ─────────────────────────────────────────────────────
+  { label: "Yi Lightning", value: "01-ai/yi-lightning:free" },
+  // ── Reka ──────────────────────────────────────────────────────
+  { label: "Reka Flash 21B", value: "rekaai/reka-flash-21b:free" },
+  // ── Hugging Face ──────────────────────────────────────────────
+  { label: "Zephyr 7B Beta", value: "huggingfaceh4/zephyr-7b-beta:free" },
+  // ── Moonshot (stable) ─────────────────────────────────────────
+  { label: "Kimi VL A3B Thinking", value: "moonshotai/kimi-vl-a3b-thinking:free" },
+  // ── TNG ───────────────────────────────────────────────────────
+  { label: "DeepSeek R1T Chimera", value: "tngtech/deepseek-r1t-chimera:free" },
+  // ── Featherless ───────────────────────────────────────────────
+  { label: "Llama 3.1 405B Base", value: "featherless/llama-3.1-405b-base:free" },
 ];
 
 function SubPageHeader({ title, onBack }: { title: string; onBack: () => void }) {
@@ -137,7 +204,7 @@ function ApiPage({ onBack }: { onBack: () => void }) {
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
-            <p className="text-[10px] text-muted-foreground mt-1">Sirf stable free models — rate limit wale hataaye gaye hain</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Sare OpenRouter free models — ⭐ wale recommended hain</p>
           </FieldGroup>
         </div>
 
