@@ -1,4 +1,4 @@
-import { getActivityLog, getUsers, saveUsers, simpleHash, getSessionRecord, forceLogoutUser, hasActiveSession, getTodayMessageCount, type BFUser } from "../../lib/userUtils";
+import { getActivityLog, getUsers, saveUsers, sha256, getSessionRecord, forceLogoutUser, hasActiveSession, getTodayMessageCount, type BFUser } from "../../lib/userUtils";
 import { Activity, AlertCircle, Brain, Clock, LogOut, Monitor, Plus, Shield, Trash2, UserCheck, Users, Wifi, WifiOff, Zap } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -14,14 +14,14 @@ export function UsersAdminPage() {
 
   const activities = getActivityLog();
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     setErr("");
     if (!newUser.username.trim()) return setErr("Username daalo");
     if (newUser.password.length < 4) return setErr("Password kam se kam 4 characters");
     if (users.find(u => u.username.toLowerCase() === newUser.username.toLowerCase())) return setErr("Username already exist karta hai");
     const updated = [...users, {
       username: newUser.username.trim(),
-      passwordHash: simpleHash(newUser.password),
+      passwordHash: await sha256(newUser.password),
       email: newUser.email.trim() || undefined,
       createdAt: new Date().toISOString(),
     }];
@@ -40,10 +40,11 @@ export function UsersAdminPage() {
     toast.success("User delete ho gaya");
   };
 
-  const handleResetPw = (username: string) => {
+  const handleResetPw = async (username: string) => {
     const pw = prompt(`"${username}" ka naya password:`);
     if (!pw || pw.length < 4) return alert("Password kam se kam 4 characters");
-    const updated = users.map(u => u.username === username ? { ...u, passwordHash: simpleHash(pw) } : u);
+    const pwHash = await sha256(pw);
+    const updated = users.map(u => u.username === username ? { ...u, passwordHash: pwHash } : u);
     saveUsers(updated);
     setUsers(updated);
     toast.success("Password reset ho gaya!");
