@@ -1,7 +1,7 @@
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import { FolderOpen, LogOut, Menu, Moon, Settings, Sun, Zap } from "lucide-react";
+import { FolderOpen, LogOut, Menu, MessageSquare, Moon, Settings, Sun, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getCurrentUser, logoutUser } from "../lib/userUtils";
 
@@ -11,7 +11,6 @@ function applyStoredTheme() {
   if (stored === "light") {
     document.documentElement.classList.remove("dark");
   } else {
-    // Default to dark
     document.documentElement.classList.add("dark");
     if (!stored) localStorage.setItem("bf_theme", "dark");
   }
@@ -22,6 +21,7 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
   const matchRoute = useMatchRoute();
   const isProjects = !!matchRoute({ to: "/projects" });
   const isSettings = !!matchRoute({ to: "/settings" });
+  const [user, setUser] = useState<string | null>(null);
 
   const [dark, setDark] = useState(
     () => localStorage.getItem("bf_theme") !== "light"
@@ -31,6 +31,24 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("bf_theme", dark ? "dark" : "light");
   }, [dark]);
+
+  useEffect(() => {
+    try {
+      const { getCurrentUser } = require("../lib/userUtils");
+      setUser(getCurrentUser());
+    } catch {}
+  }, []);
+
+  const handleFeedback = () => {
+    onClose?.();
+    window.dispatchEvent(new CustomEvent("openFeedback"));
+  };
+
+  const handleLogout = () => {
+    onClose?.();
+    try { logoutUser(); } catch {}
+    window.location.href = "/";
+  };
 
   return (
     <div className="flex flex-col h-full" style={{ background: "oklch(var(--sidebar))" }}>
@@ -64,6 +82,28 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
           <Settings className="w-4 h-4" />
           Settings
         </Link>
+        <button
+          type="button"
+          onClick={handleFeedback}
+          data-ocid="nav.feedback.button"
+          className="nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all w-full text-left text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+          title="Send feedback, suggestion or report issue"
+        >
+          <MessageSquare className="w-4 h-4" />
+          Feedback
+        </button>
+        {user && (
+          <button
+            type="button"
+            onClick={handleLogout}
+            data-ocid="nav.logout.button"
+            className="nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all w-full text-left text-sidebar-foreground hover:bg-sidebar-accent hover:text-destructive"
+            title="Logout from your account"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        )}
       </nav>
 
       <div className="px-4 py-4 border-t border-sidebar-border" data-ocid="sidebar.status.panel">
@@ -140,4 +180,3 @@ export function Sidebar() {
     </>
   );
 }
-
