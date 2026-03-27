@@ -5,7 +5,6 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowLeft,
-  Bot,
   Brain,
   Clock,
   FolderOpen,
@@ -144,16 +143,7 @@ function EditorSidebar({
         >
           <Settings className="w-4 h-4 text-violet-400" /> Settings
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            navigate({ to: "/settings" });
-            onClose();
-          }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all"
-        >
-          <Bot className="w-4 h-4 text-pink-400" /> Master AI
-        </button>
+
         <button
           type="button"
           onClick={() => {
