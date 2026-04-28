@@ -1,32 +1,35 @@
-name: Deploy to Cloudflare Pages
+name: Deploy BrainForge Worker
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install dependencies
-        run: pnpm install
-        working-directory: src/frontend
-      - name: Build
-        run: pnpm build
-        working-directory: src/frontend
+          node-version: '20'
+
       - name: Install Wrangler
         run: npm install -g wrangler
-      - name: Deploy to Cloudflare Pages
-        run: wrangler pages deploy dist --project-name=brainforge --commit-dirty=true
-        working-directory: src/frontend
+
+      - name: Install Worker Dependencies
+        run: npm install
+
+      - name: Run D1 Migration
+        run: wrangler d1 execute brainforge-db --remote --command "CREATE TABLE IF NOT EXISTS memories (key TEXT PRIMARY KEY, value TEXT, category TEXT DEFAULT 'context', updated_at TEXT);"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Worker
+        run: wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
