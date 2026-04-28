@@ -28,5 +28,5 @@ jobs:
         run: wrangler pages deploy dist --project-name=brainforge --commit-dirty=true
         working-directory: src/frontend
         env:
-          CLOUDFLARE_API_TOKEN: 2200
-          CLOUDFLARE_ACCOUNT_ID: 913f3a2576a358054eba9a58a9573949
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+         CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
