@@ -1,5 +1,6 @@
 {
   "name": "@caffeine/template-app",
+  "version": "1.0.0",
   "type": "module",
   "engines": {
     "node": ">=16.0.0",
