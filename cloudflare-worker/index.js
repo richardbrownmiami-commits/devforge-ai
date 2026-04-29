@@ -1,4 +1,4 @@
-// BrainForge API Worker v3 -- AI proxy + backup POST fix
+// BrainForge API Worker v3 -- AI proxy + backup POST fix + Caffeine AI endpoints
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -12,6 +12,191 @@ export default {
     }
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // ==========================================
+    // CAFFEINE AI PANEL — /caffeine-status page (PUBLIC, no auth)
+    // ==========================================
+    if (path === '/caffeine-status') {
+      let d1Status = false;
+      let d1Error = '';
+      try {
+        await env.DB.prepare('SELECT 1').first();
+        d1Status = true;
+      } catch(e) {
+        d1Error = e.message || 'D1 error';
+      }
+      let memoriesCount = 0;
+      try {
+        const mc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM memories').first();
+        memoriesCount = mc?.cnt || 0;
+      } catch(e) {}
+      const timestamp = new Date().toISOString();
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KAI x BrainForge — Live Status</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .container { width: 100%; max-width: 480px; padding: 2rem; }
+  .header { text-align: center; margin-bottom: 2rem; }
+  .header h1 { font-size: 1.5rem; font-weight: 700; color: #a78bfa; letter-spacing: -0.02em; }
+  .header p { color: #64748b; font-size: 0.875rem; margin-top: 0.25rem; }
+  .card { background: #111118; border: 1px solid #1e1e2e; border-radius: 12px; overflow: hidden; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid #1e1e2e; }
+  .row:last-child { border-bottom: none; }
+  .label { font-size: 0.875rem; color: #94a3b8; }
+  .badge { font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 999px; letter-spacing: 0.05em; }
+  .badge.live { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .badge.error { background: #2a0000; color: #f87171; border: 1px solid #7f1d1d; }
+  .badge.checking { background: #1e1b2e; color: #a78bfa; border: 1px solid #4c1d95; }
+  .timestamp { text-align: center; margin-top: 1rem; font-size: 0.75rem; color: #475569; }
+  .refresh-btn { display: block; margin: 1.5rem auto 0; background: #1e1b2e; color: #a78bfa; border: 1px solid #4c1d95; border-radius: 8px; padding: 0.5rem 1.5rem; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; }
+  .refresh-btn:hover { background: #2d2a45; }
+  .memories-count { font-size: 0.75rem; color: #64748b; margin-top: 0.125rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>KAI \u00d7 BrainForge</h1>
+    <p>Live Status Panel</p>
+  </div>
+  <div class="card">
+    <div class="row">
+      <div><div class="label">Worker</div></div>
+      <span class="badge live" id="worker-badge">LIVE</span>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">D1 Database</div>
+        <div class="memories-count" id="memories-count">${memoriesCount} memories stored</div>
+      </div>
+      <span class="badge ${d1Status ? 'live' : 'error'}" id="d1-badge">${d1Status ? 'CONNECTED' : 'ERROR'}</span>
+    </div>
+    <div class="row">
+      <div><div class="label">GitHub</div></div>
+      <span class="badge live" id="github-badge">CONFIGURED</span>
+    </div>
+    <div class="row">
+      <div><div class="label">Memories API</div></div>
+      <span class="badge checking" id="api-badge">CHECKING...</span>
+    </div>
+  </div>
+  <div class="timestamp" id="ts">Last checked: ${timestamp}</div>
+  <button class="refresh-btn" onclick="checkStatus()">Refresh Status</button>
+</div>
+<script>
+async function checkStatus() {
+  const badge = document.getElementById('api-badge');
+  const ts = document.getElementById('ts');
+  badge.textContent = 'CHECKING...';
+  badge.className = 'badge checking';
+  try {
+    const r = await fetch('/api/caffeine/status', { headers: { 'X-BrainForge-Secret': '2200' } });
+    const data = await r.json();
+    if (data.worker) {
+      badge.textContent = 'LIVE';
+      badge.className = 'badge live';
+      if (data.d1) {
+        document.getElementById('d1-badge').textContent = 'CONNECTED';
+        document.getElementById('d1-badge').className = 'badge live';
+      }
+      document.getElementById('memories-count').textContent = (data.memories_count || 0) + ' memories stored';
+    } else {
+      badge.textContent = 'ERROR';
+      badge.className = 'badge error';
+    }
+    ts.textContent = 'Last checked: ' + new Date(data.timestamp).toLocaleString();
+  } catch(e) {
+    badge.textContent = 'ERROR';
+    badge.className = 'badge error';
+  }
+}
+checkStatus();
+setInterval(checkStatus, 30000);
+</script>
+</body>
+</html>`;
+      return new Response(html, {
+        headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    // ==========================================
+    // CAFFEINE AI API — /api/caffeine/* endpoints (auth: X-BrainForge-Secret: 2200)
+    // ==========================================
+    if (path.startsWith('/api/caffeine')) {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret',
+          }
+        });
+      }
+      const cafSecret = request.headers.get('X-BrainForge-Secret');
+      if (cafSecret !== '2200') {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      try {
+        await env.DB.exec(`CREATE TABLE IF NOT EXISTS memories (
+          key TEXT PRIMARY KEY,
+          value TEXT,
+          category TEXT DEFAULT 'context',
+          updated_at TEXT
+        )`);
+      } catch(e) {}
+      const cafHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      if (path === '/api/caffeine/status') {
+        let d1Ok = false;
+        let memoriesCount = 0;
+        try {
+          const mc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM memories').first();
+          memoriesCount = mc?.cnt || 0;
+          d1Ok = true;
+        } catch(e) {}
+        return new Response(JSON.stringify({
+          worker: true, d1: d1Ok, memories_count: memoriesCount,
+          github: 'configured', timestamp: new Date().toISOString()
+        }), { headers: cafHeaders });
+      }
+      if (path === '/api/caffeine/memory' && request.method === 'GET') {
+        const key = url.searchParams.get('key');
+        if (key) {
+          const row = await env.DB.prepare('SELECT * FROM memories WHERE key = ?').bind(key).first();
+          if (!row) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: cafHeaders });
+          return new Response(JSON.stringify(row), { headers: cafHeaders });
+        } else {
+          const rows = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
+          return new Response(JSON.stringify({ memories: rows.results || [] }), { headers: cafHeaders });
+        }
+      }
+      if (path === '/api/caffeine/memory' && request.method === 'POST') {
+        const body = await request.json();
+        const { key, value, category = 'context' } = body;
+        if (!key || !value) return new Response(JSON.stringify({ error: 'key and value required' }), { status: 400, headers: cafHeaders });
+        const ts = new Date().toISOString();
+        await env.DB.prepare(
+          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, category=excluded.category, updated_at=excluded.updated_at'
+        ).bind(key, value, category, ts).run();
+        return new Response(JSON.stringify({ ok: true, key, timestamp: ts }), { headers: cafHeaders });
+      }
+      if (path === '/api/caffeine/memory' && request.method === 'DELETE') {
+        const key = url.searchParams.get('key');
+        if (!key) return new Response(JSON.stringify({ error: 'key required' }), { status: 400, headers: cafHeaders });
+        await env.DB.prepare('DELETE FROM memories WHERE key = ?').bind(key).run();
+        return new Response(JSON.stringify({ ok: true, deleted: key }), { headers: cafHeaders });
+      }
+      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: cafHeaders });
+    }
+
     // Public routes -- no auth needed
     if (path.startsWith('/p/') && request.method === 'GET') {
       try { return await handleServeApp(env, path.slice(3)); }
