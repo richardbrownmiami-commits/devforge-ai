@@ -7,15 +7,17 @@ and POSTs each item to BrainForge Worker memory endpoint.
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 BRAINFORGE_URL = os.environ.get("BRAINFORGE_URL", "https://brainforge-api.richard-brown-miami.workers.dev")
 BRAINFORGE_SECRET = os.environ.get("BRAINFORGE_SECRET", "2200")
 MEMORY_ENDPOINT = f"{BRAINFORGE_URL}/api/caffeine/memory"
+
 
 def http_get(url, headers=None, timeout=15):
     """Perform HTTP GET, return parsed JSON or None on error."""
@@ -27,6 +29,7 @@ def http_get(url, headers=None, timeout=15):
     except Exception as e:
         print(f"  [GET ERROR] {url}: {e}")
         return None
+
 
 def post_memory(key, value, category, timestamp=None):
     """POST a single memory item to BrainForge."""
@@ -54,6 +57,7 @@ def post_memory(key, value, category, timestamp=None):
         print(f"  [POST ERROR] {key}: {e}")
         return False
 
+
 def truncate(text, max_len=500):
     """Truncate text to max_len characters."""
     if not text:
@@ -61,13 +65,14 @@ def truncate(text, max_len=500):
     text = str(text).strip()
     return text[:max_len] + "..." if len(text) > max_len else text
 
+
 def slugify(text, max_len=80):
     """Create a simple key from text."""
-    import re
     slug = re.sub(r"[^a-z0-9_-]", "_", text.lower().strip())[:max_len]
     return slug.strip("_") or "item"
 
-# ─── HackerNews ───────────────────────────────────────────────────────────────
+
+# HackerNews
 def fetch_hackernews(limit=5):
     saved = 0
     print("[HackerNews] Fetching top stories...")
@@ -79,7 +84,7 @@ def fetch_hackernews(limit=5):
         if not item or item.get("type") != "story":
             continue
         title = item.get("title", "")
-        url = item.get("url", f"https://news.ycombinator.com/item?id={story_id}")
+        url = item.get("url", "https://news.ycombinator.com/item?id=" + str(story_id))
         score = item.get("score", 0)
         value = f"{title} | Score: {score} | URL: {url}"
         key = f"hn_{story_id}"
@@ -90,7 +95,8 @@ def fetch_hackernews(limit=5):
     print(f"[HackerNews] Saved {saved}/{limit}")
     return saved
 
-# ─── Wikipedia ────────────────────────────────────────────────────────────────
+
+# Wikipedia
 def fetch_wikipedia(limit=3):
     saved = 0
     print("[Wikipedia] Fetching random articles...")
@@ -110,28 +116,31 @@ def fetch_wikipedia(limit=3):
     print(f"[Wikipedia] Saved {saved}/{limit}")
     return saved
 
-# ─── Dev.to ───────────────────────────────────────────────────────────────────
+
+# Dev.to
 def fetch_devto(limit=5):
     saved = 0
     print("[Dev.to] Fetching latest articles...")
     articles = http_get("https://dev.to/api/articles?per_page=10")
     if not articles:
         return 0
-    for article in articles[:limit]:
+    for idx, article in enumerate(articles[:limit]):
         title = article.get("title", "")
         desc = article.get("description", "")
         tags = ", ".join(article.get("tag_list", [])[:5])
         art_url = article.get("url", "")
         reactions = article.get("public_reactions_count", 0)
         value = f"{title} | Tags: {tags} | Reactions: {reactions} | {desc} | URL: {art_url}"
-        key = f"devto_{article.get('id', i)}"
+        article_id = article.get("id", idx)
+        key = f"devto_{article_id}"
         if post_memory(key, truncate(value), "devto"):
             print(f"  + {title[:60]}")
             saved += 1
     print(f"[Dev.to] Saved {saved}/{limit}")
     return saved
 
-# ─── NASA APOD ────────────────────────────────────────────────────────────────
+
+# NASA APOD
 def fetch_nasa():
     saved = 0
     print("[NASA] Fetching Astronomy Picture of the Day...")
@@ -142,19 +151,21 @@ def fetch_nasa():
     explanation = apod.get("explanation", "")
     date = apod.get("date", "")
     media_url = apod.get("url", "")
+    # Pre-compute to avoid backslash in f-string (Python 3.11 restriction)
+    date_key = date.replace("-", "_") if date else "today"
     value = f"{title} ({date}): {explanation} | Media: {media_url}"
-    key = f"nasa_apod_{date.replace(\'-\', \'_\') if date else \'today\'}"
+    key = f"nasa_apod_{date_key}"
     if post_memory(key, truncate(value, 800), "nasa"):
         print(f"  + {title[:60]}")
         saved = 1
     print(f"[NASA] Saved {saved}/1")
     return saved
 
-# ─── GitHub Trending ──────────────────────────────────────────────────────────
+
+# GitHub Trending
 def fetch_github(limit=5):
     saved = 0
     print("[GitHub] Fetching trending repositories...")
-    from datetime import timedelta
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
     url = f"https://api.github.com/search/repositories?q=created:>{yesterday}&sort=stars&order=desc&per_page=10"
     result = http_get(url, headers={"Accept": "application/vnd.github.v3+json"})
@@ -175,7 +186,8 @@ def fetch_github(limit=5):
     print(f"[GitHub] Saved {saved}/{limit}")
     return saved
 
-# ─── Reddit ───────────────────────────────────────────────────────────────────
+
+# Reddit
 def fetch_reddit(limit=4):
     saved = 0
     subreddits = ["programming", "MachineLearning", "technology"]
@@ -191,10 +203,12 @@ def fetch_reddit(limit=4):
             p = post.get("data", {})
             title = p.get("title", "")
             score = p.get("score", 0)
-            post_url = f"https://reddit.com{p.get(\'permalink\', \'\')}"
+            permalink = p.get("permalink", "")
+            post_url = "https://reddit.com" + permalink
             selftext = p.get("selftext", "")[:200]
             value = f"r/{sub}: {title} | Score: {score} | {selftext} | URL: {post_url}"
-            key = f"reddit_{p.get(\'id\', slugify(title)[:20])}"
+            post_id = p.get("id", slugify(title)[:20])
+            key = f"reddit_{post_id}"
             if post_memory(key, truncate(value), "reddit"):
                 print(f"  + [{sub}] {title[:55]}")
                 saved += 1
@@ -205,13 +219,16 @@ def fetch_reddit(limit=4):
     print(f"[Reddit] Saved {saved}")
     return saved
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+
+# Main
 def main():
-    print("="*60)
-    print(f"CaffeineAI Knowledge Fetcher")
+    print("=" * 60)
+    print("CaffeineAI Knowledge Fetcher")
     print(f"Time: {datetime.now(timezone.utc).isoformat()}")
     print(f"Target: {MEMORY_ENDPOINT}")
-    print("="*60)
+    secret_status = "Yes (from env)" if os.environ.get("BRAINFORGE_SECRET") else "No (using default 2200)"
+    print(f"Secret set: {secret_status}")
+    print("=" * 60)
 
     results = {}
 
@@ -258,21 +275,22 @@ def main():
         results["reddit"] = 0
 
     print()
-    print("="*60)
+    print("=" * 60)
     print("SUMMARY:")
     total = 0
     for source, count in results.items():
         status = "OK" if count > 0 else "EMPTY"
         print(f"  {source:<15} {count:>3} items  [{status}]")
         total += count
-    print(f"  {"TOTAL":<15} {total:>3} items")
-    print("="*60)
+    print(f"  {'TOTAL':<15} {total:>3} items")
+    print("=" * 60)
 
     if total == 0:
         print("WARNING: No items saved. Check BRAINFORGE_SECRET and endpoint.")
         sys.exit(1)
     else:
         print(f"Done. {total} knowledge items saved to D1.")
+
 
 if __name__ == "__main__":
     main()
