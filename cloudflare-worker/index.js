@@ -2,7 +2,7 @@
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret',
+  'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
 };
 
 export default {
@@ -188,11 +188,11 @@ setInterval(checkStatus, 30000);
           headers: {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret',
+            'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
           }
         });
       }
-      const cafSecret = request.headers.get('X-BrainForge-Secret');
+      const cafSecret = request.headers.get('X-BrainForge-Secret') || request.headers.get('X-Caffeine-Secret');
       if (cafSecret !== '2200') {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401,
@@ -416,14 +416,22 @@ async function runAutonomousLearning(env) {
       }
     } catch(e) {}
 
-    // 2. Wikipedia — random article summary
+    // 2. Wikipedia — topic-filtered article summary (rotating topics)
     try {
-      const wikiRes = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
+      const wikiTopics = [
+        'artificial intelligence', 'machine learning', 'internet computer',
+        'cloudflare workers', 'large language models', 'web3', 'blockchain'
+      ];
+      // Pick topic based on current hour so it rotates each cron run
+      const topicIndex = new Date().getUTCHours() % wikiTopics.length;
+      const topic = wikiTopics[topicIndex];
+      const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`;
+      const wikiRes = await fetch(wikiUrl, {
         headers: { 'User-Agent': 'CaffeineAI-Worker/4.0 (https://brainforge-api.richard-brown-miami.workers.dev)' }
       });
       const wiki = await wikiRes.json();
       if (wiki && wiki.title && wiki.extract) {
-        const key = `wiki_${wiki.pageid || Date.now()}_${now.split('T')[0]}`;
+        const key = `wiki_${topic.replace(/ /g,'_')}_${now.split('T')[0]}`;
         const value = `[Wikipedia] ${wiki.title}: ${wiki.extract.slice(0, 300)}`;
         await env.DB.prepare(
           'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
