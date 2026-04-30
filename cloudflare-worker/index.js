@@ -1,4 +1,4 @@
-// BrainForge API Worker v3 -- AI proxy + backup POST fix + Caffeine AI endpoints
+// BrainForge API Worker v4 -- Autonomous learning cron + feed/context/personality endpoints
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -26,9 +26,26 @@ export default {
         d1Error = e.message || 'D1 error';
       }
       let memoriesCount = 0;
+      let personalityCount = 0;
+      let lastCronRun = 'Never';
       try {
         const mc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM memories').first();
         memoriesCount = mc?.cnt || 0;
+      } catch(e) {}
+      try {
+        await env.DB.exec(`CREATE TABLE IF NOT EXISTS personality_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          tone_notes TEXT DEFAULT '',
+          user_style TEXT DEFAULT '',
+          timestamp TEXT NOT NULL
+        )`);
+        const pc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM personality_snapshots').first();
+        personalityCount = pc?.cnt || 0;
+      } catch(e) {}
+      try {
+        const cronRow = await env.DB.prepare("SELECT value FROM memories WHERE key = 'last_cron_run'").first();
+        if (cronRow?.value) lastCronRun = cronRow.value;
       } catch(e) {}
       const timestamp = new Date().toISOString();
       const html = `<!DOCTYPE html>
@@ -36,55 +53,92 @@ export default {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KAI x BrainForge — Live Status</title>
+<title>Caffeine AI x BrainForge — Live Status</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0a0f; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-  .container { width: 100%; max-width: 480px; padding: 2rem; }
+  .container { width: 100%; max-width: 560px; padding: 2rem; }
   .header { text-align: center; margin-bottom: 2rem; }
-  .header h1 { font-size: 1.5rem; font-weight: 700; color: #a78bfa; letter-spacing: -0.02em; }
+  .header h1 { font-size: 1.5rem; font-weight: 700; color: #06b6d4; letter-spacing: -0.02em; }
   .header p { color: #64748b; font-size: 0.875rem; margin-top: 0.25rem; }
-  .card { background: #111118; border: 1px solid #1e1e2e; border-radius: 12px; overflow: hidden; }
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid #1e1e2e; }
+  .card { background: #111118; border: 1px solid #1e1e2e; border-radius: 12px; overflow: hidden; margin-bottom: 1rem; }
+  .card-title { padding: 0.75rem 1.25rem; background: #0d0d14; border-bottom: 1px solid #1e1e2e; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.08em; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid #1e1e2e; }
   .row:last-child { border-bottom: none; }
   .label { font-size: 0.875rem; color: #94a3b8; }
-  .badge { font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 999px; letter-spacing: 0.05em; }
+  .sub { font-size: 0.75rem; color: #475569; margin-top: 0.125rem; }
+  .badge { font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 999px; letter-spacing: 0.05em; white-space: nowrap; }
   .badge.live { background: #052e16; color: #4ade80; border: 1px solid #166534; }
   .badge.error { background: #2a0000; color: #f87171; border: 1px solid #7f1d1d; }
-  .badge.checking { background: #1e1b2e; color: #a78bfa; border: 1px solid #4c1d95; }
+  .badge.checking { background: #0c2233; color: #06b6d4; border: 1px solid #0e7490; }
+  .badge.info { background: #1e1b2e; color: #a78bfa; border: 1px solid #4c1d95; }
+  .endpoint { font-family: 'SF Mono', monospace; font-size: 0.7rem; color: #06b6d4; background: #0c2233; border-radius: 4px; padding: 0.2rem 0.5rem; }
+  .method { font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 3px; margin-right: 0.5rem; }
+  .method.get { background: #052e16; color: #4ade80; }
+  .method.post { background: #1c1a00; color: #facc15; }
   .timestamp { text-align: center; margin-top: 1rem; font-size: 0.75rem; color: #475569; }
-  .refresh-btn { display: block; margin: 1.5rem auto 0; background: #1e1b2e; color: #a78bfa; border: 1px solid #4c1d95; border-radius: 8px; padding: 0.5rem 1.5rem; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; }
-  .refresh-btn:hover { background: #2d2a45; }
-  .memories-count { font-size: 0.75rem; color: #64748b; margin-top: 0.125rem; }
+  .refresh-btn { display: block; margin: 1.5rem auto 0; background: #0c2233; color: #06b6d4; border: 1px solid #0e7490; border-radius: 8px; padding: 0.5rem 1.5rem; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; }
+  .refresh-btn:hover { background: #0e2d45; }
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <h1>KAI \u00d7 BrainForge</h1>
-    <p>Live Status Panel</p>
+    <h1>Caffeine AI × BrainForge</h1>
+    <p>Autonomous Learning Platform — Live Status</p>
   </div>
+
   <div class="card">
+    <div class="card-title">System Health</div>
     <div class="row">
       <div><div class="label">Worker</div></div>
-      <span class="badge live" id="worker-badge">LIVE</span>
+      <span class="badge live">LIVE</span>
     </div>
     <div class="row">
       <div>
         <div class="label">D1 Database</div>
-        <div class="memories-count" id="memories-count">${memoriesCount} memories stored</div>
+        <div class="sub" id="memories-count">${memoriesCount} knowledge entries · ${personalityCount} personality snapshots</div>
       </div>
-      <span class="badge ${d1Status ? 'live' : 'error'}" id="d1-badge">${d1Status ? 'CONNECTED' : 'ERROR'}</span>
+      <span class="badge ${d1Status ? 'live' : 'error'}">${d1Status ? 'CONNECTED' : 'ERROR'}</span>
+    </div>
+    <div class="row">
+      <div>
+        <div class="label">Autonomous Cron</div>
+        <div class="sub" id="last-cron">Last run: ${lastCronRun}</div>
+      </div>
+      <span class="badge info" id="cron-badge">SCHEDULED</span>
     </div>
     <div class="row">
       <div><div class="label">GitHub</div></div>
-      <span class="badge live" id="github-badge">CONFIGURED</span>
+      <span class="badge live">CONFIGURED</span>
     </div>
     <div class="row">
-      <div><div class="label">Memories API</div></div>
+      <div><div class="label">Caffeine API</div></div>
       <span class="badge checking" id="api-badge">CHECKING...</span>
     </div>
   </div>
+
+  <div class="card">
+    <div class="card-title">Knowledge Sources (Cron)</div>
+    <div class="row"><div class="label">HackerNews Top Stories</div><span class="badge info">FREE</span></div>
+    <div class="row"><div class="label">Wikipedia Random Summary</div><span class="badge info">FREE</span></div>
+    <div class="row"><div class="label">Dev.to Articles</div><span class="badge info">FREE</span></div>
+    <div class="row"><div class="label">GitHub Trending AI Repos</div><span class="badge info">FREE</span></div>
+    <div class="row"><div class="label">Knowledge Synthesis</div><span class="badge info">AUTO</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">API Endpoints (X-BrainForge-Secret: 2200)</div>
+    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/status</span></div><span class="badge live">LIVE</span></div>
+    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/memory</span></div><span class="badge live">LIVE</span></div>
+    <div class="row"><div><span class="method post">POST</span><span class="endpoint">/api/caffeine/memory</span></div><span class="badge live">LIVE</span></div>
+    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/feed</span></div><span class="badge live">LIVE</span></div>
+    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/context</span></div><span class="badge live">LIVE</span></div>
+    <div class="row"><div><span class="method post">POST</span><span class="endpoint">/api/caffeine/learn</span></div><span class="badge live">LIVE</span></div>
+    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/personality</span></div><span class="badge live">LIVE</span></div>
+    <div class="row"><div><span class="method post">POST</span><span class="endpoint">/api/caffeine/personality</span></div><span class="badge live">LIVE</span></div>
+  </div>
+
   <div class="timestamp" id="ts">Last checked: ${timestamp}</div>
   <button class="refresh-btn" onclick="checkStatus()">Refresh Status</button>
 </div>
@@ -100,11 +154,11 @@ async function checkStatus() {
     if (data.worker) {
       badge.textContent = 'LIVE';
       badge.className = 'badge live';
-      if (data.d1) {
-        document.getElementById('d1-badge').textContent = 'CONNECTED';
-        document.getElementById('d1-badge').className = 'badge live';
+      document.getElementById('memories-count').textContent =
+        (data.knowledge_count || 0) + ' knowledge entries · ' + (data.personality_count || 0) + ' personality snapshots';
+      if (data.last_cron_run) {
+        document.getElementById('last-cron').textContent = 'Last run: ' + data.last_cron_run;
       }
-      document.getElementById('memories-count').textContent = (data.memories_count || 0) + ' memories stored';
     } else {
       badge.textContent = 'ERROR';
       badge.className = 'badge error';
@@ -145,29 +199,37 @@ setInterval(checkStatus, 30000);
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
         });
       }
-      try {
-        await env.DB.exec(`CREATE TABLE IF NOT EXISTS memories (
-          key TEXT PRIMARY KEY,
-          value TEXT,
-          category TEXT DEFAULT 'context',
-          updated_at TEXT
-        )`);
-      } catch(e) {}
-      try { await env.DB.exec(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`); } catch(e) {}
+      // Ensure all required tables exist
+      await ensureCaffeineTables(env);
       const cafHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+
+      // GET /api/caffeine/status
       if (path === '/api/caffeine/status') {
         let d1Ok = false;
-        let memoriesCount = 0;
+        let knowledgeCount = 0;
+        let personalityCount = 0;
+        let lastCronRun = 'Never';
         try {
-          const mc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM memories').first();
-          memoriesCount = mc?.cnt || 0;
+          const kc = await env.DB.prepare("SELECT COUNT(*) as cnt FROM memories WHERE category != 'context'").first();
+          knowledgeCount = kc?.cnt || 0;
+          const pc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM personality_snapshots').first();
+          personalityCount = pc?.cnt || 0;
+          const cronRow = await env.DB.prepare("SELECT value FROM memories WHERE key = 'last_cron_run'").first();
+          if (cronRow?.value) lastCronRun = cronRow.value;
           d1Ok = true;
         } catch(e) {}
         return new Response(JSON.stringify({
-          worker: true, d1: d1Ok, memories_count: memoriesCount,
-          github: 'configured', timestamp: new Date().toISOString()
+          worker: true,
+          d1: d1Ok,
+          knowledge_count: knowledgeCount,
+          personality_count: personalityCount,
+          last_cron_run: lastCronRun,
+          github: 'configured',
+          timestamp: new Date().toISOString()
         }), { headers: cafHeaders });
       }
+
+      // GET /api/caffeine/memory
       if (path === '/api/caffeine/memory' && request.method === 'GET') {
         const key = url.searchParams.get('key');
         if (key) {
@@ -179,6 +241,8 @@ setInterval(checkStatus, 30000);
           return new Response(JSON.stringify({ memories: rows.results || [] }), { headers: cafHeaders });
         }
       }
+
+      // POST /api/caffeine/memory
       if (path === '/api/caffeine/memory' && request.method === 'POST') {
         const body = await request.json();
         const { key, value, category = 'context' } = body;
@@ -189,12 +253,85 @@ setInterval(checkStatus, 30000);
         ).bind(key, value, category, ts).run();
         return new Response(JSON.stringify({ ok: true, key, timestamp: ts }), { headers: cafHeaders });
       }
+
+      // DELETE /api/caffeine/memory
       if (path === '/api/caffeine/memory' && request.method === 'DELETE') {
         const key = url.searchParams.get('key');
         if (!key) return new Response(JSON.stringify({ error: 'key required' }), { status: 400, headers: cafHeaders });
         await env.DB.prepare('DELETE FROM memories WHERE key = ?').bind(key).run();
         return new Response(JSON.stringify({ ok: true, deleted: key }), { headers: cafHeaders });
       }
+
+      // GET /api/caffeine/feed — last 20 knowledge entries
+      if (path === '/api/caffeine/feed' && request.method === 'GET') {
+        const rows = await env.DB.prepare(
+          "SELECT key, value, category, updated_at FROM memories WHERE category NOT IN ('context') ORDER BY updated_at DESC LIMIT 20"
+        ).all();
+        return new Response(JSON.stringify({
+          feed: rows.results || [],
+          count: (rows.results || []).length,
+          timestamp: new Date().toISOString()
+        }), { headers: cafHeaders });
+      }
+
+      // GET /api/caffeine/context — last 5 synthesis entries + latest personality snapshot
+      if (path === '/api/caffeine/context' && request.method === 'GET') {
+        const synthRows = await env.DB.prepare(
+          "SELECT key, value, category, updated_at FROM memories WHERE category = 'synthesis' ORDER BY updated_at DESC LIMIT 5"
+        ).all();
+        let latestPersonality = null;
+        try {
+          latestPersonality = await env.DB.prepare(
+            'SELECT * FROM personality_snapshots ORDER BY timestamp DESC LIMIT 1'
+          ).first();
+        } catch(e) {}
+        return new Response(JSON.stringify({
+          synthesis: synthRows.results || [],
+          personality: latestPersonality || null,
+          timestamp: new Date().toISOString()
+        }), { headers: cafHeaders });
+      }
+
+      // POST /api/caffeine/learn — save a knowledge entry
+      if (path === '/api/caffeine/learn' && request.method === 'POST') {
+        const body = await request.json();
+        const { key, value, category = 'learned' } = body;
+        if (!key || !value) return new Response(JSON.stringify({ error: 'key and value required' }), { status: 400, headers: cafHeaders });
+        const ts = new Date().toISOString();
+        await env.DB.prepare(
+          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, category=excluded.category, updated_at=excluded.updated_at'
+        ).bind(key, value, category, ts).run();
+        return new Response(JSON.stringify({ ok: true, key, category, timestamp: ts }), { headers: cafHeaders });
+      }
+
+      // GET /api/caffeine/personality — latest personality snapshots
+      if (path === '/api/caffeine/personality' && request.method === 'GET') {
+        let snapshots = [];
+        try {
+          const rows = await env.DB.prepare(
+            'SELECT * FROM personality_snapshots ORDER BY timestamp DESC LIMIT 10'
+          ).all();
+          snapshots = rows.results || [];
+        } catch(e) {}
+        return new Response(JSON.stringify({
+          snapshots,
+          count: snapshots.length,
+          timestamp: new Date().toISOString()
+        }), { headers: cafHeaders });
+      }
+
+      // POST /api/caffeine/personality — save a personality snapshot
+      if (path === '/api/caffeine/personality' && request.method === 'POST') {
+        const body = await request.json();
+        const { session_id, tone_notes = '', user_style = '' } = body;
+        if (!session_id) return new Response(JSON.stringify({ error: 'session_id required' }), { status: 400, headers: cafHeaders });
+        const ts = new Date().toISOString();
+        await env.DB.prepare(
+          'INSERT INTO personality_snapshots (session_id, tone_notes, user_style, timestamp) VALUES (?, ?, ?, ?)'
+        ).bind(session_id, tone_notes, user_style, ts).run();
+        return new Response(JSON.stringify({ ok: true, session_id, timestamp: ts }), { headers: cafHeaders });
+      }
+
       return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: cafHeaders });
     }
 
@@ -219,29 +356,169 @@ setInterval(checkStatus, 30000);
       if (path === '/api/chat' && request.method === 'POST') return await handleSaveChat(env, await request.json());
       if (path === '/api/memory' && request.method === 'GET') return await handleGetMemory(env, url.searchParams.get('key'));
       if (path === '/api/memory' && request.method === 'POST') return await handleSaveMemory(env, await request.json());
-      // Backup: GET returns data, POST pushes to GitHub
       if (path === '/api/backup' && request.method === 'GET') return await handleBackupGet(env);
       if (path === '/api/backup' && request.method === 'POST') return await handleBackupPost(env, await request.json());
       if (path === '/api/search' && request.method === 'GET') return await handleSearch(url.searchParams.get('q'));
-      // AI Proxy -- route AI calls through Worker (keys sent from client, adds one layer of indirection)
       if (path === '/api/ai' && request.method === 'POST') return await handleAiProxy(await request.json());
-      // Inbuilt Publish -- KV storage (no auth required for GET /p/)
       if (path.startsWith('/p/') && request.method === 'GET') return await handleServeApp(env, path.slice(3));
       if (path === '/api/publish' && request.method === 'POST') return await handlePublishApp(env, await request.json());
       if (path === '/api/publish' && request.method === 'GET') return await handleListPublished(env);
       if (path.startsWith('/api/publish/') && request.method === 'DELETE') return await handleDeletePublished(env, path.slice(13));
-      // Admin OTP send (email recovery)
       if (path === '/api/admin/send-otp' && request.method === 'POST') return await handleSendAdminOtp(env, await request.json());
       return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
     } catch (err) {
       return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
     }
   },
+
+  // ==========================================
+  // SCHEDULED CRON — autonomous background learning
+  // ==========================================
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(backupToGitHub(env, env.GITHUB_TOKEN, env.GITHUB_REPO));
+    ctx.waitUntil(Promise.all([
+      backupToGitHub(env, env.GITHUB_TOKEN, env.GITHUB_REPO),
+      runAutonomousLearning(env),
+    ]));
   },
 };
 
+// ==========================================
+// AUTONOMOUS LEARNING CRON HANDLER
+// ==========================================
+async function runAutonomousLearning(env) {
+  try {
+    await ensureCaffeineTables(env);
+    const now = new Date().toISOString();
+    const learned = [];
+
+    // 1. HackerNews — top 5 stories
+    try {
+      const idsRes = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json', {
+        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
+      });
+      const ids = await idsRes.json();
+      const top5 = ids.slice(0, 5);
+      for (const id of top5) {
+        try {
+          const itemRes = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, {
+            headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
+          });
+          const item = await itemRes.json();
+          if (item && item.title) {
+            const key = `hn_${id}_${now.split('T')[0]}`;
+            const value = `[HackerNews] ${item.title}${item.url ? ' — ' + item.url : ''}${item.score ? ' (score: ' + item.score + ')' : ''}`;
+            await env.DB.prepare(
+              'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+            ).bind(key, value, 'HackerNews', now).run();
+            learned.push({ source: 'HackerNews', title: item.title });
+          }
+        } catch(e) {}
+      }
+    } catch(e) {}
+
+    // 2. Wikipedia — random article summary
+    try {
+      const wikiRes = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary', {
+        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0 (https://brainforge-api.richard-brown-miami.workers.dev)' }
+      });
+      const wiki = await wikiRes.json();
+      if (wiki && wiki.title && wiki.extract) {
+        const key = `wiki_${wiki.pageid || Date.now()}_${now.split('T')[0]}`;
+        const value = `[Wikipedia] ${wiki.title}: ${wiki.extract.slice(0, 300)}`;
+        await env.DB.prepare(
+          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+        ).bind(key, value, 'Wikipedia', now).run();
+        learned.push({ source: 'Wikipedia', title: wiki.title });
+      }
+    } catch(e) {}
+
+    // 3. Dev.to — top 5 articles
+    try {
+      const devtoRes = await fetch('https://dev.to/api/articles?per_page=5&top=1', {
+        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
+      });
+      const articles = await devtoRes.json();
+      if (Array.isArray(articles)) {
+        for (const art of articles.slice(0, 5)) {
+          if (art && art.title) {
+            const key = `devto_${art.id}_${now.split('T')[0]}`;
+            const value = `[Dev.to] ${art.title} by ${art.user?.name || 'unknown'}${art.tag_list?.length ? ' — tags: ' + art.tag_list.join(', ') : ''}`;
+            await env.DB.prepare(
+              'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+            ).bind(key, value, 'Dev.to', now).run();
+            learned.push({ source: 'Dev.to', title: art.title });
+          }
+        }
+      }
+    } catch(e) {}
+
+    // 4. GitHub Search — top AI repos
+    try {
+      const ghRes = await fetch('https://api.github.com/search/repositories?q=AI+stars:%3E1000&sort=stars&per_page=5', {
+        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0', 'Accept': 'application/vnd.github.v3+json' }
+      });
+      const ghData = await ghRes.json();
+      if (ghData && Array.isArray(ghData.items)) {
+        for (const repo of ghData.items.slice(0, 5)) {
+          const key = `github_${repo.id}_${now.split('T')[0]}`;
+          const value = `[GitHub] ${repo.full_name}: ${repo.description || 'no description'} — ⭐ ${repo.stargazers_count} stars — ${repo.html_url}`;
+          await env.DB.prepare(
+            'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+          ).bind(key, value, 'GitHub', now).run();
+          learned.push({ source: 'GitHub', title: repo.full_name });
+        }
+      }
+    } catch(e) {}
+
+    // 5. Knowledge synthesis — combine what was learned this cycle
+    if (learned.length > 0) {
+      const sources = [...new Set(learned.map(l => l.source))].join(', ');
+      const titles = learned.slice(0, 5).map(l => l.title).join(' | ');
+      const synthesisKey = `synthesis_${now.replace(/[:.]/g, '-')}`;
+      const synthesisValue = `Cron cycle ${now}: Learned ${learned.length} items from [${sources}]. Topics: ${titles}`;
+      await env.DB.prepare(
+        'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+      ).bind(synthesisKey, synthesisValue, 'synthesis', now).run();
+    }
+
+    // 6. Update last cron run timestamp
+    await env.DB.prepare(
+      'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+    ).bind('last_cron_run', now, 'system', now).run();
+
+    return { ok: true, learned: learned.length, timestamp: now };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ==========================================
+// ENSURE CAFFEINE TABLES
+// ==========================================
+async function ensureCaffeineTables(env) {
+  try {
+    await env.DB.exec(`CREATE TABLE IF NOT EXISTS memories (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      category TEXT DEFAULT 'context',
+      updated_at TEXT
+    )`);
+  } catch(e) {}
+  try { await env.DB.exec(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`); } catch(e) {}
+  try {
+    await env.DB.exec(`CREATE TABLE IF NOT EXISTS personality_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      tone_notes TEXT DEFAULT '',
+      user_style TEXT DEFAULT '',
+      timestamp TEXT NOT NULL
+    )`);
+  } catch(e) {}
+}
+
+// ==========================================
+// EXISTING HANDLERS (unchanged)
+// ==========================================
 async function handleStats(env) {
   await ensureTables(env);
   const projects = await env.DB.prepare('SELECT COUNT(*) as count FROM projects').first();
@@ -289,13 +566,9 @@ async function handleSaveMemory(env, body) {
   await env.DB.prepare(`INSERT OR REPLACE INTO memories (key, value, updated_at) VALUES (?1, ?2, ?3)`).bind(key, value, new Date().toISOString()).run();
   return json({ ok: true });
 }
-
-// GET backup -- returns raw D1 data
 async function handleBackupGet(env) {
   return json(await collectAllData(env));
 }
-
-// POST backup -- pushes D1 snapshot to GitHub using token from request body
 async function handleBackupPost(env, body) {
   const { githubToken, githubRepo } = body || {};
   const token = githubToken || env.GITHUB_TOKEN;
@@ -314,7 +587,6 @@ async function handleBackupPost(env, body) {
     });
   }
 }
-
 async function handleSearch(query) {
   if (!query) return json([]);
   try {
@@ -323,8 +595,6 @@ async function handleSearch(query) {
     return json((data.RelatedTopics || []).slice(0, 5).map(t => ({ title: t.Text || '', url: t.FirstURL || '' })));
   } catch { return json([]); }
 }
-
-// AI Proxy -- routes AI requests through Worker to reduce direct browser exposure
 async function handleAiProxy(body) {
   const { provider, model, messages, apiKey, systemPrompt } = body || {};
   if (!provider || !model || !messages || !apiKey) {
@@ -377,8 +647,6 @@ async function handleAiProxy(body) {
   }
   return json({ reply });
 }
-
-// ===== KV Inbuilt Publish =====
 async function handlePublishApp(env, body) {
   if (!env.APPS_KV) return json({ error: 'KV not configured' }, 500);
   const { html, slug, projectName } = body || {};
@@ -389,14 +657,12 @@ async function handlePublishApp(env, body) {
   await env.APPS_KV.put(`meta:${id}`, JSON.stringify(meta));
   return json({ ok: true, id, url: `/p/${id}` });
 }
-
 async function handleServeApp(env, id) {
   if (!env.APPS_KV || !id) return new Response('Not found', { status: 404 });
   const html = await env.APPS_KV.get(`app:${id}`);
   if (!html) return new Response('App not found', { status: 404 });
   return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
 }
-
 async function handleListPublished(env) {
   if (!env.APPS_KV) return json([]);
   const list = await env.APPS_KV.list({ prefix: 'meta:' });
@@ -406,21 +672,16 @@ async function handleListPublished(env) {
   }));
   return json(apps.filter(Boolean).sort((a, b) => b.publishedAt?.localeCompare(a.publishedAt)));
 }
-
 async function handleDeletePublished(env, id) {
   if (!env.APPS_KV || !id) return json({ error: 'invalid' }, 400);
   await env.APPS_KV.delete(`app:${id}`);
   await env.APPS_KV.delete(`meta:${id}`);
   return json({ ok: true });
 }
-
-
-// ===== Admin OTP Email =====
 async function handleSendAdminOtp(env, body) {
   const { email, otp } = body || {};
   if (!email || !otp) return json({ error: 'email and otp required' }, 400);
   if (!env.RESEND_API_KEY) {
-    // No email service configured -- return success anyway (OTP shown in frontend console)
     return json({ ok: true, warning: 'RESEND_API_KEY not set, OTP not sent' });
   }
   const res = await fetch('https://api.resend.com/emails', {
@@ -444,8 +705,6 @@ async function handleSendAdminOtp(env, body) {
   }
   return json({ ok: true });
 }
-
-
 async function backupToGitHub(env, token, repo) {
   const data = await collectAllData(env);
   const rows = (data.projects?.length || 0) + (data.chats?.length || 0) + (data.memories?.length || 0);
@@ -469,7 +728,6 @@ async function backupToGitHub(env, token, repo) {
   }
   return { ok: true, path, rows };
 }
-
 async function collectAllData(env) {
   await ensureTables(env);
   const { results: projects } = await env.DB.prepare('SELECT * FROM projects').all();
