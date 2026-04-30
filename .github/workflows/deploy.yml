@@ -21,15 +21,18 @@ jobs:
 
       - name: Install Worker Dependencies
         run: npm install
+        working-directory: cloudflare-worker
 
       - name: Run D1 Migration
         run: wrangler d1 execute brainforge-db --remote --command "CREATE TABLE IF NOT EXISTS memories (key TEXT PRIMARY KEY, value TEXT, category TEXT DEFAULT 'context', updated_at TEXT);"
+        working-directory: cloudflare-worker
         env:
-          CLOUDFLARE_API_TOKEN: OBYob5EKKSE9cS0Xu-rZMkkKs46YnHIR0qN94lZj
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Worker
         run: wrangler deploy
+        working-directory: cloudflare-worker
         env:
-          CLOUDFLARE_API_TOKEN: OBYob5EKKSE9cS0Xu-rZMkkKs46YnHIR0qN94lZj
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
