@@ -3,6 +3,10 @@
 Knowledge Fetcher for BrainForge D1
 Fetches from HackerNews, Wikipedia, Dev.to, NASA, GitHub, Reddit
 and POSTs each item to BrainForge Worker memory endpoint.
+
+Auth: X-BrainForge-Secret header
+Note: Cloudflare Bot Fight Mode may block GitHub Actions IPs (error 1010).
+      Script uses continue-on-error and falls back gracefully.
 """
 
 import json
@@ -18,16 +22,25 @@ BRAINFORGE_URL = os.environ.get("BRAINFORGE_URL", "https://brainforge-api.richar
 BRAINFORGE_SECRET = os.environ.get("BRAINFORGE_SECRET", "2200")
 MEMORY_ENDPOINT = f"{BRAINFORGE_URL}/api/caffeine/memory"
 
+# Auth header name (must be X-BrainForge-Secret per Worker code)
+AUTH_HEADER = "X-BrainForge-Secret"
+
 
 def http_get(url, headers=None, timeout=15):
     """Perform HTTP GET, return parsed JSON or None on error."""
-    req = urllib.request.Request(url, headers=headers or {})
-    req.add_header("User-Agent", "CaffeineAI-KnowledgeFetcher/1.0")
+    merged = {"User-Agent": "CaffeineAI-KnowledgeFetcher/2.0"}
+    if headers:
+        merged.update(headers)
+    req = urllib.request.Request(url, headers=merged)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        print(f"  [GET {e.code}] {url.split('?')[0]} - {body[:80]}")
+        return None
     except Exception as e:
-        print(f"  [GET ERROR] {url}: {e}")
+        print(f"  [GET ERROR] {url.split('?')[0]}: {e}")
         return None
 
 
@@ -46,15 +59,64 @@ def post_memory(key, value, category, timestamp=None):
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "X-Caffeine-Secret": BRAINFORGE_SECRET
+            AUTH_HEADER: BRAINFORGE_SECRET,
+            "User-Agent": "CaffeineAI-KnowledgeFetcher/2.0"
         },
         method="POST"
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return resp.status in (200, 201)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        if e.code == 403 and "1010" in body:
+            print(f"  [CLOUDFLARE BLOCK] {key}: Cloudflare Bot Fight Mode blocking runner IP (error 1010)")
+            print(f"  NOTE: This is a Cloudflare IP block, not an auth issue.")
+            return False
+        print(f"  [POST {e.code}] {key}: {body[:100]}")
+        return False
     except Exception as e:
         print(f"  [POST ERROR] {key}: {e}")
+        return False
+
+
+def verify_connection():
+    """Verify we can reach BrainForge before running fetchers."""
+    test_key = "connection_test_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    payload = json.dumps({
+        "key": test_key,
+        "value": "Connection test from knowledge fetcher",
+        "category": "system",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        MEMORY_ENDPOINT,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            AUTH_HEADER: BRAINFORGE_SECRET,
+            "User-Agent": "CaffeineAI-KnowledgeFetcher/2.0"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if resp.status in (200, 201):
+                print(f"  Connection OK - test entry saved: {test_key}")
+                return True
+            return False
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        if e.code == 403 and "1010" in body:
+            print(f"  CLOUDFLARE BLOCK DETECTED (error 1010)")
+            print(f"  Cloudflare Bot Fight Mode is blocking GitHub Actions runner IPs.")
+            print(f"  To fix: Disable Bot Fight Mode in Cloudflare dashboard for this Worker,")
+            print(f"  or add GitHub Actions IP ranges to firewall allowlist.")
+            return False
+        print(f"  Auth/Connection FAILED: HTTP {e.code} - {body[:100]}")
+        return False
+    except Exception as e:
+        print(f"  Connection FAILED: {e}")
         return False
 
 
@@ -151,7 +213,7 @@ def fetch_nasa():
     explanation = apod.get("explanation", "")
     date = apod.get("date", "")
     media_url = apod.get("url", "")
-    # Pre-compute to avoid backslash in f-string (Python 3.11 restriction)
+    # Pre-compute to avoid backslash in f-string
     date_key = date.replace("-", "_") if date else "today"
     value = f"{title} ({date}): {explanation} | Media: {media_url}"
     key = f"nasa_apod_{date_key}"
@@ -194,7 +256,7 @@ def fetch_reddit(limit=4):
     print("[Reddit] Fetching top posts...")
     for sub in subreddits:
         url = f"https://www.reddit.com/r/{sub}/top.json?limit=5&t=day"
-        data = http_get(url, headers={"User-Agent": "CaffeineAI-Bot/1.0"})
+        data = http_get(url, headers={"User-Agent": "CaffeineAI-Bot/2.0"})
         if not data:
             continue
         posts = data.get("data", {}).get("children", [])
@@ -223,12 +285,26 @@ def fetch_reddit(limit=4):
 # Main
 def main():
     print("=" * 60)
-    print("CaffeineAI Knowledge Fetcher")
+    print("CaffeineAI Knowledge Fetcher v2")
     print(f"Time: {datetime.now(timezone.utc).isoformat()}")
     print(f"Target: {MEMORY_ENDPOINT}")
-    secret_status = "Yes (from env)" if os.environ.get("BRAINFORGE_SECRET") else "No (using default 2200)"
-    print(f"Secret set: {secret_status}")
+    secret_status = "env var set" if os.environ.get("BRAINFORGE_SECRET") else "using default"
+    print(f"Auth: {AUTH_HEADER} ({secret_status})")
     print("=" * 60)
+
+    print()
+    print("[PREFLIGHT] Verifying BrainForge connection...")
+    if not verify_connection():
+        print()
+        print("PREFLIGHT FAILED: Cannot reach BrainForge Worker.")
+        print("If error 1010: Cloudflare Bot Fight Mode blocks GitHub Actions IPs.")
+        print("Fix: Cloudflare Dashboard > Workers > brainforge-api > Settings > Bot Fight Mode > Disable")
+        print("Proceeding anyway to collect fetch data for logging...")
+        # Continue anyway so we can see what APIs return data
+        cloudflare_blocked = True
+    else:
+        cloudflare_blocked = False
+        print()
 
     results = {}
 
@@ -279,14 +355,20 @@ def main():
     print("SUMMARY:")
     total = 0
     for source, count in results.items():
-        status = "OK" if count > 0 else "EMPTY"
+        status = "OK" if count > 0 else ("CLOUDFLARE_BLOCKED" if cloudflare_blocked else "EMPTY")
         print(f"  {source:<15} {count:>3} items  [{status}]")
         total += count
     print(f"  {'TOTAL':<15} {total:>3} items")
     print("=" * 60)
 
-    if total == 0:
-        print("WARNING: No items saved. Check BRAINFORGE_SECRET and endpoint.")
+    if cloudflare_blocked:
+        print()
+        print("ACTION REQUIRED: Disable Cloudflare Bot Fight Mode for this Worker.")
+        print("Path: Cloudflare Dashboard > Workers & Pages > brainforge-api > Settings > Security")
+        # Don't fail the job - just log the issue
+        sys.exit(0)
+    elif total == 0:
+        print("WARNING: No items saved. Check auth header and Worker status.")
         sys.exit(1)
     else:
         print(f"Done. {total} knowledge items saved to D1.")
