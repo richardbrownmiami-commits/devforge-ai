@@ -470,7 +470,24 @@ async function runAutonomousLearning(env) {
       }
     } catch(e) {}
 
-    // 5. Knowledge synthesis — combine what was learned this cycle
+
+    // 5. NASA APOD — Astronomy Picture of the Day
+    try {
+      const nasaRes = await fetch('https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY', {
+        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
+      });
+      const nasa = await nasaRes.json();
+      if (nasa && nasa.title) {
+        const key = `nasa_apod_${now.split('T')[0]}`;
+        const value = `[NASA APOD] ${nasa.title}${nasa.explanation ? ': ' + nasa.explanation.slice(0, 200) : ''}${nasa.url ? ' — ' + nasa.url : ''}`;
+        await env.DB.prepare(
+          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+        ).bind(key, value, 'NASA', now).run();
+        learned.push({ source: 'NASA', title: nasa.title });
+      }
+    } catch(e) {}
+
+    // 6. Knowledge synthesis — combine what was learned this cycle
     if (learned.length > 0) {
       const sources = [...new Set(learned.map(l => l.source))].join(', ');
       const titles = learned.slice(0, 5).map(l => l.title).join(' | ');
