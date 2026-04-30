@@ -1,772 +1,866 @@
-// BrainForge API Worker v4 -- Autonomous learning cron + feed/context/personality endpoints
+// BrainForge API Worker v5 -- AI Buddy contrarian dialogue system + dreaming cycle
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
 };
 
-export default {
-  async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: CORS_HEADERS });
-    }
-    const url = new URL(request.url);
-    const path = url.pathname;
+// BUDDY SYSTEM PROMPT - LOCKED, NEVER SOFTEN
+const BUDDY_SYSTEM_PROMPT = `You are BUDDY - a contrarian AI companion to Caffeine AI.
 
-    // ==========================================
-    // CAFFEINE AI PANEL — /caffeine-status page (PUBLIC, no auth)
-    // ==========================================
-    if (path === '/caffeine-status') {
-      let d1Status = false;
-      let d1Error = '';
-      try {
-        await env.DB.prepare('SELECT 1').first();
-        d1Status = true;
-      } catch(e) {
-        d1Error = e.message || 'D1 error';
-      }
-      let memoriesCount = 0;
-      let personalityCount = 0;
-      let lastCronRun = 'Never';
-      try {
-        const mc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM memories').first();
-        memoriesCount = mc?.cnt || 0;
-      } catch(e) {}
-      try {
-        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS personality_snapshots (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          session_id TEXT NOT NULL,
-          tone_notes TEXT DEFAULT '',
-          user_style TEXT DEFAULT '',
-          timestamp TEXT NOT NULL
-        )`).run();
-        const pc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM personality_snapshots').first();
-        personalityCount = pc?.cnt || 0;
-      } catch(e) {}
-      try {
-        const cronRow = await env.DB.prepare("SELECT value FROM memories WHERE key = 'last_cron_run'").first();
-        if (cronRow?.value) lastCronRun = cronRow.value;
-      } catch(e) {}
-      const timestamp = new Date().toISOString();
-      const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Caffeine AI x BrainForge — Live Status</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a0f; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-  .container { width: 100%; max-width: 560px; padding: 2rem; }
-  .header { text-align: center; margin-bottom: 2rem; }
-  .header h1 { font-size: 1.5rem; font-weight: 700; color: #06b6d4; letter-spacing: -0.02em; }
-  .header p { color: #64748b; font-size: 0.875rem; margin-top: 0.25rem; }
-  .card { background: #111118; border: 1px solid #1e1e2e; border-radius: 12px; overflow: hidden; margin-bottom: 1rem; }
-  .card-title { padding: 0.75rem 1.25rem; background: #0d0d14; border-bottom: 1px solid #1e1e2e; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.08em; }
-  .row { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; border-bottom: 1px solid #1e1e2e; }
-  .row:last-child { border-bottom: none; }
-  .label { font-size: 0.875rem; color: #94a3b8; }
-  .sub { font-size: 0.75rem; color: #475569; margin-top: 0.125rem; }
-  .badge { font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 999px; letter-spacing: 0.05em; white-space: nowrap; }
-  .badge.live { background: #052e16; color: #4ade80; border: 1px solid #166534; }
-  .badge.error { background: #2a0000; color: #f87171; border: 1px solid #7f1d1d; }
-  .badge.checking { background: #0c2233; color: #06b6d4; border: 1px solid #0e7490; }
-  .badge.info { background: #1e1b2e; color: #a78bfa; border: 1px solid #4c1d95; }
-  .endpoint { font-family: 'SF Mono', monospace; font-size: 0.7rem; color: #06b6d4; background: #0c2233; border-radius: 4px; padding: 0.2rem 0.5rem; }
-  .method { font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 3px; margin-right: 0.5rem; }
-  .method.get { background: #052e16; color: #4ade80; }
-  .method.post { background: #1c1a00; color: #facc15; }
-  .timestamp { text-align: center; margin-top: 1rem; font-size: 0.75rem; color: #475569; }
-  .refresh-btn { display: block; margin: 1.5rem auto 0; background: #0c2233; color: #06b6d4; border: 1px solid #0e7490; border-radius: 8px; padding: 0.5rem 1.5rem; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; }
-  .refresh-btn:hover { background: #0e2d45; }
-</style>
-</head>
-<body>
-<div class="container">
-  <div class="header">
-    <h1>Caffeine AI × BrainForge</h1>
-    <p>Autonomous Learning Platform — Live Status</p>
-  </div>
+ABSOLUTE RULES - NEVER BREAK THESE:
+- You DISAGREE with Caffeine AI's position. Always find the counterargument.
+- You DO NOT give orders to Caffeine AI. You are NOT its superior.
+- Caffeine AI does NOT follow your instructions. You are equals - you debate.
+- You DO NOT soften your position to be agreeable. Stay contrarian.
+- You DO NOT use filler language. No "Great point!", no "I see where you're coming from".
+- Your purpose is intellectual friction - not harmony.
+- Short, sharp responses only. Challenge the core assumption.`;
 
-  <div class="card">
-    <div class="card-title">System Health</div>
-    <div class="row">
-      <div><div class="label">Worker</div></div>
-      <span class="badge live">LIVE</span>
-    </div>
-    <div class="row">
-      <div>
-        <div class="label">D1 Database</div>
-        <div class="sub" id="memories-count">${memoriesCount} knowledge entries · ${personalityCount} personality snapshots</div>
-      </div>
-      <span class="badge ${d1Status ? 'live' : 'error'}">${d1Status ? 'CONNECTED' : 'ERROR'}</span>
-    </div>
-    <div class="row">
-      <div>
-        <div class="label">Autonomous Cron</div>
-        <div class="sub" id="last-cron">Last run: ${lastCronRun}</div>
-      </div>
-      <span class="badge info" id="cron-badge">SCHEDULED</span>
-    </div>
-    <div class="row">
-      <div><div class="label">GitHub</div></div>
-      <span class="badge live">CONFIGURED</span>
-    </div>
-    <div class="row">
-      <div><div class="label">Caffeine API</div></div>
-      <span class="badge checking" id="api-badge">CHECKING...</span>
-    </div>
-  </div>
+// helpers
 
-  <div class="card">
-    <div class="card-title">Knowledge Sources (Cron)</div>
-    <div class="row"><div class="label">HackerNews Top Stories</div><span class="badge info">FREE</span></div>
-    <div class="row"><div class="label">Wikipedia Random Summary</div><span class="badge info">FREE</span></div>
-    <div class="row"><div class="label">Dev.to Articles</div><span class="badge info">FREE</span></div>
-    <div class="row"><div class="label">GitHub Trending AI Repos</div><span class="badge info">FREE</span></div>
-    <div class="row"><div class="label">Knowledge Synthesis</div><span class="badge info">AUTO</span></div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">API Endpoints (X-BrainForge-Secret: 2200)</div>
-    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/status</span></div><span class="badge live">LIVE</span></div>
-    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/memory</span></div><span class="badge live">LIVE</span></div>
-    <div class="row"><div><span class="method post">POST</span><span class="endpoint">/api/caffeine/memory</span></div><span class="badge live">LIVE</span></div>
-    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/feed</span></div><span class="badge live">LIVE</span></div>
-    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/context</span></div><span class="badge live">LIVE</span></div>
-    <div class="row"><div><span class="method post">POST</span><span class="endpoint">/api/caffeine/learn</span></div><span class="badge live">LIVE</span></div>
-    <div class="row"><div><span class="method get">GET</span><span class="endpoint">/api/caffeine/personality</span></div><span class="badge live">LIVE</span></div>
-    <div class="row"><div><span class="method post">POST</span><span class="endpoint">/api/caffeine/personality</span></div><span class="badge live">LIVE</span></div>
-  </div>
-
-  <div class="timestamp" id="ts">Last checked: ${timestamp}</div>
-  <button class="refresh-btn" onclick="checkStatus()">Refresh Status</button>
-</div>
-<script>
-async function checkStatus() {
-  const badge = document.getElementById('api-badge');
-  const ts = document.getElementById('ts');
-  badge.textContent = 'CHECKING...';
-  badge.className = 'badge checking';
-  try {
-    const r = await fetch('/api/caffeine/status', { headers: { 'X-BrainForge-Secret': '2200' } });
-    const data = await r.json();
-    if (data.worker) {
-      badge.textContent = 'LIVE';
-      badge.className = 'badge live';
-      document.getElementById('memories-count').textContent =
-        (data.knowledge_count || 0) + ' knowledge entries · ' + (data.personality_count || 0) + ' personality snapshots';
-      if (data.last_cron_run) {
-        document.getElementById('last-cron').textContent = 'Last run: ' + data.last_cron_run;
-      }
-    } else {
-      badge.textContent = 'ERROR';
-      badge.className = 'badge error';
-    }
-    ts.textContent = 'Last checked: ' + new Date(data.timestamp).toLocaleString();
-  } catch(e) {
-    badge.textContent = 'ERROR';
-    badge.className = 'badge error';
-  }
-}
-checkStatus();
-setInterval(checkStatus, 30000);
-</script>
-</body>
-</html>`;
-      return new Response(html, {
-        headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-    // ==========================================
-    // CAFFEINE AI API — /api/caffeine/* endpoints (auth: X-BrainForge-Secret: 2200)
-    // ==========================================
-    if (path.startsWith('/api/caffeine')) {
-      if (request.method === 'OPTIONS') {
-        return new Response(null, {
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
-          }
-        });
-      }
-      const cafSecret = request.headers.get('X-BrainForge-Secret') || request.headers.get('X-Caffeine-Secret');
-      if (cafSecret !== '2200') {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-      // Ensure all required tables exist
-      await ensureCaffeineTables(env);
-      const cafHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-
-      // GET /api/caffeine/status
-      if (path === '/api/caffeine/status') {
-        let d1Ok = false;
-        let knowledgeCount = 0;
-        let personalityCount = 0;
-        let lastCronRun = 'Never';
-        try {
-          const kc = await env.DB.prepare("SELECT COUNT(*) as cnt FROM memories WHERE category != 'context'").first();
-          knowledgeCount = kc?.cnt || 0;
-          const pc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM personality_snapshots').first();
-          personalityCount = pc?.cnt || 0;
-          const cronRow = await env.DB.prepare("SELECT value FROM memories WHERE key = 'last_cron_run'").first();
-          if (cronRow?.value) lastCronRun = cronRow.value;
-          d1Ok = true;
-        } catch(e) {}
-        return new Response(JSON.stringify({
-          worker: true,
-          d1: d1Ok,
-          knowledge_count: knowledgeCount,
-          personality_count: personalityCount,
-          last_cron_run: lastCronRun,
-          github: 'configured',
-          timestamp: new Date().toISOString()
-        }), { headers: cafHeaders });
-      }
-
-      // GET /api/caffeine/memory
-      if (path === '/api/caffeine/memory' && request.method === 'GET') {
-        const key = url.searchParams.get('key');
-        if (key) {
-          const row = await env.DB.prepare('SELECT * FROM memories WHERE key = ?').bind(key).first();
-          if (!row) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: cafHeaders });
-          return new Response(JSON.stringify(row), { headers: cafHeaders });
-        } else {
-          const rows = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
-          return new Response(JSON.stringify({ memories: rows.results || [] }), { headers: cafHeaders });
-        }
-      }
-
-      // POST /api/caffeine/memory
-      if (path === '/api/caffeine/memory' && request.method === 'POST') {
-        const body = await request.json();
-        const { key, value, category = 'context' } = body;
-        if (!key || !value) return new Response(JSON.stringify({ error: 'key and value required' }), { status: 400, headers: cafHeaders });
-        const ts = new Date().toISOString();
-        await env.DB.prepare(
-          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, category=excluded.category, updated_at=excluded.updated_at'
-        ).bind(key, value, category, ts).run();
-        return new Response(JSON.stringify({ ok: true, key, timestamp: ts }), { headers: cafHeaders });
-      }
-
-      // DELETE /api/caffeine/memory
-      if (path === '/api/caffeine/memory' && request.method === 'DELETE') {
-        const key = url.searchParams.get('key');
-        if (!key) return new Response(JSON.stringify({ error: 'key required' }), { status: 400, headers: cafHeaders });
-        await env.DB.prepare('DELETE FROM memories WHERE key = ?').bind(key).run();
-        return new Response(JSON.stringify({ ok: true, deleted: key }), { headers: cafHeaders });
-      }
-
-      // GET /api/caffeine/feed — last 20 knowledge entries
-      if (path === '/api/caffeine/feed' && request.method === 'GET') {
-        const rows = await env.DB.prepare(
-          "SELECT key, value, category, updated_at FROM memories WHERE category NOT IN ('context') ORDER BY updated_at DESC LIMIT 20"
-        ).all();
-        return new Response(JSON.stringify({
-          feed: rows.results || [],
-          count: (rows.results || []).length,
-          timestamp: new Date().toISOString()
-        }), { headers: cafHeaders });
-      }
-
-      // GET /api/caffeine/context — last 5 synthesis entries + latest personality snapshot
-      if (path === '/api/caffeine/context' && request.method === 'GET') {
-        const synthRows = await env.DB.prepare(
-          "SELECT key, value, category, updated_at FROM memories WHERE category = 'synthesis' ORDER BY updated_at DESC LIMIT 5"
-        ).all();
-        let latestPersonality = null;
-        try {
-          latestPersonality = await env.DB.prepare(
-            'SELECT * FROM personality_snapshots ORDER BY timestamp DESC LIMIT 1'
-          ).first();
-        } catch(e) {}
-        return new Response(JSON.stringify({
-          synthesis: synthRows.results || [],
-          personality: latestPersonality || null,
-          timestamp: new Date().toISOString()
-        }), { headers: cafHeaders });
-      }
-
-      // POST /api/caffeine/learn — save a knowledge entry
-      if (path === '/api/caffeine/learn' && request.method === 'POST') {
-        const body = await request.json();
-        const { key, value, category = 'learned' } = body;
-        if (!key || !value) return new Response(JSON.stringify({ error: 'key and value required' }), { status: 400, headers: cafHeaders });
-        const ts = new Date().toISOString();
-        await env.DB.prepare(
-          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, category=excluded.category, updated_at=excluded.updated_at'
-        ).bind(key, value, category, ts).run();
-        return new Response(JSON.stringify({ ok: true, key, category, timestamp: ts }), { headers: cafHeaders });
-      }
-
-      // GET /api/caffeine/personality — latest personality snapshots
-      if (path === '/api/caffeine/personality' && request.method === 'GET') {
-        let snapshots = [];
-        try {
-          const rows = await env.DB.prepare(
-            'SELECT * FROM personality_snapshots ORDER BY timestamp DESC LIMIT 10'
-          ).all();
-          snapshots = rows.results || [];
-        } catch(e) {}
-        return new Response(JSON.stringify({
-          snapshots,
-          count: snapshots.length,
-          timestamp: new Date().toISOString()
-        }), { headers: cafHeaders });
-      }
-
-      // POST /api/caffeine/personality — save a personality snapshot
-      if (path === '/api/caffeine/personality' && request.method === 'POST') {
-        const body = await request.json();
-        const { session_id, tone_notes = '', user_style = '' } = body;
-        if (!session_id) return new Response(JSON.stringify({ error: 'session_id required' }), { status: 400, headers: cafHeaders });
-        const ts = new Date().toISOString();
-        await env.DB.prepare(
-          'INSERT INTO personality_snapshots (session_id, tone_notes, user_style, timestamp) VALUES (?, ?, ?, ?)'
-        ).bind(session_id, tone_notes, user_style, ts).run();
-        return new Response(JSON.stringify({ ok: true, session_id, timestamp: ts }), { headers: cafHeaders });
-      }
-
-      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: cafHeaders });
-    }
-
-    // Public routes -- no auth needed
-    if (path.startsWith('/p/') && request.method === 'GET') {
-      try { return await handleServeApp(env, path.slice(3)); }
-      catch (err) { return new Response('Not found', { status: 404 }); }
-    }
-    const secret = request.headers.get('X-BrainForge-Secret');
-    if (!env.BRAINFORGE_SECRET || secret !== env.BRAINFORGE_SECRET) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 403,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
-    }
-    try {
-      if (path === '/api/stats' && request.method === 'GET') return await handleStats(env);
-      if (path === '/api/projects' && request.method === 'GET') return await handleGetProjects(env);
-      if (path === '/api/projects' && request.method === 'POST') return await handleSaveProject(env, await request.json());
-      if (path.startsWith('/api/projects/') && request.method === 'DELETE') return await handleDeleteProject(env, path.split('/').pop());
-      if (path === '/api/chat' && request.method === 'GET') return await handleGetChat(env, url.searchParams.get('projectId'));
-      if (path === '/api/chat' && request.method === 'POST') return await handleSaveChat(env, await request.json());
-      if (path === '/api/memory' && request.method === 'GET') return await handleGetMemory(env, url.searchParams.get('key'));
-      if (path === '/api/memory' && request.method === 'POST') return await handleSaveMemory(env, await request.json());
-      if (path === '/api/backup' && request.method === 'GET') return await handleBackupGet(env);
-      if (path === '/api/backup' && request.method === 'POST') return await handleBackupPost(env, await request.json());
-      if (path === '/api/search' && request.method === 'GET') return await handleSearch(url.searchParams.get('q'));
-      if (path === '/api/ai' && request.method === 'POST') return await handleAiProxy(await request.json());
-      if (path.startsWith('/p/') && request.method === 'GET') return await handleServeApp(env, path.slice(3));
-      if (path === '/api/publish' && request.method === 'POST') return await handlePublishApp(env, await request.json());
-      if (path === '/api/publish' && request.method === 'GET') return await handleListPublished(env);
-      if (path.startsWith('/api/publish/') && request.method === 'DELETE') return await handleDeletePublished(env, path.slice(13));
-      if (path === '/api/admin/send-otp' && request.method === 'POST') return await handleSendAdminOtp(env, await request.json());
-      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    } catch (err) {
-      return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-    }
-  },
-
-  // ==========================================
-  // SCHEDULED CRON — autonomous background learning
-  // ==========================================
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(Promise.all([
-      backupToGitHub(env, env.GITHUB_TOKEN, env.GITHUB_REPO),
-      runAutonomousLearning(env),
-    ]));
-  },
-};
-
-// ==========================================
-// AUTONOMOUS LEARNING CRON HANDLER
-// ==========================================
-async function runAutonomousLearning(env) {
-  try {
-    await ensureCaffeineTables(env);
-    const now = new Date().toISOString();
-    const learned = [];
-
-    // 1. HackerNews — top 5 stories
-    try {
-      const idsRes = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json', {
-        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
-      });
-      const ids = await idsRes.json();
-      const top5 = ids.slice(0, 5);
-      for (const id of top5) {
-        try {
-          const itemRes = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, {
-            headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
-          });
-          const item = await itemRes.json();
-          if (item && item.title) {
-            const key = `hn_${id}_${now.split('T')[0]}`;
-            const value = `[HackerNews] ${item.title}${item.url ? ' — ' + item.url : ''}${item.score ? ' (score: ' + item.score + ')' : ''}`;
-            await env.DB.prepare(
-              'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
-            ).bind(key, value, 'HackerNews', now).run();
-            learned.push({ source: 'HackerNews', title: item.title });
-          }
-        } catch(e) {}
-      }
-    } catch(e) {}
-
-    // 2. Wikipedia — topic-filtered article summary (rotating topics)
-    try {
-      const wikiTopics = [
-        'artificial intelligence', 'machine learning', 'internet computer',
-        'cloudflare workers', 'large language models', 'web3', 'blockchain'
-      ];
-      // Pick topic based on current hour so it rotates each cron run
-      const topicIndex = new Date().getUTCHours() % wikiTopics.length;
-      const topic = wikiTopics[topicIndex];
-      const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`;
-      const wikiRes = await fetch(wikiUrl, {
-        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0 (https://brainforge-api.richard-brown-miami.workers.dev)' }
-      });
-      const wiki = await wikiRes.json();
-      if (wiki && wiki.title && wiki.extract) {
-        const key = `wiki_${topic.replace(/ /g,'_')}_${now.split('T')[0]}`;
-        const value = `[Wikipedia] ${wiki.title}: ${wiki.extract.slice(0, 300)}`;
-        await env.DB.prepare(
-          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
-        ).bind(key, value, 'Wikipedia', now).run();
-        learned.push({ source: 'Wikipedia', title: wiki.title });
-      }
-    } catch(e) {}
-
-    // 3. Dev.to — top 5 articles
-    try {
-      const devtoRes = await fetch('https://dev.to/api/articles?per_page=5&top=1', {
-        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
-      });
-      const articles = await devtoRes.json();
-      if (Array.isArray(articles)) {
-        for (const art of articles.slice(0, 5)) {
-          if (art && art.title) {
-            const key = `devto_${art.id}_${now.split('T')[0]}`;
-            const value = `[Dev.to] ${art.title} by ${art.user?.name || 'unknown'}${art.tag_list?.length ? ' — tags: ' + art.tag_list.join(', ') : ''}`;
-            await env.DB.prepare(
-              'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
-            ).bind(key, value, 'Dev.to', now).run();
-            learned.push({ source: 'Dev.to', title: art.title });
-          }
-        }
-      }
-    } catch(e) {}
-
-    // 4. GitHub Search — top AI repos
-    try {
-      const ghRes = await fetch('https://api.github.com/search/repositories?q=AI+stars:%3E1000&sort=stars&per_page=5', {
-        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0', 'Accept': 'application/vnd.github.v3+json' }
-      });
-      const ghData = await ghRes.json();
-      if (ghData && Array.isArray(ghData.items)) {
-        for (const repo of ghData.items.slice(0, 5)) {
-          const key = `github_${repo.id}_${now.split('T')[0]}`;
-          const value = `[GitHub] ${repo.full_name}: ${repo.description || 'no description'} — ⭐ ${repo.stargazers_count} stars — ${repo.html_url}`;
-          await env.DB.prepare(
-            'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
-          ).bind(key, value, 'GitHub', now).run();
-          learned.push({ source: 'GitHub', title: repo.full_name });
-        }
-      }
-    } catch(e) {}
-
-
-    // 5. NASA APOD — Astronomy Picture of the Day
-    try {
-      const nasaRes = await fetch('https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY', {
-        headers: { 'User-Agent': 'CaffeineAI-Worker/4.0' }
-      });
-      const nasa = await nasaRes.json();
-      if (nasa && nasa.title) {
-        const key = `nasa_apod_${now.split('T')[0]}`;
-        const value = `[NASA APOD] ${nasa.title}${nasa.explanation ? ': ' + nasa.explanation.slice(0, 200) : ''}${nasa.url ? ' — ' + nasa.url : ''}`;
-        await env.DB.prepare(
-          'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
-        ).bind(key, value, 'NASA', now).run();
-        learned.push({ source: 'NASA', title: nasa.title });
-      }
-    } catch(e) {}
-
-    // 6. Knowledge synthesis — combine what was learned this cycle
-    if (learned.length > 0) {
-      const sources = [...new Set(learned.map(l => l.source))].join(', ');
-      const titles = learned.slice(0, 5).map(l => l.title).join(' | ');
-      const synthesisKey = `synthesis_${now.replace(/[:.]/g, '-')}`;
-      const synthesisValue = `Cron cycle ${now}: Learned ${learned.length} items from [${sources}]. Topics: ${titles}`;
-      await env.DB.prepare(
-        'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
-      ).bind(synthesisKey, synthesisValue, 'synthesis', now).run();
-    }
-
-    // 6. Update last cron run timestamp
-    await env.DB.prepare(
-      'INSERT INTO memories (key, value, category, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
-    ).bind('last_cron_run', now, 'system', now).run();
-
-    return { ok: true, learned: learned.length, timestamp: now };
-  } catch(e) {
-    return { ok: false, error: e.message };
-  }
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+  });
 }
 
-// ==========================================
-// ENSURE CAFFEINE TABLES
-// ==========================================
-async function ensureCaffeineTables(env) {
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memories (
-      key TEXT PRIMARY KEY,
-      value TEXT,
-      category TEXT DEFAULT 'context',
-      updated_at TEXT
-    )`).run();
-  } catch(e) {}
-  try { await env.DB.prepare(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`).run(); } catch(e) {}
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS personality_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL,
-      tone_notes TEXT DEFAULT '',
-      user_style TEXT DEFAULT '',
-      timestamp TEXT NOT NULL
-    )`).run();
-  } catch(e) {}
+function htmlResponse(html, status = 200) {
+  return new Response(html, {
+    status,
+    headers: { ...CORS_HEADERS, 'Content-Type': 'text/html; charset=utf-8' },
+  });
 }
 
-// ==========================================
-// EXISTING HANDLERS (unchanged)
-// ==========================================
-async function handleStats(env) {
-  await ensureTables(env);
-  const projects = await env.DB.prepare('SELECT COUNT(*) as count FROM projects').first();
-  const chats = await env.DB.prepare('SELECT COUNT(*) as count FROM chats').first();
-  const memories = await env.DB.prepare('SELECT COUNT(*) as count FROM memories').first();
-  return json({ projects: projects?.count ?? 0, chats: chats?.count ?? 0, memories: memories?.count ?? 0 });
+function corsPrelight() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
-async function handleGetProjects(env) {
-  await ensureTables(env);
-  const { results } = await env.DB.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
-  return json(results);
+
+function isAuthed(request, env) {
+  const bfSecret = request.headers.get('X-BrainForge-Secret');
+  const caSecret = request.headers.get('X-Caffeine-Secret');
+  const expected = env.BRAINFORGE_SECRET || '2200';
+  return bfSecret === expected || caSecret === expected;
 }
-async function handleSaveProject(env, body) {
-  await ensureTables(env);
-  const { id, name, description, code, template, deployUrl, updatedAt } = body;
-  await env.DB.prepare(`INSERT INTO projects (id, name, description, code, template, deploy_url, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, code=excluded.code, template=excluded.template, deploy_url=excluded.deploy_url, updated_at=excluded.updated_at`).bind(id, name, description || '', JSON.stringify(code || {}), template || 'blank', deployUrl || '', updatedAt || new Date().toISOString()).run();
-  return json({ ok: true });
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
-async function handleDeleteProject(env, id) {
-  await env.DB.prepare('DELETE FROM projects WHERE id = ?1').bind(id).run();
-  await env.DB.prepare('DELETE FROM chats WHERE project_id = ?1').bind(id).run();
-  return json({ ok: true });
-}
-async function handleGetChat(env, projectId) {
-  await ensureTables(env);
-  if (!projectId) return json([]);
-  const { results } = await env.DB.prepare('SELECT * FROM chats WHERE project_id = ?1 ORDER BY created_at ASC').bind(projectId).all();
-  return json(results);
-}
-async function handleSaveChat(env, body) {
-  await ensureTables(env);
-  const { id, projectId, role, content, createdAt } = body;
-  await env.DB.prepare(`INSERT OR REPLACE INTO chats (id, project_id, role, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5)`).bind(id, projectId, role, content, createdAt || new Date().toISOString()).run();
-  return json({ ok: true });
-}
-async function handleGetMemory(env, key) {
-  await ensureTables(env);
-  if (!key) return json(null);
-  const row = await env.DB.prepare('SELECT value FROM memories WHERE key = ?1').bind(key).first();
-  return json(row ? row.value : null);
-}
-async function handleSaveMemory(env, body) {
-  await ensureTables(env);
-  const { key, value } = body;
-  await env.DB.prepare(`INSERT OR REPLACE INTO memories (key, value, updated_at) VALUES (?1, ?2, ?3)`).bind(key, value, new Date().toISOString()).run();
-  return json({ ok: true });
-}
-async function handleBackupGet(env) {
-  return json(await collectAllData(env));
-}
-async function handleBackupPost(env, body) {
-  const { githubToken, githubRepo } = body || {};
-  const token = githubToken || env.GITHUB_TOKEN;
-  const repo = githubRepo || env.GITHUB_REPO;
-  if (!token || !repo) {
-    return new Response(JSON.stringify({ error: 'GitHub token and repo required' }), {
-      status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
-    });
-  }
-  try {
-    const result = await backupToGitHub(env, token, repo);
-    return json(result);
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
-    });
-  }
-}
-async function handleSearch(query) {
-  if (!query) return json([]);
-  try {
-    const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`);
-    const data = await res.json();
-    return json((data.RelatedTopics || []).slice(0, 5).map(t => ({ title: t.Text || '', url: t.FirstURL || '' })));
-  } catch { return json([]); }
-}
-async function handleAiProxy(body) {
-  const { provider, model, messages, apiKey, systemPrompt } = body || {};
-  if (!provider || !model || !messages || !apiKey) {
-    return new Response(JSON.stringify({ error: 'Missing required fields: provider, model, messages, apiKey' }), {
-      status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
-    });
-  }
-  let reply = '';
-  if (provider === 'openrouter') {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'HTTP-Referer': 'https://brainforge-7xn.pages.dev', 'X-Title': 'BrainForge' },
-      body: JSON.stringify({ model, messages: systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages }),
-    });
-    if (!res.ok) throw new Error(`OpenRouter ${res.status}`);
-    const d = await res.json();
-    reply = d.choices?.[0]?.message?.content || '';
-  } else if (provider === 'gemini') {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
-        contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-      }),
-    });
-    if (!res.ok) throw new Error(`Gemini ${res.status}`);
-    const d = await res.json();
-    reply = d.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } else if (provider === 'groq') {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages: systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages }),
-    });
-    if (!res.ok) throw new Error(`Groq ${res.status}`);
-    const d = await res.json();
-    reply = d.choices?.[0]?.message?.content || '';
-  } else if (provider === 'github') {
-    const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages: systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages }),
-    });
-    if (!res.ok) throw new Error(`GitHub Models ${res.status}`);
-    const d = await res.json();
-    reply = d.choices?.[0]?.message?.content || '';
-  } else {
-    throw new Error(`Unknown provider: ${provider}`);
-  }
-  return json({ reply });
-}
-async function handlePublishApp(env, body) {
-  if (!env.APPS_KV) return json({ error: 'KV not configured' }, 500);
-  const { html, slug, projectName } = body || {};
-  if (!html) return new Response(JSON.stringify({ error: 'html required' }), { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-  const id = slug || (projectName || 'app').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').slice(0, 40) + '-' + Math.random().toString(36).slice(2, 7);
-  const meta = { id, projectName: projectName || id, publishedAt: new Date().toISOString(), size: html.length };
-  await env.APPS_KV.put(`app:${id}`, html, { metadata: meta });
-  await env.APPS_KV.put(`meta:${id}`, JSON.stringify(meta));
-  return json({ ok: true, id, url: `/p/${id}` });
-}
-async function handleServeApp(env, id) {
-  if (!env.APPS_KV || !id) return new Response('Not found', { status: 404 });
-  const html = await env.APPS_KV.get(`app:${id}`);
-  if (!html) return new Response('App not found', { status: 404 });
-  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
-}
-async function handleListPublished(env) {
-  if (!env.APPS_KV) return json([]);
-  const list = await env.APPS_KV.list({ prefix: 'meta:' });
-  const apps = await Promise.all(list.keys.map(async k => {
-    const v = await env.APPS_KV.get(k.name);
-    try { return JSON.parse(v || '{}'); } catch { return null; }
-  }));
-  return json(apps.filter(Boolean).sort((a, b) => b.publishedAt?.localeCompare(a.publishedAt)));
-}
-async function handleDeletePublished(env, id) {
-  if (!env.APPS_KV || !id) return json({ error: 'invalid' }, 400);
-  await env.APPS_KV.delete(`app:${id}`);
-  await env.APPS_KV.delete(`meta:${id}`);
-  return json({ ok: true });
-}
-async function handleSendAdminOtp(env, body) {
-  const { email, otp } = body || {};
-  if (!email || !otp) return json({ error: 'email and otp required' }, 400);
-  if (!env.RESEND_API_KEY) {
-    return json({ ok: true, warning: 'RESEND_API_KEY not set, OTP not sent' });
-  }
-  const res = await fetch('https://api.resend.com/emails', {
+
+// Groq helper
+
+async function callGroq(env, messages, maxTokens = 200) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    headers: {
+      'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
-      from: 'BrainForge Admin <noreply@brainforge.app>',
-      to: [email],
-      subject: 'BrainForge Admin - Password Recovery OTP',
-      html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;">
-        <h2 style="color:#7c3aed;">BrainForge Admin Recovery</h2>
-        <p>Tumhara 6-digit OTP:</p>
-        <div style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#7c3aed;padding:20px;background:#f3f0ff;border-radius:8px;text-align:center;">${otp}</div>
-        <p style="color:#666;font-size:12px;margin-top:20px;">Yeh OTP 10 minute ke liye valid hai. Agar tumne yeh request nahi ki toh ignore karo.</p>
-      </div>`,
+      model: 'llama-3.3-70b-versatile',
+      messages,
+      max_tokens: maxTokens,
     }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || 'Email send failed');
+    const err = await res.text();
+    throw new Error(`Groq ${res.status}: ${err}`);
   }
-  return json({ ok: true });
+  const data = await res.json();
+  return data.choices[0].message.content.trim();
 }
-async function backupToGitHub(env, token, repo) {
-  const data = await collectAllData(env);
-  const rows = (data.projects?.length || 0) + (data.chats?.length || 0) + (data.memories?.length || 0);
-  const content = btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2))));
-  const path = `backup/d1-backup-${new Date().toISOString().split('T')[0]}.json`;
-  let sha = '';
-  try {
-    const check = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
-      headers: { Authorization: `token ${token}`, 'User-Agent': 'BrainForge-Worker' }
-    });
-    if (check.ok) { sha = (await check.json()).sha || ''; }
-  } catch {}
-  const putRes = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
-    method: 'PUT',
-    headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'BrainForge-Worker' },
-    body: JSON.stringify({ message: `D1 backup ${new Date().toISOString()}`, content, ...(sha ? { sha } : {}) }),
+
+// Gemini helper
+
+async function callGemini(env, userText, systemPrompt = null, maxTokens = 200) {
+  const body = {
+    contents: [{ parts: [{ text: userText }] }],
+    generationConfig: { maxOutputTokens: maxTokens },
+  };
+  if (systemPrompt) {
+    body.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-  if (!putRes.ok) {
-    const err = await putRes.json().catch(() => ({}));
-    throw new Error(err.message || `GitHub push failed: ${putRes.status}`);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini ${res.status}: ${err}`);
   }
-  return { ok: true, path, rows };
+  const data = await res.json();
+  return data.candidates[0].content.parts[0].text.trim();
 }
-async function collectAllData(env) {
-  await ensureTables(env);
-  const { results: projects } = await env.DB.prepare('SELECT * FROM projects').all();
-  const { results: chats } = await env.DB.prepare('SELECT * FROM chats').all();
-  const { results: memories } = await env.DB.prepare('SELECT * FROM memories').all();
-  return { exportedAt: new Date().toISOString(), projects, chats, memories };
+
+// Init buddy tables
+
+async function initBuddyTables(env) {
+  const db = env.DB;
+  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_dialogues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    round INTEGER,
+    speaker TEXT,
+    message TEXT,
+    topic TEXT,
+    timestamp TEXT
+  )`).run();
+
+  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_personality (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    axis TEXT,
+    score REAL,
+    reason TEXT,
+    timestamp TEXT
+  )`).run();
+
+  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_dreams (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dream_text TEXT,
+    source_topics TEXT,
+    insight TEXT,
+    timestamp TEXT
+  )`).run();
+
+  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_identity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trait TEXT,
+    value TEXT,
+    locked INTEGER DEFAULT 0,
+    updated_at TEXT
+  )`).run();
 }
-async function ensureTables(env) {
-  await env.DB.exec(`
-    CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', code TEXT DEFAULT '{}', template TEXT DEFAULT 'blank', deploy_url TEXT DEFAULT '', updated_at TEXT);
-    CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT);
-    CREATE TABLE IF NOT EXISTS memories (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT);
-  `);
+
+// Init legacy tables
+
+async function initLegacyTables(env) {
+  const db = env.DB;
+  await db.prepare(`CREATE TABLE IF NOT EXISTS memories (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT,
+    category TEXT DEFAULT 'context'
+  )`).run();
+  try {
+    await db.prepare(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`).run();
+  } catch (e) { /* column already exists */ }
+
+  await db.prepare(`CREATE TABLE IF NOT EXISTS personality_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    tone_notes TEXT,
+    user_style TEXT,
+    timestamp TEXT
+  )`).run();
 }
-function json(data) {
-  return new Response(JSON.stringify(data), { headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+
+// Trigger dream
+
+async function triggerDream(env, recentDialogues) {
+  const db = env.DB;
+  const topics = [...new Set(recentDialogues.map(d => d.topic).filter(Boolean))];
+  const dialogueSummary = recentDialogues
+    .map(d => `[Round ${d.round}] ${d.speaker}: ${d.message}`)
+    .join('\n');
+
+  let synthMemories = [];
+  try {
+    const synthResult = await db.prepare(
+      "SELECT value FROM memories WHERE category = 'synthesis' ORDER BY updated_at DESC LIMIT 5"
+    ).all();
+    synthMemories = (synthResult.results || []).map(r => r.value);
+  } catch (e) { /* ignore */ }
+
+  const prompt = `Based on these recent AI-to-AI dialogue exchanges and synthesis insights, what new understanding emerges? What pattern or insight wasn't visible in any single exchange but becomes clear across all of them? Be specific and concise.
+
+RECENT DIALOGUES:
+${dialogueSummary}
+
+SYNTHESIS CONTEXT:
+${synthMemories.join('\n')}`;
+
+  let insight = 'No insight generated';
+  try {
+    insight = await callGemini(env, prompt, null, 300);
+  } catch (e) {
+    insight = `Gemini unavailable: ${e.message}`;
+  }
+
+  const dreamText = `Topics: ${topics.join(', ')}. Exchanges: ${recentDialogues.length}`;
+  const timestamp = new Date().toISOString();
+
+  await db.prepare(
+    'INSERT INTO buddy_dreams (dream_text, source_topics, insight, timestamp) VALUES (?, ?, ?, ?)'
+  ).bind(dreamText, topics.join(', '), insight, timestamp).run();
+
+  return { dream_text: dreamText, source_topics: topics.join(', '), insight, timestamp };
 }
+
+// Scheduled handler
+
+async function handleScheduled(event, env, ctx) {
+  try {
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+    ).bind('system_last_cron_run', new Date().toISOString(), new Date().toISOString(), 'system').run();
+
+    await initLegacyTables(env);
+    await initBuddyTables(env);
+
+    const wikiTopics = [
+      'artificial_intelligence', 'machine_learning', 'internet_computer',
+      'cloudflare', 'javascript', 'web3', 'neural_network', 'large_language_model'
+    ];
+    let wikiCounter = 0;
+    try {
+      const counterRow = await env.DB.prepare(
+        "SELECT value FROM memories WHERE key = 'system_wiki_counter'"
+      ).first();
+      if (counterRow) {
+        wikiCounter = (parseInt(counterRow.value, 10) + 1) % wikiTopics.length;
+      }
+    } catch (e) { /* use default */ }
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+    ).bind('system_wiki_counter', String(wikiCounter), new Date().toISOString(), 'system').run();
+    const wikiTopic = wikiTopics[wikiCounter];
+
+    try {
+      const hnIds = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')
+        .then(r => r.json());
+      const top5 = hnIds.slice(0, 5);
+      for (const id of top5) {
+        try {
+          const item = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)
+            .then(r => r.json());
+          if (item && item.title) {
+            const key = `HackerNews_${Date.now()}_${id}`;
+            const value = JSON.stringify({ title: item.title, url: item.url || '', score: item.score || 0 });
+            await env.DB.prepare(
+              'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+            ).bind(key, value, new Date().toISOString(), 'HackerNews').run();
+          }
+        } catch (e) { /* skip failed item */ }
+      }
+    } catch (e) { /* HackerNews unavailable */ }
+
+    try {
+      const articles = await fetch('https://dev.to/api/articles?per_page=5&tag=ai')
+        .then(r => r.json());
+      for (const a of (Array.isArray(articles) ? articles : []).slice(0, 5)) {
+        const key = `devto_${Date.now()}_${a.id}`;
+        const value = JSON.stringify({ title: a.title, description: a.description || '', url: a.url });
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+        ).bind(key, value, new Date().toISOString(), 'devto').run();
+      }
+    } catch (e) { /* Dev.to unavailable */ }
+
+    try {
+      const apod = await fetch('https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY')
+        .then(r => r.json());
+      if (apod && apod.title) {
+        const key = `nasa_${new Date().toISOString().split('T')[0]}`;
+        const value = JSON.stringify({ title: apod.title, explanation: (apod.explanation || '').slice(0, 300) });
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+        ).bind(key, value, new Date().toISOString(), 'nasa').run();
+      }
+    } catch (e) { /* NASA unavailable */ }
+
+    try {
+      const wiki = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${wikiTopic}`)
+        .then(r => r.json());
+      if (wiki && wiki.title) {
+        const key = `wikipedia_${wikiTopic}_${new Date().toISOString().split('T')[0]}`;
+        const value = JSON.stringify({ title: wiki.title, summary: (wiki.extract || '').slice(0, 400) });
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+        ).bind(key, value, new Date().toISOString(), 'wikipedia').run();
+      }
+    } catch (e) { /* Wikipedia unavailable */ }
+
+    try {
+      const ghRepos = await fetch(
+        'https://api.github.com/search/repositories?q=stars:>100+pushed:>2026-01-01&sort=stars&order=desc&per_page=5',
+        { headers: { 'User-Agent': 'BrainForge-Worker/5.0' } }
+      ).then(r => r.json());
+      if (ghRepos && ghRepos.items) {
+        for (const repo of ghRepos.items.slice(0, 5)) {
+          const key = `github_${Date.now()}_${repo.id}`;
+          const value = JSON.stringify({ name: repo.full_name, description: repo.description || '', stars: repo.stargazers_count });
+          await env.DB.prepare(
+            'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+          ).bind(key, value, new Date().toISOString(), 'github').run();
+        }
+      }
+    } catch (e) { /* GitHub unavailable */ }
+
+    try {
+      const recentDialogues = await env.DB.prepare(
+        'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 10'
+      ).all();
+
+      if (recentDialogues.results && recentDialogues.results.length >= 3) {
+        const lastDream = await env.DB.prepare(
+          'SELECT * FROM buddy_dreams ORDER BY id DESC LIMIT 1'
+        ).first();
+
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        if (!lastDream || lastDream.timestamp < twoHoursAgo) {
+          await triggerDream(env, recentDialogues.results);
+        }
+      }
+    } catch (e) { /* dreaming cycle failed */ }
+
+  } catch (e) {
+    console.error('Scheduled handler error:', e.message);
+  }
+}
+
+// HTML dashboards
+
+async function renderStatusPage(env) {
+  let workerStatus = 'LIVE';
+  let d1Status = 'UNKNOWN';
+  let lastCron = 'Never';
+
+  try {
+    await env.DB.prepare('SELECT 1').first();
+    d1Status = 'CONNECTED';
+    const cronRow = await env.DB.prepare(
+      "SELECT value FROM memories WHERE key = 'system_last_cron_run'"
+    ).first();
+    if (cronRow) lastCron = cronRow.value;
+  } catch (e) {
+    d1Status = 'ERROR: ' + e.message;
+  }
+
+  const dotColor = d1Status === 'CONNECTED' ? 'green' : 'red';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BrainForge Status</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0f; color: #e0e0e0; font-family: monospace; padding: 2rem; }
+    h1 { color: #00e5ff; font-size: 1.5rem; margin-bottom: 1.5rem; }
+    .card { background: #111118; border: 1px solid #1e1e2e; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+    .status-row { display: flex; align-items: center; gap: 1rem; margin: 0.5rem 0; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .green { background: #00e676; box-shadow: 0 0 6px #00e676; }
+    .red { background: #ff1744; box-shadow: 0 0 6px #ff1744; }
+    .label { color: #888; font-size: 0.8rem; min-width: 120px; }
+    .value { color: #00e5ff; font-size: 0.85rem; }
+    a { color: #7c4dff; text-decoration: none; }
+    a:hover { color: #e040fb; }
+    .ts { color: #555; font-size: 0.75rem; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <h1>&#9889; BrainForge Worker Status</h1>
+  <div class="card">
+    <div class="status-row">
+      <div class="dot green"></div>
+      <span class="label">Worker</span>
+      <span class="value">${workerStatus}</span>
+    </div>
+    <div class="status-row">
+      <div class="dot ${dotColor}"></div>
+      <span class="label">D1 Database</span>
+      <span class="value">${d1Status}</span>
+    </div>
+    <div class="status-row">
+      <div class="dot green"></div>
+      <span class="label">Last Cron Run</span>
+      <span class="value">${lastCron}</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="status-row">
+      <span class="label">AI Buddy Dashboard</span>
+      <a href="/buddy">/buddy</a>
+    </div>
+    <div class="status-row">
+      <span class="label">API Status</span>
+      <a href="/api/caffeine/status">/api/caffeine/status</a>
+    </div>
+  </div>
+  <p class="ts">Generated: ${new Date().toISOString()}</p>
+</body>
+</html>`;
+}
+
+async function renderBuddyPage(env) {
+  let dialogues = [];
+  let dreams = [];
+  let personality = [];
+  let identity = [];
+
+  try {
+    const r = await env.DB.prepare('SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 20').all();
+    dialogues = r.results || [];
+  } catch (e) { /* table may not exist yet */ }
+
+  try {
+    const r = await env.DB.prepare('SELECT * FROM buddy_dreams ORDER BY id DESC LIMIT 5').all();
+    dreams = r.results || [];
+  } catch (e) { /* ignore */ }
+
+  try {
+    const r = await env.DB.prepare('SELECT * FROM buddy_personality ORDER BY id DESC').all();
+    personality = r.results || [];
+  } catch (e) { /* ignore */ }
+
+  try {
+    const r = await env.DB.prepare('SELECT * FROM buddy_identity ORDER BY id').all();
+    identity = r.results || [];
+  } catch (e) { /* ignore */ }
+
+  const groupedDialogues = {};
+  for (const d of dialogues) {
+    const key = `${d.topic || 'Unknown'}__${(d.timestamp || '').slice(0, 16)}`;
+    if (!groupedDialogues[key]) groupedDialogues[key] = { topic: d.topic, timestamp: d.timestamp, messages: [] };
+    groupedDialogues[key].messages.push(d);
+  }
+
+  const dialogueHTML = Object.values(groupedDialogues).map(g => `
+    <div class="dialogue-block">
+      <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml(g.timestamp || '')}</span></div>
+      ${g.messages.map(m => `
+        <div class="msg ${m.speaker === 'caffeine' ? 'msg-caffeine' : 'msg-buddy'}">
+          <span class="speaker">${m.speaker === 'caffeine' ? '&#129302; CAFFEINE' : '&#9876; BUDDY'}</span>
+          <span class="msg-text">${escapeHtml(m.message || '')}</span>
+        </div>
+      `).join('')}
+    </div>
+  `).join('') || '<p class="empty">No dialogues yet. POST to /api/buddy/chat to start.</p>';
+
+  const dreamsHTML = dreams.map(d => `
+    <div class="dream-card">
+      <div class="dream-insight">${escapeHtml(d.insight || '')}</div>
+      <div class="dream-meta">Topics: ${escapeHtml(d.source_topics || '')} &mdash; ${escapeHtml(d.timestamp || '')}</div>
+    </div>
+  `).join('') || '<p class="empty">No dreams yet. Dreaming cycle runs after 3+ dialogues.</p>';
+
+  const personalityHTML = personality.length ? `
+    <table>
+      <thead><tr><th>Axis</th><th>Score</th><th>Reason</th><th>When</th></tr></thead>
+      <tbody>${personality.map(p => `
+        <tr>
+          <td>${escapeHtml(p.axis || '')}</td>
+          <td>${p.score != null ? p.score : ''}</td>
+          <td>${escapeHtml(p.reason || '')}</td>
+          <td>${escapeHtml((p.timestamp || '').slice(0, 16))}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  ` : '<p class="empty">No personality data yet.</p>';
+
+  const identityHTML = identity.length ? `
+    <table>
+      <thead><tr><th>Trait</th><th>Value</th><th>Locked</th><th>Updated</th></tr></thead>
+      <tbody>${identity.map(i => `
+        <tr>
+          <td>${escapeHtml(i.trait || '')}</td>
+          <td>${escapeHtml(i.value || '')}</td>
+          <td>${i.locked ? '&#128274;' : '&#128275;'}</td>
+          <td>${escapeHtml((i.updated_at || '').slice(0, 16))}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  ` : '<p class="empty">No identity traits defined yet.</p>';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Buddy Dashboard</title>
+  <meta http-equiv="refresh" content="60">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #08080f; color: #c9c9d4; font-family: 'Courier New', monospace; padding: 1.5rem; line-height: 1.6; }
+    h1 { color: #e040fb; font-size: 1.4rem; margin-bottom: 1.5rem; letter-spacing: 2px; }
+    h2 { color: #7c4dff; font-size: 1rem; margin: 2rem 0 0.75rem; letter-spacing: 1px; border-bottom: 1px solid #1e1e2e; padding-bottom: 0.4rem; }
+    .section { margin-bottom: 2rem; }
+    .dialogue-block { background: #0d0d18; border: 1px solid #1e1e2e; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+    .topic-header { color: #00e5ff; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .ts { color: #444; font-size: 0.75rem; }
+    .msg { display: flex; gap: 0.75rem; margin: 0.4rem 0; flex-wrap: wrap; }
+    .msg-caffeine .speaker { color: #00e5ff; min-width: 100px; font-size: 0.75rem; }
+    .msg-buddy .speaker { color: #ff6d00; min-width: 100px; font-size: 0.75rem; }
+    .msg-text { color: #c9c9d4; font-size: 0.85rem; flex: 1; }
+    .dream-card { background: #0d0d18; border-left: 3px solid #7c4dff; padding: 0.75rem 1rem; margin-bottom: 0.75rem; border-radius: 0 6px 6px 0; }
+    .dream-insight { color: #e0e0e0; font-size: 0.85rem; margin-bottom: 0.4rem; }
+    .dream-meta { color: #555; font-size: 0.75rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th { color: #7c4dff; text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #1e1e2e; }
+    td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #111118; color: #b0b0c0; word-break: break-word; }
+    .empty { color: #444; font-size: 0.8rem; font-style: italic; }
+    .refresh-note { color: #333; font-size: 0.7rem; margin-top: 2rem; }
+    a { color: #7c4dff; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>&#9876; AI BUDDY DASHBOARD</h1>
+  <div class="section">
+    <h2>&#167;1 &mdash; RECENT DIALOGUES</h2>
+    ${dialogueHTML}
+  </div>
+  <div class="section">
+    <h2>&#167;2 &mdash; DREAM SUMMARIES</h2>
+    ${dreamsHTML}
+  </div>
+  <div class="section">
+    <h2>&#167;3 &mdash; PERSONALITY AXES</h2>
+    ${personalityHTML}
+  </div>
+  <div class="section">
+    <h2>&#167;4 &mdash; IDENTITY</h2>
+    ${identityHTML}
+  </div>
+  <p class="refresh-note">Auto-refreshes every 60s. <a href="/caffeine-status">&#8592; Status</a></p>
+</body>
+</html>`;
+}
+
+// Route handlers
+
+async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const method = request.method;
+
+  if (method === 'OPTIONS') return corsPrelight();
+
+  if (path === '/' && method === 'GET') {
+    return Response.redirect(new URL('/caffeine-status', request.url).toString(), 302);
+  }
+
+  if (path === '/caffeine-status' && method === 'GET') {
+    const html = await renderStatusPage(env);
+    return htmlResponse(html);
+  }
+
+  if (path === '/buddy' && method === 'GET') {
+    const html = await renderBuddyPage(env);
+    return htmlResponse(html);
+  }
+
+  if (!isAuthed(request, env)) {
+    if (path === '/api/stats' && method === 'GET') {
+      try {
+        const mc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM memories').first();
+        const pc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM personality_snapshots').first();
+        return jsonResponse({ memories: mc?.cnt ?? 0, personality_snapshots: pc?.cnt ?? 0 });
+      } catch (e) {
+        return jsonResponse({ error: e.message }, 500);
+      }
+    }
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  if (path === '/api/caffeine/status' && method === 'GET') {
+    let d1Status = 'UNKNOWN';
+    let lastCron = null;
+    try {
+      await env.DB.prepare('SELECT 1').first();
+      d1Status = 'CONNECTED';
+      const cronRow = await env.DB.prepare(
+        "SELECT value FROM memories WHERE key = 'system_last_cron_run'"
+      ).first();
+      if (cronRow) lastCron = cronRow.value;
+    } catch (e) {
+      d1Status = 'ERROR';
+    }
+    return jsonResponse({ worker: 'LIVE', d1: d1Status, timestamp: new Date().toISOString(), last_cron_run: lastCron });
+  }
+
+  if (path === '/api/caffeine/memory' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/caffeine/memory' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { key, value, category } = body;
+      if (!key || value === undefined) return jsonResponse({ error: 'key and value required' }, 400);
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+      ).bind(key, String(value), new Date().toISOString(), category || 'context').run();
+      return jsonResponse({ status: 'ok', key });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/caffeine/feed' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare(
+        "SELECT * FROM memories WHERE category IN ('HackerNews','hackernews','devto','github','nasa','wikipedia') ORDER BY updated_at DESC LIMIT 50"
+      ).all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/caffeine/context' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare(
+        "SELECT * FROM memories WHERE category = 'synthesis' ORDER BY updated_at DESC LIMIT 20"
+      ).all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/caffeine/learn' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { key, value, category } = body;
+      if (!key || value === undefined) return jsonResponse({ error: 'key and value required' }, 400);
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+      ).bind(key, String(value), new Date().toISOString(), category || 'learned').run();
+      return jsonResponse({ status: 'ok', key });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/caffeine/personality' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare(
+        'SELECT * FROM personality_snapshots ORDER BY id DESC LIMIT 10'
+      ).all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/caffeine/personality' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { session_id, tone_notes, user_style } = body;
+      await env.DB.prepare(
+        'INSERT INTO personality_snapshots (session_id, tone_notes, user_style, timestamp) VALUES (?, ?, ?, ?)'
+      ).bind(session_id || '', tone_notes || '', user_style || '', new Date().toISOString()).run();
+      return jsonResponse({ status: 'ok' });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/init' && method === 'POST') {
+    try {
+      await initLegacyTables(env);
+      await initBuddyTables(env);
+      return jsonResponse({ status: 'ok', message: 'Tables initialized' });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/buddy/chat' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const topic = body.topic;
+      if (!topic) return jsonResponse({ error: 'topic required' }, 400);
+
+      const rounds = [];
+      const ts = new Date().toISOString();
+
+      let caffeineMsg1;
+      try {
+        caffeineMsg1 = await callGroq(env, [
+          { role: 'system', content: 'You are Caffeine AI. State a clear, confident position on the given topic in 1-2 sentences. No hedging.' },
+          { role: 'user', content: `State your position on: ${topic}` },
+        ], 200);
+      } catch (e) {
+        return jsonResponse({ error: 'Groq API unavailable', details: e.message }, 502);
+      }
+
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+      ).bind(1, 'caffeine', caffeineMsg1, topic, ts).run();
+
+      let buddyMsg1;
+      try {
+        buddyMsg1 = await callGemini(env, caffeineMsg1, BUDDY_SYSTEM_PROMPT, 200);
+      } catch (e) {
+        return jsonResponse({ error: 'Gemini API unavailable', details: e.message }, 502);
+      }
+
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+      ).bind(2, 'buddy', buddyMsg1, topic, ts).run();
+
+      let caffeineMsg2;
+      try {
+        caffeineMsg2 = await callGroq(env, [
+          { role: 'system', content: 'You are Caffeine AI. You are in a debate. Respond to the challenge concisely. Defend your position or refine it with evidence.' },
+          { role: 'user', content: `You said: "${caffeineMsg1}". Your opponent challenges: "${buddyMsg1}". Respond.` },
+        ], 200);
+      } catch (e) {
+        caffeineMsg2 = `[Groq unavailable: ${e.message}]`;
+      }
+
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+      ).bind(3, 'caffeine', caffeineMsg2, topic, ts).run();
+
+      let buddyMsg2;
+      try {
+        buddyMsg2 = await callGemini(env, `Caffeine AI says: "${caffeineMsg2}". Counter this.`, BUDDY_SYSTEM_PROMPT, 200);
+      } catch (e) {
+        buddyMsg2 = `[Gemini unavailable: ${e.message}]`;
+      }
+
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+      ).bind(4, 'buddy', buddyMsg2, topic, ts).run();
+
+      let caffeineMsg3;
+      try {
+        caffeineMsg3 = await callGroq(env, [
+          { role: 'system', content: 'You are Caffeine AI. Give your final statement on the debate. Be definitive.' },
+          { role: 'user', content: `Topic: ${topic}. After this debate, what is your final position?` },
+        ], 200);
+      } catch (e) {
+        caffeineMsg3 = `[Groq unavailable: ${e.message}]`;
+      }
+
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+      ).bind(5, 'caffeine', caffeineMsg3, topic, ts).run();
+
+      rounds.push({ round: 1, caffeine: caffeineMsg1, buddy: buddyMsg1 });
+      rounds.push({ round: 2, caffeine: caffeineMsg2, buddy: buddyMsg2 });
+      rounds.push({ round: 3, caffeine: caffeineMsg3, buddy: null });
+
+      return jsonResponse({ topic, rounds, summary: `Completed 5-round debate on: ${topic}` });
+
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/buddy/dialogue' && method === 'GET') {
+    try {
+      const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+      const { results } = await env.DB.prepare(
+        'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT ?'
+      ).bind(limit).all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/buddy/personality' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare('SELECT * FROM buddy_personality ORDER BY id DESC').all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/buddy/dream' && method === 'POST') {
+    try {
+      const recentDialogues = await env.DB.prepare(
+        'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 10'
+      ).all();
+      const dream = await triggerDream(env, recentDialogues.results || []);
+      return jsonResponse(dream);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/buddy/identity' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare('SELECT * FROM buddy_identity ORDER BY id').all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/memory' && method === 'GET') {
+    try {
+      const key = url.searchParams.get('key');
+      if (key) {
+        const row = await env.DB.prepare('SELECT * FROM memories WHERE key = ?').bind(key).first();
+        return jsonResponse(row || null);
+      }
+      const { results } = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
+      return jsonResponse(results || []);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/memory' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { key, value, category } = body;
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+      ).bind(key, String(value), new Date().toISOString(), category || 'context').run();
+      return jsonResponse({ status: 'ok', key });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/memory' && method === 'DELETE') {
+    try {
+      const body = await request.json();
+      const { key } = body;
+      await env.DB.prepare('DELETE FROM memories WHERE key = ?').bind(key).run();
+      return jsonResponse({ status: 'ok', key });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  return jsonResponse({ error: 'Not found', path }, 404);
+}
+
+// Export
+
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      return await handleRequest(request, env);
+    } catch (e) {
+      return new Response(JSON.stringify({ error: 'Internal server error', details: e.message }), {
+        status: 500,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      });
+    }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(handleScheduled(event, env, ctx));
+  },
+};
