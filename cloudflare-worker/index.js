@@ -33,13 +33,13 @@ export default {
         memoriesCount = mc?.cnt || 0;
       } catch(e) {}
       try {
-        await env.DB.exec(`CREATE TABLE IF NOT EXISTS personality_snapshots (
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS personality_snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           session_id TEXT NOT NULL,
           tone_notes TEXT DEFAULT '',
           user_style TEXT DEFAULT '',
           timestamp TEXT NOT NULL
-        )`);
+        )`).run();
         const pc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM personality_snapshots').first();
         personalityCount = pc?.cnt || 0;
       } catch(e) {}
@@ -497,22 +497,22 @@ async function runAutonomousLearning(env) {
 // ==========================================
 async function ensureCaffeineTables(env) {
   try {
-    await env.DB.exec(`CREATE TABLE IF NOT EXISTS memories (
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memories (
       key TEXT PRIMARY KEY,
       value TEXT,
       category TEXT DEFAULT 'context',
       updated_at TEXT
-    )`);
+    )`).run();
   } catch(e) {}
-  try { await env.DB.exec(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`); } catch(e) {}
+  try { await env.DB.prepare(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`).run(); } catch(e) {}
   try {
-    await env.DB.exec(`CREATE TABLE IF NOT EXISTS personality_snapshots (
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS personality_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id TEXT NOT NULL,
       tone_notes TEXT DEFAULT '',
       user_style TEXT DEFAULT '',
       timestamp TEXT NOT NULL
-    )`);
+    )`).run();
   } catch(e) {}
 }
 
