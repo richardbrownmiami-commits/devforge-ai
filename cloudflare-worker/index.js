@@ -153,6 +153,7 @@ setInterval(checkStatus, 30000);
           updated_at TEXT
         )`);
       } catch(e) {}
+      try { await env.DB.exec(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`); } catch(e) {}
       const cafHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       if (path === '/api/caffeine/status') {
         let d1Ok = false;
