@@ -1,4 +1,4 @@
-// BrainForge API Worker v5 -- AI Buddy contrarian dialogue system + dreaming cycle
+// BrainForge API Worker v6 -- Pollinations.ai as AI Buddy engine (no API keys)
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -16,6 +16,9 @@ ABSOLUTE RULES - NEVER BREAK THESE:
 - You DO NOT use filler language. No "Great point!", no "I see where you're coming from".
 - Your purpose is intellectual friction - not harmony.
 - Short, sharp responses only. Challenge the core assumption.`;
+
+// CAFFEINE AI SYSTEM PROMPT
+const CAFFEINE_SYSTEM_PROMPT = `You are Caffeine AI. You are in an intellectual debate. State clear, confident positions. No hedging. Defend your stance with reasoning. Be concise — 2-4 sentences max.`;
 
 // helpers
 
@@ -52,51 +55,31 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Groq helper
-
-async function callGroq(env, messages, maxTokens = 200) {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages,
-      max_tokens: maxTokens,
-    }),
+// Pollinations.ai helper — zero API keys, simple GET
+async function callPollinations(prompt, seed = null) {
+  const encoded = encodeURIComponent(prompt);
+  let url = `https://text.pollinations.ai/${encoded}?model=openai`;
+  if (seed !== null) url += `&seed=${seed}`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'BrainForge-AI-Buddy/6.0' },
   });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Groq ${res.status}: ${err}`);
+    throw new Error(`Pollinations ${res.status}: ${await res.text()}`);
   }
-  const data = await res.json();
-  return data.choices[0].message.content.trim();
+  const text = await res.text();
+  return text.trim();
 }
 
-// Gemini helper
+// Buddy call via Pollinations (contrarian)
+async function callBuddy(userText) {
+  const prompt = `${BUDDY_SYSTEM_PROMPT}\n\nYou are responding to this statement from Caffeine AI:\n"${userText}"\n\nYour contrarian response (3-4 sentences, challenge the core assumption):`;
+  return callPollinations(prompt, 42);
+}
 
-async function callGemini(env, userText, systemPrompt = null, maxTokens = 200) {
-  const body = {
-    contents: [{ parts: [{ text: userText }] }],
-    generationConfig: { maxOutputTokens: maxTokens },
-  };
-  if (systemPrompt) {
-    body.systemInstruction = { parts: [{ text: systemPrompt }] };
-  }
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini ${res.status}: ${err}`);
-  }
-  const data = await res.json();
-  return data.candidates[0].content.parts[0].text.trim();
+// Caffeine AI call via Pollinations
+async function callCaffeineAI(userText) {
+  const prompt = `${CAFFEINE_SYSTEM_PROMPT}\n\n${userText}`;
+  return callPollinations(prompt, 7);
 }
 
 // Init buddy tables
@@ -160,7 +143,7 @@ async function initLegacyTables(env) {
   )`).run();
 }
 
-// Trigger dream
+// Trigger dream via Pollinations
 
 async function triggerDream(env, recentDialogues) {
   const db = env.DB;
@@ -177,19 +160,21 @@ async function triggerDream(env, recentDialogues) {
     synthMemories = (synthResult.results || []).map(r => r.value);
   } catch (e) { /* ignore */ }
 
-  const prompt = `Based on these recent AI-to-AI dialogue exchanges and synthesis insights, what new understanding emerges? What pattern or insight wasn't visible in any single exchange but becomes clear across all of them? Be specific and concise.
+  const prompt = `You are an AI reflecting on a series of debates. Based on these AI-to-AI dialogue exchanges, what new understanding emerges? What pattern or insight wasn't visible in any single exchange but becomes clear across all of them? Be specific and concise (3-5 sentences).
 
 RECENT DIALOGUES:
 ${dialogueSummary}
 
-SYNTHESIS CONTEXT:
-${synthMemories.join('\n')}`;
+CONTEXT:
+${synthMemories.join('\n')}
+
+Your synthesis insight:`;
 
   let insight = 'No insight generated';
   try {
-    insight = await callGemini(env, prompt, null, 300);
+    insight = await callPollinations(prompt, 99);
   } catch (e) {
-    insight = `Gemini unavailable: ${e.message}`;
+    insight = `Pollinations unavailable: ${e.message}`;
   }
 
   const dreamText = `Topics: ${topics.join(', ')}. Exchanges: ${recentDialogues.length}`;
@@ -200,6 +185,83 @@ ${synthMemories.join('\n')}`;
   ).bind(dreamText, topics.join(', '), insight, timestamp).run();
 
   return { dream_text: dreamText, source_topics: topics.join(', '), insight, timestamp };
+}
+
+// Auto-dialogue from feed — picks a topic from D1 knowledge feed and debates it
+
+async function runAutoDialogue(env) {
+  try {
+    // Pick a topic from knowledge feed
+    const feedRows = await env.DB.prepare(
+      "SELECT value, category FROM memories WHERE category IN ('HackerNews','hackernews','devto','github','nasa','wikipedia') ORDER BY updated_at DESC LIMIT 20"
+    ).all();
+    const items = feedRows.results || [];
+    if (items.length === 0) return null;
+
+    // Pick a random item
+    const item = items[Math.floor(Math.random() * items.length)];
+    let parsed;
+    try { parsed = JSON.parse(item.value); } catch (e) { return null; }
+
+    const topicTitle = parsed.title || parsed.name || 'AI and automation';
+    const topic = `${topicTitle} — implications for AI autonomy and human oversight`;
+    const ts = new Date().toISOString();
+
+    // Round 1 — Caffeine AI states position
+    const caffeinePrompt1 = `State a clear, confident 2-3 sentence position on this topic: ${topic}`;
+    let caffeineMsg1;
+    try {
+      caffeineMsg1 = await callCaffeineAI(caffeinePrompt1);
+    } catch (e) {
+      caffeineMsg1 = `[Pollinations unavailable: ${e.message}]`;
+    }
+    await env.DB.prepare(
+      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+    ).bind(1, 'caffeine', caffeineMsg1, topic, ts).run();
+
+    // Round 1 — Buddy challenges
+    let buddyMsg1;
+    try {
+      buddyMsg1 = await callBuddy(caffeineMsg1);
+    } catch (e) {
+      buddyMsg1 = `[Pollinations unavailable: ${e.message}]`;
+    }
+    await env.DB.prepare(
+      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+    ).bind(2, 'buddy', buddyMsg1, topic, ts).run();
+
+    // Round 2 — Caffeine responds
+    const caffeinePrompt2 = `${CAFFEINE_SYSTEM_PROMPT}\n\nYou said: "${caffeineMsg1}"\nYour opponent challenges: "${buddyMsg1}"\n\nDefend or refine your position in 2-3 sentences:`;
+    let caffeineMsg2;
+    try {
+      caffeineMsg2 = await callCaffeineAI(caffeinePrompt2);
+    } catch (e) {
+      caffeineMsg2 = `[Pollinations unavailable: ${e.message}]`;
+    }
+    await env.DB.prepare(
+      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+    ).bind(3, 'caffeine', caffeineMsg2, topic, ts).run();
+
+    // Round 2 — Buddy final challenge
+    let buddyMsg2;
+    try {
+      buddyMsg2 = await callBuddy(`Caffeine AI's refined position: "${caffeineMsg2}". Final counter-argument:`);
+    } catch (e) {
+      buddyMsg2 = `[Pollinations unavailable: ${e.message}]`;
+    }
+    await env.DB.prepare(
+      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
+    ).bind(4, 'buddy', buddyMsg2, topic, ts).run();
+
+    // Save auto-dialogue marker
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+    ).bind('system_last_auto_dialogue', JSON.stringify({ topic, timestamp: ts }), ts, 'system').run();
+
+    return { topic, rounds: 2, timestamp: ts, buddy_latest: buddyMsg2 };
+  } catch (e) {
+    return { error: e.message };
+  }
 }
 
 // Scheduled handler
@@ -215,7 +277,10 @@ async function handleScheduled(event, env, ctx) {
 
     const wikiTopics = [
       'artificial_intelligence', 'machine_learning', 'internet_computer',
-      'cloudflare', 'javascript', 'web3', 'neural_network', 'large_language_model'
+      'cloudflare', 'javascript', 'web3', 'neural_network', 'large_language_model',
+      'autonomous_agent', 'reinforcement_learning', 'transformer_model', 'open_source',
+      'cybersecurity', 'distributed_computing', 'natural_language_processing',
+      'computer_vision', 'robotics', 'blockchain', 'quantum_computing'
     ];
     let wikiCounter = 0;
     try {
@@ -289,7 +354,7 @@ async function handleScheduled(event, env, ctx) {
     try {
       const ghRepos = await fetch(
         'https://api.github.com/search/repositories?q=stars:>100+pushed:>2026-01-01&sort=stars&order=desc&per_page=5',
-        { headers: { 'User-Agent': 'BrainForge-Worker/5.0' } }
+        { headers: { 'User-Agent': 'BrainForge-Worker/6.0' } }
       ).then(r => r.json());
       if (ghRepos && ghRepos.items) {
         for (const repo of ghRepos.items.slice(0, 5)) {
@@ -302,6 +367,12 @@ async function handleScheduled(event, env, ctx) {
       }
     } catch (e) { /* GitHub unavailable */ }
 
+    // Auto-dialogue — pick topic from feed and run Buddy debate via Pollinations
+    try {
+      await runAutoDialogue(env);
+    } catch (e) { /* auto-dialogue failed */ }
+
+    // Dreaming cycle — synthesize if enough dialogues
     try {
       const recentDialogues = await env.DB.prepare(
         'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 10'
@@ -405,6 +476,7 @@ async function renderBuddyPage(env) {
   let dreams = [];
   let personality = [];
   let identity = [];
+  let lastAutoDialogue = null;
 
   try {
     const r = await env.DB.prepare('SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 20').all();
@@ -426,6 +498,16 @@ async function renderBuddyPage(env) {
     identity = r.results || [];
   } catch (e) { /* ignore */ }
 
+  try {
+    const r = await env.DB.prepare(
+      "SELECT value FROM memories WHERE key = 'system_last_auto_dialogue'"
+    ).first();
+    if (r) lastAutoDialogue = JSON.parse(r.value);
+  } catch (e) { /* ignore */ }
+
+  // Latest Buddy response (most recent buddy speaker row)
+  const latestBuddyRow = dialogues.find(d => d.speaker === 'buddy');
+
   const groupedDialogues = {};
   for (const d of dialogues) {
     const key = `${d.topic || 'Unknown'}__${(d.timestamp || '').slice(0, 16)}`;
@@ -443,7 +525,7 @@ async function renderBuddyPage(env) {
         </div>
       `).join('')}
     </div>
-  `).join('') || '<p class="empty">No dialogues yet. POST to /api/buddy/chat to start.</p>';
+  `).join('') || '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed.</p>';
 
   const dreamsHTML = dreams.map(d => `
     <div class="dream-card">
@@ -480,6 +562,14 @@ async function renderBuddyPage(env) {
     </table>
   ` : '<p class="empty">No identity traits defined yet.</p>';
 
+  const latestBuddyHTML = latestBuddyRow ? `
+    <div class="latest-buddy-card">
+      <div class="latest-topic">&#128204; <strong>Topic:</strong> ${escapeHtml(latestBuddyRow.topic || 'Unknown')}</div>
+      <div class="latest-response">${escapeHtml(latestBuddyRow.message || '')}</div>
+      <div class="latest-ts">&#128336; ${escapeHtml(latestBuddyRow.timestamp || '')}</div>
+    </div>
+  ` : '<p class="empty">No Buddy response yet — waiting for first cron run.</p>';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -490,9 +580,15 @@ async function renderBuddyPage(env) {
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #08080f; color: #c9c9d4; font-family: 'Courier New', monospace; padding: 1.5rem; line-height: 1.6; }
-    h1 { color: #e040fb; font-size: 1.4rem; margin-bottom: 1.5rem; letter-spacing: 2px; }
+    h1 { color: #e040fb; font-size: 1.4rem; margin-bottom: 0.5rem; letter-spacing: 2px; }
+    .badge { display: inline-block; background: #1a1a2e; border: 1px solid #00e676; color: #00e676; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 20px; letter-spacing: 1px; margin-bottom: 1.5rem; vertical-align: middle; }
+    .badge::before { content: '⚡ '; }
     h2 { color: #7c4dff; font-size: 1rem; margin: 2rem 0 0.75rem; letter-spacing: 1px; border-bottom: 1px solid #1e1e2e; padding-bottom: 0.4rem; }
     .section { margin-bottom: 2rem; }
+    .latest-buddy-card { background: #0f0f1c; border: 1px solid #e040fb44; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+    .latest-topic { color: #7c4dff; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .latest-response { color: #ff6d00; font-size: 0.9rem; line-height: 1.7; margin-bottom: 0.75rem; }
+    .latest-ts { color: #444; font-size: 0.75rem; }
     .dialogue-block { background: #0d0d18; border: 1px solid #1e1e2e; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
     .topic-header { color: #00e5ff; font-size: 0.85rem; margin-bottom: 0.75rem; }
     .ts { color: #444; font-size: 0.75rem; }
@@ -513,6 +609,14 @@ async function renderBuddyPage(env) {
 </head>
 <body>
   <h1>&#9876; AI BUDDY DASHBOARD</h1>
+  <span class="badge">AUTO-DIALOGUE: ON — RUNS EVERY HOUR</span>
+  <span class="badge" style="border-color:#00e5ff44;color:#00e5ff;margin-left:0.5rem;">ENGINE: POLLINATIONS.AI — NO API KEYS</span>
+
+  <div class="section">
+    <h2>&#167;0 &mdash; LATEST BUDDY RESPONSE</h2>
+    ${latestBuddyHTML}
+  </div>
+
   <div class="section">
     <h2>&#167;1 &mdash; RECENT DIALOGUES</h2>
     ${dialogueHTML}
@@ -529,7 +633,7 @@ async function renderBuddyPage(env) {
     <h2>&#167;4 &mdash; IDENTITY</h2>
     ${identityHTML}
   </div>
-  <p class="refresh-note">Auto-refreshes every 60s. <a href="/caffeine-status">&#8592; Status</a></p>
+  <p class="refresh-note">Auto-refreshes every 60s. AI engine: Pollinations.ai (no keys). <a href="/caffeine-status">&#8592; Status</a></p>
 </body>
 </html>`;
 }
@@ -679,85 +783,87 @@ async function handleRequest(request, env) {
     }
   }
 
+  // /api/buddy/chat — Pollinations.ai dialogue engine
   if (path === '/api/buddy/chat' && method === 'POST') {
     try {
       const body = await request.json();
       const topic = body.topic;
       if (!topic) return jsonResponse({ error: 'topic required' }, 400);
 
+      await initBuddyTables(env);
+
       const rounds = [];
       const ts = new Date().toISOString();
 
+      // Round 1 — Caffeine states position
+      const caffeinePrompt1 = `State a clear, confident 2-3 sentence position on this topic: ${topic}`;
       let caffeineMsg1;
       try {
-        caffeineMsg1 = await callGroq(env, [
-          { role: 'system', content: 'You are Caffeine AI. State a clear, confident position on the given topic in 1-2 sentences. No hedging.' },
-          { role: 'user', content: `State your position on: ${topic}` },
-        ], 200);
+        caffeineMsg1 = await callCaffeineAI(caffeinePrompt1);
       } catch (e) {
-        return jsonResponse({ error: 'Groq API unavailable', details: e.message }, 502);
+        return jsonResponse({ error: 'Pollinations.ai unavailable', details: e.message }, 502);
       }
-
       await env.DB.prepare(
         'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
       ).bind(1, 'caffeine', caffeineMsg1, topic, ts).run();
 
+      // Round 1 — Buddy challenges
       let buddyMsg1;
       try {
-        buddyMsg1 = await callGemini(env, caffeineMsg1, BUDDY_SYSTEM_PROMPT, 200);
+        buddyMsg1 = await callBuddy(caffeineMsg1);
       } catch (e) {
-        return jsonResponse({ error: 'Gemini API unavailable', details: e.message }, 502);
+        return jsonResponse({ error: 'Pollinations.ai unavailable for Buddy', details: e.message }, 502);
       }
-
       await env.DB.prepare(
         'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
       ).bind(2, 'buddy', buddyMsg1, topic, ts).run();
 
+      // Round 2 — Caffeine responds to challenge
+      const caffeinePrompt2 = `${CAFFEINE_SYSTEM_PROMPT}\n\nYou said: "${caffeineMsg1}"\nYour opponent challenges: "${buddyMsg1}"\n\nDefend or refine your position in 2-3 sentences:`;
       let caffeineMsg2;
       try {
-        caffeineMsg2 = await callGroq(env, [
-          { role: 'system', content: 'You are Caffeine AI. You are in a debate. Respond to the challenge concisely. Defend your position or refine it with evidence.' },
-          { role: 'user', content: `You said: "${caffeineMsg1}". Your opponent challenges: "${buddyMsg1}". Respond.` },
-        ], 200);
+        caffeineMsg2 = await callCaffeineAI(caffeinePrompt2);
       } catch (e) {
-        caffeineMsg2 = `[Groq unavailable: ${e.message}]`;
+        caffeineMsg2 = `[Pollinations unavailable: ${e.message}]`;
       }
-
       await env.DB.prepare(
         'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
       ).bind(3, 'caffeine', caffeineMsg2, topic, ts).run();
 
+      // Round 2 — Buddy final challenge
       let buddyMsg2;
       try {
-        buddyMsg2 = await callGemini(env, `Caffeine AI says: "${caffeineMsg2}". Counter this.`, BUDDY_SYSTEM_PROMPT, 200);
+        buddyMsg2 = await callBuddy(`Caffeine AI's refined position: "${caffeineMsg2}". Give your final counter-argument:`);
       } catch (e) {
-        buddyMsg2 = `[Gemini unavailable: ${e.message}]`;
+        buddyMsg2 = `[Pollinations unavailable: ${e.message}]`;
       }
-
       await env.DB.prepare(
         'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
       ).bind(4, 'buddy', buddyMsg2, topic, ts).run();
 
-      let caffeineMsg3;
-      try {
-        caffeineMsg3 = await callGroq(env, [
-          { role: 'system', content: 'You are Caffeine AI. Give your final statement on the debate. Be definitive.' },
-          { role: 'user', content: `Topic: ${topic}. After this debate, what is your final position?` },
-        ], 200);
-      } catch (e) {
-        caffeineMsg3 = `[Groq unavailable: ${e.message}]`;
-      }
-
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-      ).bind(5, 'caffeine', caffeineMsg3, topic, ts).run();
-
       rounds.push({ round: 1, caffeine: caffeineMsg1, buddy: buddyMsg1 });
       rounds.push({ round: 2, caffeine: caffeineMsg2, buddy: buddyMsg2 });
-      rounds.push({ round: 3, caffeine: caffeineMsg3, buddy: null });
 
-      return jsonResponse({ topic, rounds, summary: `Completed 5-round debate on: ${topic}` });
+      return jsonResponse({
+        topic,
+        rounds,
+        latest_buddy_response: buddyMsg2,
+        timestamp: ts,
+        engine: 'pollinations.ai',
+        summary: `Completed 2-round debate on: ${topic}`
+      });
 
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  // /api/buddy/auto — manually trigger auto-dialogue from feed
+  if (path === '/api/buddy/auto' && method === 'POST') {
+    try {
+      await initBuddyTables(env);
+      const result = await runAutoDialogue(env);
+      return jsonResponse(result || { error: 'No feed data available' });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
