@@ -1,0 +1,27 @@
+name: Knowledge Cron Fetcher
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  fetch-knowledge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run knowledge fetcher
+        env:
+          BRAINFORGE_SECRET: ${{ secrets.BRAINFORGE_SECRET }}
+          BRAINFORGE_URL: https://brainforge-api.richard-brown-miami.workers.dev
+        run: python scripts/knowledge_fetcher.py
