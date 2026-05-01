@@ -554,27 +554,38 @@ async function renderBuddyPage(env) {
   let lastAutoDialogue = null;
 
   try {
-    const errorFilters = [
-      "message NOT LIKE '[Pollinations%'",
-      "message NOT LIKE 'Pollinations %'",
-      "message NOT LIKE '[ARA unavailable%'",
-      "message NOT LIKE 'ARA unavailable%'",
-      'message NOT LIKE '{"error%'',
-      "message NOT LIKE '%502%'",
-      "message NOT LIKE '%429%'",
-      "message NOT LIKE '%queue%'",
-      "message NOT LIKE '%deprecat%'",
-      "length(TRIM(message)) > 20"
-    ].join(' AND ');
     const r = await env.DB.prepare(
-      'SELECT * FROM buddy_dialogues WHERE ' + errorFilters + ' ORDER BY timestamp ASC, id ASC'
+      'SELECT * FROM buddy_dialogues' +
+      ' WHERE message NOT LIKE \'[Pollinations%\'' +
+      ' AND message NOT LIKE \'Pollinations %\'' +
+      ' AND message NOT LIKE \'[ARA unavailable%\'' +
+      ' AND message NOT LIKE \'ARA unavailable%\'' +
+      ' AND message NOT LIKE \'{"error%\'' +
+      ' AND message NOT LIKE \'%502%\'' +
+      ' AND message NOT LIKE \'%429%\'' +
+      ' AND message NOT LIKE \'%queue%\'' +
+      ' AND message NOT LIKE \'%deprecat%\'' +
+      ' AND length(TRIM(message)) > 20' +
+      ' ORDER BY timestamp ASC, id ASC'
     ).all();
     dialogues = r.results || [];
   } catch (e) { /* table may not exist yet */ }
 
   try {
     const r = await env.DB.prepare(
-      "SELECT * FROM buddy_dreams WHERE dream_text NOT LIKE '[Pollinations%' AND dream_text NOT LIKE 'Pollinations %' AND dream_text NOT LIKE '[ARA unavailable%' AND (insight IS NULL OR (insight NOT LIKE '[Pollinations%' AND insight NOT LIKE 'ARA unavailable%' AND insight NOT LIKE '{"error%' AND insight NOT LIKE '%502%' AND insight NOT LIKE '%429%')) AND length(TRIM(COALESCE(insight,''))) > 20 ORDER BY id DESC LIMIT 5"
+      'SELECT * FROM buddy_dreams' +
+      ' WHERE dream_text NOT LIKE \'[Pollinations%\'' +
+      ' AND dream_text NOT LIKE \'Pollinations %\'' +
+      ' AND dream_text NOT LIKE \'[ARA unavailable%\'' +
+      ' AND (insight IS NULL OR (' +
+      'insight NOT LIKE \'[Pollinations%\'' +
+      ' AND insight NOT LIKE \'ARA unavailable%\'' +
+      ' AND insight NOT LIKE \'{"error%\'' +
+      ' AND insight NOT LIKE \'%502%\'' +
+      ' AND insight NOT LIKE \'%429%\'' +
+      '))' +
+      ' AND length(TRIM(COALESCE(insight, \'\'))) > 20' +
+      ' ORDER BY id DESC LIMIT 5'
     ).all();
     dreams = r.results || [];
   } catch (e) { /* ignore */ }
