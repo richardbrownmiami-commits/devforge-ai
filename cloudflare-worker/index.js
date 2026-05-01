@@ -554,12 +554,28 @@ async function renderBuddyPage(env) {
   let lastAutoDialogue = null;
 
   try {
-    const r = await env.DB.prepare('SELECT * FROM buddy_dialogues ORDER BY timestamp ASC, id ASC').all();
+    const errorFilters = [
+      "message NOT LIKE '[Pollinations%'",
+      "message NOT LIKE 'Pollinations %'",
+      "message NOT LIKE '[ARA unavailable%'",
+      "message NOT LIKE 'ARA unavailable%'",
+      'message NOT LIKE '{"error%'',
+      "message NOT LIKE '%502%'",
+      "message NOT LIKE '%429%'",
+      "message NOT LIKE '%queue%'",
+      "message NOT LIKE '%deprecat%'",
+      "length(TRIM(message)) > 20"
+    ].join(' AND ');
+    const r = await env.DB.prepare(
+      'SELECT * FROM buddy_dialogues WHERE ' + errorFilters + ' ORDER BY timestamp ASC, id ASC'
+    ).all();
     dialogues = r.results || [];
   } catch (e) { /* table may not exist yet */ }
 
   try {
-    const r = await env.DB.prepare('SELECT * FROM buddy_dreams ORDER BY id DESC LIMIT 5').all();
+    const r = await env.DB.prepare(
+      "SELECT * FROM buddy_dreams WHERE dream_text NOT LIKE '[Pollinations%' AND dream_text NOT LIKE 'Pollinations %' AND dream_text NOT LIKE '[ARA unavailable%' AND (insight IS NULL OR (insight NOT LIKE '[Pollinations%' AND insight NOT LIKE 'ARA unavailable%' AND insight NOT LIKE '{"error%' AND insight NOT LIKE '%502%' AND insight NOT LIKE '%429%')) AND length(TRIM(COALESCE(insight,''))) > 20 ORDER BY id DESC LIMIT 5"
+    ).all();
     dreams = r.results || [];
   } catch (e) { /* ignore */ }
 
@@ -583,15 +599,24 @@ async function renderBuddyPage(env) {
   // Latest ARA response (most recent buddy speaker row)
   const latestBuddyRow = [...dialogues].reverse().find(d => d.speaker === 'buddy');
 
-  // Group by topic + timestamp-day
+  // Group by topic — all rows with same topic text go into one card
   const groupedDialogues = {};
   for (const d of dialogues) {
-    const key = `${d.topic || 'Unknown'}__${(d.timestamp || '').slice(0, 16)}`;
-    if (!groupedDialogues[key]) groupedDialogues[key] = { topic: d.topic, timestamp: d.timestamp, messages: [] };
+    const key = d.topic || 'Unknown';
+    if (!groupedDialogues[key]) groupedDialogues[key] = { topic: d.topic, timestamp: d.timestamp, messages: [], maxId: 0 };
     groupedDialogues[key].messages.push(d);
+    if ((d.id || 0) > groupedDialogues[key].maxId) groupedDialogues[key].maxId = d.id || 0;
   }
+  // Sort each group's messages by round ASC, then id ASC
+  for (const g of Object.values(groupedDialogues)) {
+    g.messages.sort((a, b) => (a.round || 0) - (b.round || 0) || (a.id || 0) - (b.id || 0));
+  }
+  // Sort groups so most-recently-updated topic appears first
+  const sortedGroupKeys = Object.keys(groupedDialogues).sort((a, b) =>
+    (groupedDialogues[b].maxId || 0) - (groupedDialogues[a].maxId || 0)
+  );
 
-  const dialogueHTML = Object.values(groupedDialogues).map(g => `
+  const dialogueHTML = sortedGroupKeys.map(k => { const g = groupedDialogues[k]; return `
     <div class="dialogue-block">
       <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml((g.timestamp || '').slice(0, 16))}</span></div>
       ${g.messages.map(m => `
@@ -606,7 +631,7 @@ async function renderBuddyPage(env) {
         </div>
       `).join('')}
     </div>
-  `).join('') || '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed, or click "Start New Dialogue" below.</p>';
+  `; }).join('') || '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed, or click "Start New Dialogue" below.</p>';
 
   const dreamsHTML = dreams.map(d => `
     <div class="dream-card">
@@ -783,6 +808,19 @@ async function handleRequest(request, env) {
   if (path === '/buddy' && method === 'GET') {
     const html = await renderBuddyPage(env);
     return htmlResponse(html);
+  }
+
+  // /api/buddy/health — public health check (no auth required)
+  if (path === '/api/buddy/health' && method === 'GET') {
+    let d1Ok = false;
+    let dialogueCount = 0;
+    try {
+      await env.DB.prepare('SELECT 1').first();
+      d1Ok = true;
+      const cnt = await env.DB.prepare('SELECT COUNT(*) as cnt FROM buddy_dialogues').first();
+      dialogueCount = cnt?.cnt ?? 0;
+    } catch (e) { /* d1 unavailable */ }
+    return jsonResponse({ status: 'ok', d1: d1Ok ? 'connected' : 'error', dialogue_count: dialogueCount, timestamp: new Date().toISOString() });
   }
 
   if (!isAuthed(request, env)) {
@@ -1214,7 +1252,7 @@ async function handleRequest(request, env) {
         if (r.caffeine) {
           await env.DB.prepare(
             'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(roundNum, 'caffeine-ai', r.caffeine, topic, ts, model || 'caffeine-ai').run();
+          ).bind(roundNum, 'caffeine', r.caffeine, topic, ts, 'caffeine-ai').run();
           inserted++;
         }
         if (r.buddy) {
