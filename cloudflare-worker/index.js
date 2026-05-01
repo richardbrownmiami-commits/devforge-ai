@@ -554,7 +554,7 @@ async function renderBuddyPage(env) {
   let lastAutoDialogue = null;
 
   try {
-    // Load all valid rows, then JS-deduplicate to keep only the latest session (20 most-recent ids) per topic
+    // Load all valid rows ordered by id
     const r = await env.DB.prepare(
       'SELECT * FROM buddy_dialogues' +
       ' WHERE message NOT LIKE \'[Pollinations%\'' +
@@ -571,16 +571,15 @@ async function renderBuddyPage(env) {
     ).all();
     const allRows = r.results || [];
 
-    // Deduplicate: per topic, keep only the 20 rows with the highest id values (= latest session)
-    const topicMaxId = {};
+    // Deduplicate: per topic, find the most recent (max) timestamp, then keep only rows matching that timestamp.
+    // This ensures each topic shows exactly one session — the latest one.
+    const topicLatestTs = {};
     for (const row of allRows) {
       const k = row.topic || 'Unknown';
-      if ((row.id || 0) > (topicMaxId[k] || 0)) topicMaxId[k] = row.id || 0;
+      const ts = row.timestamp || '';
+      if (!topicLatestTs[k] || ts > topicLatestTs[k]) topicLatestTs[k] = ts;
     }
-    dialogues = allRows.filter(row => {
-      const k = row.topic || 'Unknown';
-      return (row.id || 0) >= (topicMaxId[k] || 0) - 20;
-    });
+    dialogues = allRows.filter(row => (row.timestamp || '') === (topicLatestTs[row.topic || 'Unknown'] || ''));
   } catch (e) { /* table may not exist yet */ }
 
   try {
