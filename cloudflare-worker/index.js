@@ -1,4 +1,4 @@
-// BrainForge API Worker v7.2 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini → keyless OpenRouter → Pollinations POST)
+// BrainForge API Worker v7.3 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini → keyless OpenRouter → Pollinations POST)
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -64,16 +64,32 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// loadKeyFromD1 — fetch a stored API key from the D1 memories table
+// key format: system:api:<service>_key  e.g. system:api:openrouter_key
+async function loadKeyFromD1(db, service) {
+  if (!db) return '';
+  try {
+    const row = await db.prepare(
+      "SELECT value FROM memories WHERE key = ?"
+    ).bind(`system:api:${service}_key`).first();
+    return (row && row.value) ? row.value.trim() : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 // callARA — multi-provider AI call: OpenRouter → Groq → Gemini → keyless fallback
 // Each fetch has a 12s AbortController timeout to stay well within CF's 30s limit.
 // Tries multiple env variable name variants per provider to handle dashboard naming differences.
+// Falls back to D1-stored keys if env vars are missing.
 async function callARA(messages, label, env) {
   const timeout = 12000;
+  const db = env.DB;
 
-  // Resolve env key with multiple name variants (Cloudflare dashboard naming may differ)
-  const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || FALLBACK_OPENROUTER_KEY || '';
-  const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || FALLBACK_GROQ_KEY || '';
-  const geminiKey = env.GEMINI_API_KEY || env.GEMINI_KEY || env.GOOGLE_API_KEY || '';
+  // Resolve env key with multiple name variants + D1 fallback
+  const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || FALLBACK_OPENROUTER_KEY || await loadKeyFromD1(db, 'openrouter');
+  const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || FALLBACK_GROQ_KEY || await loadKeyFromD1(db, 'groq');
+  const geminiKey = env.GEMINI_API_KEY || env.GEMINI_KEY || env.GOOGLE_API_KEY || await loadKeyFromD1(db, 'gemini');
 
   // --- OpenRouter (keyed) ---
   const orModels = [
@@ -602,6 +618,7 @@ async function renderBuddyPage(env) {
   let personality = [];
   let identity = [];
   let lastAutoDialogue = null;
+  let latestARARow = null;
 
   try {
     const r = await env.DB.prepare(
@@ -611,7 +628,10 @@ async function renderBuddyPage(env) {
   } catch (e) { /* table may not exist yet */ }
 
   try {
-    const r = await env.DB.prepare('SELECT * FROM buddy_dreams ORDER BY id DESC LIMIT 5').all();
+    // Part 3: filter out Pollinations error strings from dreams
+    const r = await env.DB.prepare(
+      `SELECT * FROM buddy_dreams WHERE dream_text NOT LIKE '[Pollinations%' AND dream_text NOT LIKE 'Pollinations %' AND insight NOT LIKE '[Pollinations%' AND insight NOT LIKE 'ARA unavailable%' ORDER BY id DESC LIMIT 5`
+    ).all();
     dreams = r.results || [];
   } catch (e) { /* ignore */ }
 
@@ -632,8 +652,12 @@ async function renderBuddyPage(env) {
     if (r) lastAutoDialogue = JSON.parse(r.value);
   } catch (e) { /* ignore */ }
 
-  // Latest ARA response (most recent buddy speaker row)
-  const latestBuddyRow = [...dialogues].reverse().find(d => d.speaker === 'buddy');
+  // Part 4: Latest ARA response — query directly from buddy_dialogues for freshest message
+  try {
+    latestARARow = await env.DB.prepare(
+      `SELECT message, topic, timestamp, model FROM buddy_dialogues WHERE speaker = 'buddy' AND message NOT LIKE '[Pollinations%' AND message NOT LIKE 'Pollinations %' AND message NOT LIKE '[ARA unavailable%' AND length(message) > 10 ORDER BY id DESC LIMIT 1`
+    ).first();
+  } catch (e) { /* ignore */ }
 
   // Group by topic + timestamp-day (dialogues already newest-first from DB)
   const groupedDialogues = {};
@@ -699,12 +723,12 @@ async function renderBuddyPage(env) {
     </table>
   ` : '<p class="empty">No identity traits defined yet.</p>';
 
-  const latestBuddyHTML = latestBuddyRow ? `
+  const latestBuddyHTML = latestARARow ? `
     <div class="latest-buddy-card">
-      <div class="latest-topic">&#128204; <strong>Topic:</strong> ${escapeHtml(latestBuddyRow.topic || 'Unknown')}</div>
-      <div class="latest-response">${escapeHtml(latestBuddyRow.message || '')}</div>
-      ${latestBuddyRow.model && latestBuddyRow.model !== 'unknown' ? `<div class="model-note">Engine: ${escapeHtml(latestBuddyRow.model)}</div>` : ''}
-      <div class="latest-ts">&#128336; ${escapeHtml(latestBuddyRow.timestamp || '')}</div>
+      <div class="latest-topic">&#128204; <strong>Topic:</strong> ${escapeHtml(latestARARow.topic || 'Unknown')}</div>
+      <div class="latest-response">${escapeHtml(latestARARow.message || '')}</div>
+      ${latestARARow.model && latestARARow.model !== 'unknown' ? `<div class="model-note">Engine: ${escapeHtml(latestARARow.model)}</div>` : ''}
+      <div class="latest-ts">&#128336; ${escapeHtml(latestARARow.timestamp || '')}</div>
     </div>
   ` : '<p class="empty">No ARA response yet — waiting for first cron run or manual trigger.</p>';
 
@@ -868,18 +892,72 @@ async function handleRequest(request, env) {
       if (env.GOOGLE_API_KEY) envKeysFound.push('GOOGLE_API_KEY');
       if (FALLBACK_OPENROUTER_KEY) envKeysFound.push('FALLBACK_OPENROUTER_KEY(hardcoded)');
       if (FALLBACK_GROQ_KEY) envKeysFound.push('FALLBACK_GROQ_KEY(hardcoded)');
+
+      // Check D1 for stored keys
+      let d1Keys = { openrouter: false, groq: false, gemini: false };
+      try {
+        const [orD1, groqD1, geminiD1] = await Promise.all([
+          loadKeyFromD1(env.DB, 'openrouter'),
+          loadKeyFromD1(env.DB, 'groq'),
+          loadKeyFromD1(env.DB, 'gemini'),
+        ]);
+        d1Keys = {
+          openrouter: !!(orD1),
+          groq: !!(groqD1),
+          gemini: !!(geminiD1),
+        };
+      } catch (e) { /* ignore */ }
+
       return jsonResponse({
-        openrouter: !!(orKey),
-        groq: !!(groqKey),
-        gemini: !!(geminiKey),
+        openrouter: !!(orKey) || d1Keys.openrouter,
+        groq: !!(groqKey) || d1Keys.groq,
+        gemini: !!(geminiKey) || d1Keys.gemini,
         keyless_fallback: true,
         pollinations_post_fallback: true,
         env_keys_found: envKeysFound,
+        d1_keys: d1Keys,
         provider_chain: ['openrouter-keyed', 'groq-keyed', 'gemini-keyed', 'openrouter-keyless', 'pollinations-post'],
         timestamp: new Date().toISOString(),
       });
     }
     return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  // /api/admin/sync-keys — push API keys from admin panel into D1
+  if (path === '/api/admin/sync-keys' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { openrouterKey, groqKey, geminiKey } = body;
+      const ts = new Date().toISOString();
+      const keysStored = [];
+
+      if (openrouterKey && openrouterKey.trim()) {
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+        ).bind('system:api:openrouter_key', openrouterKey.trim(), ts, 'system').run();
+        keysStored.push('openrouter');
+      }
+      if (groqKey && groqKey.trim()) {
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+        ).bind('system:api:groq_key', groqKey.trim(), ts, 'system').run();
+        keysStored.push('groq');
+      }
+      if (geminiKey && geminiKey.trim()) {
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
+        ).bind('system:api:gemini_key', geminiKey.trim(), ts, 'system').run();
+        keysStored.push('gemini');
+      }
+
+      if (keysStored.length === 0) {
+        return jsonResponse({ success: false, error: 'No keys provided' }, 400);
+      }
+
+      return jsonResponse({ success: true, keysStored, timestamp: ts });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
   }
 
   if (path === '/api/caffeine/status' && method === 'GET') {
