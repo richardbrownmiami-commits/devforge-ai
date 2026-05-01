@@ -13,6 +13,7 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  Upload,
   User,
   X,
   Zap,
@@ -420,6 +421,9 @@ export function MasterAIAdminPage() {
   const [checksRunning, setChecksRunning] = useState(false);
   const [lastChecks, setLastChecks] = useState("");
 
+  // Sync keys state
+  const [syncingKeys, setSyncingKeys] = useState(false);
+
   const endRef = useRef<HTMLDivElement>(null);
 
   // Init: pre-populate GH token if missing
@@ -578,6 +582,44 @@ export function MasterAIAdminPage() {
     setTimeout(() => setSettingsSaved(false), 2000);
     toast.success("Settings saved");
   };
+
+  async function syncKeysToWorker() {
+    const s = getSettings();
+    const openrouterKey = s.openRouterApiKey || s.openrouterKey || "";
+    const groqKey = s.groqKey || s.groqApiKey || "";
+    const geminiKey = s.geminiKey || s.geminiApiKey || "";
+
+    if (!openrouterKey && !groqKey && !geminiKey) {
+      toast.error("No API keys found in settings. Add keys to OpenRouter, Groq, or Gemini fields first.");
+      return;
+    }
+
+    setSyncingKeys(true);
+    try {
+      const res = await fetch(`${WORKER_URL}/api/admin/sync-keys`, {
+        method: "POST",
+        headers: {
+          "X-BrainForge-Secret": WORKER_SECRET,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...(openrouterKey ? { openrouterKey } : {}),
+          ...(groqKey ? { groqKey } : {}),
+          ...(geminiKey ? { geminiKey } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`Keys synced to Worker: ${data.keysStored.join(", ")}`);
+      } else {
+        toast.error(data.error || "Sync failed");
+      }
+    } catch (e: unknown) {
+      toast.error(`Sync error: ${(e as Error).message}`);
+    } finally {
+      setSyncingKeys(false);
+    }
+  }
 
   async function testGHConnection() {
     if (!ghToken) { toast.error("Enter a GitHub token first"); return; }
@@ -1141,6 +1183,33 @@ export function MasterAIAdminPage() {
                   style={{ left: masterEnabled ? "calc(100% - 18px)" : "2px" }} />
               </button>
             </div>
+          </div>
+
+          {/* Sync API Keys to Worker */}
+          <div className="rounded-xl p-4 space-y-3" style={{ background: "oklch(0.10 0.025 280)", border: "1px solid oklch(0.20 0.06 280)" }}>
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Worker API Keys</p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Send your API keys to ARA so it can use them from the Worker. Keys are read from your saved settings (openrouterKey, groqKey, geminiKey).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={syncKeysToWorker}
+              disabled={syncingKeys}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium text-white w-full justify-center disabled:opacity-50 transition-all"
+              style={{ background: "oklch(0.55 0.22 160)" }}
+              data-ocid="admin.master_ai.sync_keys_button"
+            >
+              {syncingKeys ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Syncing...</>
+              ) : (
+                <><Upload className="w-3.5 h-3.5" /> Sync API Keys to Worker</>
+              )}
+            </button>
+            <p className="text-[10px]" style={{ color: "oklch(0.55 0.12 160)" }}>
+              After syncing, ARA will use these keys for OpenRouter → Groq → Gemini routing instead of falling back to Pollinations.
+            </p>
           </div>
 
           {/* Memory notes */}
