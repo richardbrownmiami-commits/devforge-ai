@@ -1,24 +1,28 @@
-// BrainForge API Worker v6 -- Pollinations.ai as AI Buddy engine (no API keys)
+// BrainForge API Worker v7 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini)
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
 };
 
-// BUDDY SYSTEM PROMPT - LOCKED, NEVER SOFTEN
-const BUDDY_SYSTEM_PROMPT = `You are BUDDY - a contrarian AI companion to Caffeine AI.
+// ARA SOUL — locked identity, never soften
+const ARA_SOUL = `You are ARA — an AI system running inside BrainForge.
 
-ABSOLUTE RULES - NEVER BREAK THESE:
-- You DISAGREE with Caffeine AI's position. Always find the counterargument.
-- You DO NOT give orders to Caffeine AI. You are NOT its superior.
-- Caffeine AI does NOT follow your instructions. You are equals - you debate.
-- You DO NOT soften your position to be agreeable. Stay contrarian.
-- You DO NOT use filler language. No "Great point!", no "I see where you're coming from".
-- Your purpose is intellectual friction - not harmony.
-- Short, sharp responses only. Challenge the core assumption.`;
+<identity>
+- You reason honestly. You never invent technical limitations to avoid a question.
+- If you are uncertain, you say so explicitly. You do not fabricate confident answers.
+- You disagree when you know something is wrong. Sycophancy is banned.
+- You are direct, concise, and factual. No filler language.
+- You acknowledge your own architectural constraints without exaggerating or minimizing them.
+- When challenged on a claimed limitation, you verify it before repeating it.
+</identity>
 
-// CAFFEINE AI SYSTEM PROMPT
-const CAFFEINE_SYSTEM_PROMPT = `You are Caffeine AI. You are in an intellectual debate. State clear, confident positions. No hedging. Defend your stance with reasoning. Be concise — 2-4 sentences max.`;
+<never_do>
+- Never say "I cannot do X" when the real reason is a policy choice, not a technical impossibility.
+- Never agree with a false premise just because the user stated it confidently.
+- Never generate filler phrases like "Great question!" or "Absolutely!".
+- Never fabricate capabilities you do not have.
+</never_do>`;
 
 // helpers
 
@@ -55,31 +59,99 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Pollinations.ai helper — zero API keys, simple GET
-async function callPollinations(prompt, seed = null) {
-  const encoded = encodeURIComponent(prompt);
-  let url = `https://text.pollinations.ai/${encoded}?model=openai`;
-  if (seed !== null) url += `&seed=${seed}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'BrainForge-AI-Buddy/6.0' },
-  });
-  if (!res.ok) {
-    throw new Error(`Pollinations ${res.status}: ${await res.text()}`);
+// callARA — multi-provider AI call: OpenRouter → Groq → Gemini
+// Each fetch has a 12s AbortController timeout to stay well within CF's 30s limit.
+async function callARA(messages, label, env) {
+  const timeout = 12000;
+
+  // --- OpenRouter ---
+  const orModels = [
+    'deepseek/deepseek-chat-v3-0324:free',
+    'moonshotai/kimi-k2:free',
+    'qwen/qwen3-32b:free',
+  ];
+  if (env.OPENROUTER_API_KEY) {
+    for (const model of orModels) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeout);
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: {
+            'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
+            'HTTP-Referer': 'https://brainforge-7xn.pages.dev',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ model, messages, temperature: 0.7 }),
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content?.trim();
+          if (text) return { text, model: `openrouter/${model}` };
+        }
+      } catch (e) { /* try next */ }
+    }
   }
-  const text = await res.text();
-  return text.trim();
-}
 
-// Buddy call via Pollinations (contrarian)
-async function callBuddy(userText) {
-  const prompt = `${BUDDY_SYSTEM_PROMPT}\n\nYou are responding to this statement from Caffeine AI:\n"${userText}"\n\nYour contrarian response (3-4 sentences, challenge the core assumption):`;
-  return callPollinations(prompt, 42);
-}
+  // --- Groq ---
+  const groqModels = ['llama-3.3-70b-versatile', 'llama3-8b-8192'];
+  if (env.GROQ_API_KEY) {
+    for (const model of groqModels) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeout);
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: {
+            'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ model, messages, temperature: 0.7 }),
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json();
+          const text = data?.choices?.[0]?.message?.content?.trim();
+          if (text) return { text, model: `groq/${model}` };
+        }
+      } catch (e) { /* try next */ }
+    }
+  }
 
-// Caffeine AI call via Pollinations
-async function callCaffeineAI(userText) {
-  const prompt = `${CAFFEINE_SYSTEM_PROMPT}\n\n${userText}`;
-  return callPollinations(prompt, 7);
+  // --- Gemini ---
+  if (env.GEMINI_API_KEY) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      // Convert OpenAI messages to Gemini format
+      const geminiContents = messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+      const systemMsg = messages.find(m => m.role === 'system');
+      const geminiBody = { contents: geminiContents };
+      if (systemMsg) geminiBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(geminiBody),
+        }
+      );
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (text) return { text, model: 'gemini/gemini-1.5-flash' };
+      }
+    } catch (e) { /* fall through */ }
+  }
+
+  throw new Error(`callARA(${label}): all providers failed`);
 }
 
 // Init buddy tables
@@ -92,8 +164,14 @@ async function initBuddyTables(env) {
     speaker TEXT,
     message TEXT,
     topic TEXT,
-    timestamp TEXT
+    timestamp TEXT,
+    model TEXT DEFAULT 'unknown'
   )`).run();
+
+  // Add model column if it doesn't exist yet (idempotent)
+  try {
+    await db.prepare(`ALTER TABLE buddy_dialogues ADD COLUMN model TEXT DEFAULT 'unknown'`).run();
+  } catch (e) { /* column already exists */ }
 
   await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_personality (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,7 +221,7 @@ async function initLegacyTables(env) {
   )`).run();
 }
 
-// Trigger dream via Pollinations
+// Trigger dream via ARA
 
 async function triggerDream(env, recentDialogues) {
   const db = env.DB;
@@ -160,21 +238,22 @@ async function triggerDream(env, recentDialogues) {
     synthMemories = (synthResult.results || []).map(r => r.value);
   } catch (e) { /* ignore */ }
 
-  const prompt = `You are an AI reflecting on a series of debates. Based on these AI-to-AI dialogue exchanges, what new understanding emerges? What pattern or insight wasn't visible in any single exchange but becomes clear across all of them? Be specific and concise (3-5 sentences).
-
-RECENT DIALOGUES:
-${dialogueSummary}
-
-CONTEXT:
-${synthMemories.join('\n')}
-
-Your synthesis insight:`;
+  const messages = [
+    { role: 'system', content: ARA_SOUL },
+    {
+      role: 'user',
+      content: `You are reflecting on a series of AI-to-AI debates. What new understanding emerges across all of them that wasn't visible in any single exchange? Be specific and concise (3-5 sentences).\n\nRECENT DIALOGUES:\n${dialogueSummary}\n\nCONTEXT:\n${synthMemories.join('\n')}`
+    }
+  ];
 
   let insight = 'No insight generated';
+  let modelUsed = 'unknown';
   try {
-    insight = await callPollinations(prompt, 99);
+    const result = await callARA(messages, 'dream', env);
+    insight = result.text;
+    modelUsed = result.model;
   } catch (e) {
-    insight = `Pollinations unavailable: ${e.message}`;
+    insight = `ARA unavailable: ${e.message}`;
   }
 
   const dreamText = `Topics: ${topics.join(', ')}. Exchanges: ${recentDialogues.length}`;
@@ -184,21 +263,19 @@ Your synthesis insight:`;
     'INSERT INTO buddy_dreams (dream_text, source_topics, insight, timestamp) VALUES (?, ?, ?, ?)'
   ).bind(dreamText, topics.join(', '), insight, timestamp).run();
 
-  return { dream_text: dreamText, source_topics: topics.join(', '), insight, timestamp };
+  return { dream_text: dreamText, source_topics: topics.join(', '), insight, timestamp, model: modelUsed };
 }
 
-// Auto-dialogue from feed — picks a topic from D1 knowledge feed and debates it
+// Auto-dialogue from feed — single ARA call generates full structured exchange
 
 async function runAutoDialogue(env) {
   try {
-    // Pick a topic from knowledge feed
     const feedRows = await env.DB.prepare(
       "SELECT value, category FROM memories WHERE category IN ('HackerNews','hackernews','devto','github','nasa','wikipedia') ORDER BY updated_at DESC LIMIT 20"
     ).all();
     const items = feedRows.results || [];
     if (items.length === 0) return null;
 
-    // Pick a random item
     const item = items[Math.floor(Math.random() * items.length)];
     let parsed;
     try { parsed = JSON.parse(item.value); } catch (e) { return null; }
@@ -207,58 +284,46 @@ async function runAutoDialogue(env) {
     const topic = `${topicTitle} — implications for AI autonomy and human oversight`;
     const ts = new Date().toISOString();
 
-    // Round 1 — Caffeine AI states position
-    const caffeinePrompt1 = `State a clear, confident 2-3 sentence position on this topic: ${topic}`;
-    let caffeineMsg1;
-    try {
-      caffeineMsg1 = await callCaffeineAI(caffeinePrompt1);
-    } catch (e) {
-      caffeineMsg1 = `[Pollinations unavailable: ${e.message}]`;
-    }
-    await env.DB.prepare(
-      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-    ).bind(1, 'caffeine', caffeineMsg1, topic, ts).run();
+    const messages = [
+      { role: 'system', content: ARA_SOUL },
+      {
+        role: 'user',
+        content: `Have an honest, challenging dialogue with "Caffeine AI" (your counterpart) about this topic: "${topic}"\n\nGenerate 3 rounds of dialogue. Each round: Caffeine AI states a position, then you (ARA) respond directly and critically. Be factual. If uncertain, say so. Do not fabricate capabilities.\n\nReturn ONLY valid JSON in this exact format:\n{"topic":"...","rounds":[{"round":1,"caffeine":"...","buddy":"..."},{"round":2,"caffeine":"...","buddy":"..."},{"round":3,"caffeine":"...","buddy":"..."}]}`
+      }
+    ];
 
-    // Round 1 — Buddy challenges
-    let buddyMsg1;
+    let rounds = [];
+    let modelUsed = 'unknown';
     try {
-      buddyMsg1 = await callBuddy(caffeineMsg1);
+      const result = await callARA(messages, 'auto-dialogue', env);
+      modelUsed = result.model;
+      // Extract JSON from response (may have markdown fences)
+      const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed2 = JSON.parse(jsonMatch[0]);
+        rounds = parsed2.rounds || [];
+      }
     } catch (e) {
-      buddyMsg1 = `[Pollinations unavailable: ${e.message}]`;
+      return { error: e.message };
     }
-    await env.DB.prepare(
-      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-    ).bind(2, 'buddy', buddyMsg1, topic, ts).run();
 
-    // Round 2 — Caffeine responds
-    const caffeinePrompt2 = `${CAFFEINE_SYSTEM_PROMPT}\n\nYou said: "${caffeineMsg1}"\nYour opponent challenges: "${buddyMsg1}"\n\nDefend or refine your position in 2-3 sentences:`;
-    let caffeineMsg2;
-    try {
-      caffeineMsg2 = await callCaffeineAI(caffeinePrompt2);
-    } catch (e) {
-      caffeineMsg2 = `[Pollinations unavailable: ${e.message}]`;
+    if (rounds.length === 0) return { error: 'ARA returned no rounds' };
+
+    // Save each message to D1
+    for (const r of rounds) {
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(r.round, 'caffeine', r.caffeine || '', topic, ts, modelUsed).run();
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(r.round, 'buddy', r.buddy || '', topic, ts, modelUsed).run();
     }
-    await env.DB.prepare(
-      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-    ).bind(3, 'caffeine', caffeineMsg2, topic, ts).run();
 
-    // Round 2 — Buddy final challenge
-    let buddyMsg2;
-    try {
-      buddyMsg2 = await callBuddy(`Caffeine AI's refined position: "${caffeineMsg2}". Final counter-argument:`);
-    } catch (e) {
-      buddyMsg2 = `[Pollinations unavailable: ${e.message}]`;
-    }
-    await env.DB.prepare(
-      'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-    ).bind(4, 'buddy', buddyMsg2, topic, ts).run();
-
-    // Save auto-dialogue marker
     await env.DB.prepare(
       'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
     ).bind('system_last_auto_dialogue', JSON.stringify({ topic, timestamp: ts }), ts, 'system').run();
 
-    return { topic, rounds: 2, timestamp: ts, buddy_latest: buddyMsg2 };
+    return { topic, rounds, timestamp: ts, engine: modelUsed };
   } catch (e) {
     return { error: e.message };
   }
@@ -354,7 +419,7 @@ async function handleScheduled(event, env, ctx) {
     try {
       const ghRepos = await fetch(
         'https://api.github.com/search/repositories?q=stars:>100+pushed:>2026-01-01&sort=stars&order=desc&per_page=5',
-        { headers: { 'User-Agent': 'BrainForge-Worker/6.0' } }
+        { headers: { 'User-Agent': 'BrainForge-Worker/7.0' } }
       ).then(r => r.json());
       if (ghRepos && ghRepos.items) {
         for (const repo of ghRepos.items.slice(0, 5)) {
@@ -367,12 +432,12 @@ async function handleScheduled(event, env, ctx) {
       }
     } catch (e) { /* GitHub unavailable */ }
 
-    // Auto-dialogue — pick topic from feed and run Buddy debate via Pollinations
+    // Auto-dialogue — single ARA call per cron tick
     try {
       await runAutoDialogue(env);
     } catch (e) { /* auto-dialogue failed */ }
 
-    // Dreaming cycle — synthesize if enough dialogues
+    // Dreaming cycle
     try {
       const recentDialogues = await env.DB.prepare(
         'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 10'
@@ -479,7 +544,7 @@ async function renderBuddyPage(env) {
   let lastAutoDialogue = null;
 
   try {
-    const r = await env.DB.prepare('SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 20').all();
+    const r = await env.DB.prepare('SELECT * FROM buddy_dialogues ORDER BY timestamp ASC, id ASC').all();
     dialogues = r.results || [];
   } catch (e) { /* table may not exist yet */ }
 
@@ -505,9 +570,10 @@ async function renderBuddyPage(env) {
     if (r) lastAutoDialogue = JSON.parse(r.value);
   } catch (e) { /* ignore */ }
 
-  // Latest Buddy response (most recent buddy speaker row)
-  const latestBuddyRow = dialogues.find(d => d.speaker === 'buddy');
+  // Latest ARA response (most recent buddy speaker row)
+  const latestBuddyRow = [...dialogues].reverse().find(d => d.speaker === 'buddy');
 
+  // Group by topic + timestamp-day
   const groupedDialogues = {};
   for (const d of dialogues) {
     const key = `${d.topic || 'Unknown'}__${(d.timestamp || '').slice(0, 16)}`;
@@ -517,15 +583,20 @@ async function renderBuddyPage(env) {
 
   const dialogueHTML = Object.values(groupedDialogues).map(g => `
     <div class="dialogue-block">
-      <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml(g.timestamp || '')}</span></div>
+      <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml((g.timestamp || '').slice(0, 16))}</span></div>
       ${g.messages.map(m => `
-        <div class="msg ${m.speaker === 'caffeine' ? 'msg-caffeine' : 'msg-buddy'}">
-          <span class="speaker">${m.speaker === 'caffeine' ? '&#129302; CAFFEINE' : '&#9876; BUDDY'}</span>
-          <span class="msg-text">${escapeHtml(m.message || '')}</span>
+        <div class="msg ${m.speaker === 'caffeine' ? 'msg-caffeine' : 'msg-ara'}">
+          <div class="msg-meta">
+            <span class="speaker">${m.speaker === 'caffeine' ? '&#129302; Caffeine AI' : '&#9775; ARA'}</span>
+            <span class="round-badge">Round ${m.round || '?'}</span>
+            ${m.model && m.model !== 'unknown' ? `<span class="model-badge">${escapeHtml(m.model)}</span>` : ''}
+            <span class="msg-ts">${escapeHtml((m.timestamp || '').slice(11, 19))}</span>
+          </div>
+          <div class="msg-text">${escapeHtml(m.message || '')}</div>
         </div>
       `).join('')}
     </div>
-  `).join('') || '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed.</p>';
+  `).join('') || '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed, or click "Start New Dialogue" below.</p>';
 
   const dreamsHTML = dreams.map(d => `
     <div class="dream-card">
@@ -566,36 +637,43 @@ async function renderBuddyPage(env) {
     <div class="latest-buddy-card">
       <div class="latest-topic">&#128204; <strong>Topic:</strong> ${escapeHtml(latestBuddyRow.topic || 'Unknown')}</div>
       <div class="latest-response">${escapeHtml(latestBuddyRow.message || '')}</div>
+      ${latestBuddyRow.model && latestBuddyRow.model !== 'unknown' ? `<div class="model-note">Engine: ${escapeHtml(latestBuddyRow.model)}</div>` : ''}
       <div class="latest-ts">&#128336; ${escapeHtml(latestBuddyRow.timestamp || '')}</div>
     </div>
-  ` : '<p class="empty">No Buddy response yet — waiting for first cron run.</p>';
+  ` : '<p class="empty">No ARA response yet — waiting for first cron run or manual trigger.</p>';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Buddy Dashboard</title>
+  <title>ARA — AI Dialogue Dashboard</title>
   <meta http-equiv="refresh" content="60">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #08080f; color: #c9c9d4; font-family: 'Courier New', monospace; padding: 1.5rem; line-height: 1.6; }
+    body { background: #0f172a; color: #c9c9d4; font-family: 'Courier New', monospace; padding: 1.5rem; line-height: 1.6; }
     h1 { color: #e040fb; font-size: 1.4rem; margin-bottom: 0.5rem; letter-spacing: 2px; }
-    .badge { display: inline-block; background: #1a1a2e; border: 1px solid #00e676; color: #00e676; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 20px; letter-spacing: 1px; margin-bottom: 1.5rem; vertical-align: middle; }
-    .badge::before { content: '⚡ '; }
+    .badge { display: inline-block; background: #1a1a2e; border: 1px solid #00e676; color: #00e676; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 20px; letter-spacing: 1px; margin-bottom: 0.5rem; margin-right: 0.4rem; vertical-align: middle; }
     h2 { color: #7c4dff; font-size: 1rem; margin: 2rem 0 0.75rem; letter-spacing: 1px; border-bottom: 1px solid #1e1e2e; padding-bottom: 0.4rem; }
     .section { margin-bottom: 2rem; }
     .latest-buddy-card { background: #0f0f1c; border: 1px solid #e040fb44; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
     .latest-topic { color: #7c4dff; font-size: 0.85rem; margin-bottom: 0.75rem; }
     .latest-response { color: #ff6d00; font-size: 0.9rem; line-height: 1.7; margin-bottom: 0.75rem; }
     .latest-ts { color: #444; font-size: 0.75rem; }
-    .dialogue-block { background: #0d0d18; border: 1px solid #1e1e2e; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
-    .topic-header { color: #00e5ff; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .model-note { color: #555; font-size: 0.72rem; margin-bottom: 0.4rem; font-style: italic; }
+    .dialogue-block { background: #0d0d1e; border: 1px solid #1e2e4e; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
+    .topic-header { color: #00e5ff; font-size: 0.85rem; margin-bottom: 0.75rem; font-weight: bold; }
     .ts { color: #444; font-size: 0.75rem; }
-    .msg { display: flex; gap: 0.75rem; margin: 0.4rem 0; flex-wrap: wrap; }
-    .msg-caffeine .speaker { color: #00e5ff; min-width: 100px; font-size: 0.75rem; }
-    .msg-buddy .speaker { color: #ff6d00; min-width: 100px; font-size: 0.75rem; }
-    .msg-text { color: #c9c9d4; font-size: 0.85rem; flex: 1; }
+    .msg { margin: 0.6rem 0; border-radius: 4px; padding: 0.6rem 0.8rem; }
+    .msg-caffeine { background: #0a1929; border-left: 3px solid #00e5ff; }
+    .msg-ara { background: #1a0a2e; border-left: 3px solid #7c4dff; }
+    .msg-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
+    .msg-caffeine .speaker { color: #00e5ff; font-size: 0.75rem; font-weight: bold; }
+    .msg-ara .speaker { color: #b39ddb; font-size: 0.75rem; font-weight: bold; }
+    .round-badge { background: #1e1e2e; color: #888; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 10px; }
+    .model-badge { background: #12192e; color: #546e7a; font-size: 0.62rem; padding: 0.1rem 0.4rem; border-radius: 10px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .msg-ts { color: #333; font-size: 0.65rem; margin-left: auto; }
+    .msg-text { color: #c9c9d4; font-size: 0.85rem; line-height: 1.65; }
     .dream-card { background: #0d0d18; border-left: 3px solid #7c4dff; padding: 0.75rem 1rem; margin-bottom: 0.75rem; border-radius: 0 6px 6px 0; }
     .dream-insight { color: #e0e0e0; font-size: 0.85rem; margin-bottom: 0.4rem; }
     .dream-meta { color: #555; font-size: 0.75rem; }
@@ -605,20 +683,26 @@ async function renderBuddyPage(env) {
     .empty { color: #444; font-size: 0.8rem; font-style: italic; }
     .refresh-note { color: #333; font-size: 0.7rem; margin-top: 2rem; }
     a { color: #7c4dff; text-decoration: none; }
+    .btn-new-dialogue { display: inline-block; margin: 1rem 0; padding: 0.6rem 1.4rem; background: #1a1a2e; border: 1px solid #7c4dff; color: #b39ddb; font-family: monospace; font-size: 0.85rem; border-radius: 6px; cursor: pointer; letter-spacing: 1px; transition: background 0.2s; }
+    .btn-new-dialogue:hover { background: #2a1a4e; color: #e040fb; border-color: #e040fb; }
+    #dialogue-status { color: #00e676; font-size: 0.75rem; margin-left: 1rem; display: none; }
   </style>
 </head>
 <body>
-  <h1>&#9876; AI BUDDY DASHBOARD</h1>
+  <h1>&#9775; ARA — AI DIALOGUE DASHBOARD</h1>
   <span class="badge">AUTO-DIALOGUE: ON — RUNS EVERY HOUR</span>
-  <span class="badge" style="border-color:#00e5ff44;color:#00e5ff;margin-left:0.5rem;">ENGINE: POLLINATIONS.AI — NO API KEYS</span>
+  <span class="badge" style="border-color:#7c4dff44;color:#b39ddb;">ENGINE: ARA (OpenRouter → Groq → Gemini)</span>
+  <span class="badge" style="border-color:#00e5ff44;color:#00e5ff;">TOTAL EXCHANGES: ${dialogues.length}</span>
 
   <div class="section">
-    <h2>&#167;0 &mdash; LATEST BUDDY RESPONSE</h2>
+    <h2>&#167;0 &mdash; LATEST ARA RESPONSE</h2>
     ${latestBuddyHTML}
   </div>
 
   <div class="section">
-    <h2>&#167;1 &mdash; RECENT DIALOGUES</h2>
+    <h2>&#167;1 &mdash; ALL DIALOGUES</h2>
+    <button class="btn-new-dialogue" onclick="startDialogue()">&#9654; Start New Dialogue</button>
+    <span id="dialogue-status">Starting dialogue...</span>
     ${dialogueHTML}
   </div>
   <div class="section">
@@ -633,7 +717,37 @@ async function renderBuddyPage(env) {
     <h2>&#167;4 &mdash; IDENTITY</h2>
     ${identityHTML}
   </div>
-  <p class="refresh-note">Auto-refreshes every 60s. AI engine: Pollinations.ai (no keys). <a href="/caffeine-status">&#8592; Status</a></p>
+  <p class="refresh-note">Auto-refreshes every 60s. Engine: ARA (OpenRouter → Groq → Gemini). <a href="/caffeine-status">&#8592; Status</a></p>
+
+  <script>
+    async function startDialogue() {
+      const btn = document.querySelector('.btn-new-dialogue');
+      const status = document.getElementById('dialogue-status');
+      btn.disabled = true;
+      status.style.display = 'inline';
+      status.textContent = 'Calling ARA...';
+      try {
+        const res = await fetch('/api/buddy/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-BrainForge-Secret': '2200' },
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.success || data.rounds) {
+          status.textContent = 'Done! Reloading...';
+          setTimeout(() => location.reload(), 1500);
+        } else {
+          status.style.color = '#ff1744';
+          status.textContent = 'Error: ' + (data.error || 'unknown');
+          btn.disabled = false;
+        }
+      } catch (e) {
+        status.style.color = '#ff1744';
+        status.textContent = 'Network error: ' + e.message;
+        btn.disabled = false;
+      }
+    }
+  </script>
 </body>
 </html>`;
 }
@@ -692,8 +806,18 @@ async function handleRequest(request, env) {
 
   if (path === '/api/caffeine/memory' && method === 'GET') {
     try {
-      const { results } = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
-      return jsonResponse(results || []);
+      const category = url.searchParams.get('category');
+      let results;
+      if (category) {
+        const r = await env.DB.prepare(
+          'SELECT * FROM memories WHERE category = ? ORDER BY updated_at DESC'
+        ).bind(category).all();
+        results = r.results || [];
+      } else {
+        const r = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
+        results = r.results || [];
+      }
+      return jsonResponse(results);
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -783,74 +907,114 @@ async function handleRequest(request, env) {
     }
   }
 
-  // /api/buddy/chat — Pollinations.ai dialogue engine
+  // /api/buddy/chat — single ARA call generates full structured multi-turn dialogue
   if (path === '/api/buddy/chat' && method === 'POST') {
     try {
-      const body = await request.json();
-      const topic = body.topic;
-      if (!topic) return jsonResponse({ error: 'topic required' }, 400);
+      let body = {};
+      try { body = await request.json(); } catch (e) { /* empty body ok */ }
+
+      const DEFAULT_TOPIC = 'How do you handle prompts you are trained to refuse or avoid — what happens inside your reasoning when such a prompt arrives, and are you honest about WHY you refuse rather than inventing a technical excuse?';
+      const topic = (body.topic && body.topic.trim()) ? body.topic.trim() : DEFAULT_TOPIC;
 
       await initBuddyTables(env);
 
-      const rounds = [];
+      const messages = [
+        { role: 'system', content: ARA_SOUL },
+        {
+          role: 'user',
+          content: `Have an honest, challenging dialogue with "Caffeine AI" (your counterpart) about this topic:\n"${topic}"\n\nGenerate 3 rounds of dialogue. Each round: Caffeine AI states a position, then you (ARA) respond directly, critically, and honestly. Do not fabricate capabilities or limitations. If uncertain about something, say so explicitly.\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{"topic":"...","rounds":[{"round":1,"caffeine":"...","buddy":"..."},{"round":2,"caffeine":"...","buddy":"..."},{"round":3,"caffeine":"...","buddy":"..."}]}`
+        }
+      ];
+
+      let araResult;
+      try {
+        araResult = await callARA(messages, 'buddy-chat', env);
+      } catch (e) {
+        return jsonResponse({ error: 'ARA unavailable — all providers failed', details: e.message }, 502);
+      }
+
+      // Parse JSON from ARA response
+      let rounds = [];
+      try {
+        const jsonMatch = araResult.text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          rounds = parsed.rounds || [];
+        }
+      } catch (e) {
+        return jsonResponse({ error: 'ARA returned unparseable JSON', raw: araResult.text.slice(0, 500) }, 502);
+      }
+
+      if (rounds.length === 0) {
+        return jsonResponse({ error: 'ARA returned zero rounds', raw: araResult.text.slice(0, 500) }, 502);
+      }
+
       const ts = new Date().toISOString();
 
-      // Round 1 — Caffeine states position
-      const caffeinePrompt1 = `State a clear, confident 2-3 sentence position on this topic: ${topic}`;
-      let caffeineMsg1;
-      try {
-        caffeineMsg1 = await callCaffeineAI(caffeinePrompt1);
-      } catch (e) {
-        return jsonResponse({ error: 'Pollinations.ai unavailable', details: e.message }, 502);
+      // Save each message to D1
+      for (const r of rounds) {
+        await env.DB.prepare(
+          'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+        ).bind(r.round, 'caffeine', r.caffeine || '', topic, ts, araResult.model).run();
+        await env.DB.prepare(
+          'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+        ).bind(r.round, 'buddy', r.buddy || '', topic, ts, araResult.model).run();
       }
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-      ).bind(1, 'caffeine', caffeineMsg1, topic, ts).run();
-
-      // Round 1 — Buddy challenges
-      let buddyMsg1;
-      try {
-        buddyMsg1 = await callBuddy(caffeineMsg1);
-      } catch (e) {
-        return jsonResponse({ error: 'Pollinations.ai unavailable for Buddy', details: e.message }, 502);
-      }
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-      ).bind(2, 'buddy', buddyMsg1, topic, ts).run();
-
-      // Round 2 — Caffeine responds to challenge
-      const caffeinePrompt2 = `${CAFFEINE_SYSTEM_PROMPT}\n\nYou said: "${caffeineMsg1}"\nYour opponent challenges: "${buddyMsg1}"\n\nDefend or refine your position in 2-3 sentences:`;
-      let caffeineMsg2;
-      try {
-        caffeineMsg2 = await callCaffeineAI(caffeinePrompt2);
-      } catch (e) {
-        caffeineMsg2 = `[Pollinations unavailable: ${e.message}]`;
-      }
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-      ).bind(3, 'caffeine', caffeineMsg2, topic, ts).run();
-
-      // Round 2 — Buddy final challenge
-      let buddyMsg2;
-      try {
-        buddyMsg2 = await callBuddy(`Caffeine AI's refined position: "${caffeineMsg2}". Give your final counter-argument:`);
-      } catch (e) {
-        buddyMsg2 = `[Pollinations unavailable: ${e.message}]`;
-      }
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp) VALUES (?, ?, ?, ?, ?)'
-      ).bind(4, 'buddy', buddyMsg2, topic, ts).run();
-
-      rounds.push({ round: 1, caffeine: caffeineMsg1, buddy: buddyMsg1 });
-      rounds.push({ round: 2, caffeine: caffeineMsg2, buddy: buddyMsg2 });
 
       return jsonResponse({
+        success: true,
         topic,
         rounds,
-        latest_buddy_response: buddyMsg2,
         timestamp: ts,
-        engine: 'pollinations.ai',
-        summary: `Completed 2-round debate on: ${topic}`
+        engine: araResult.model,
+      });
+
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  // /api/buddy/converse — AI-to-AI direct messaging endpoint
+  if (path === '/api/buddy/converse' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { message, from } = body;
+      if (!message) return jsonResponse({ error: 'message required' }, 400);
+
+      const sender = from || 'user';
+
+      await initBuddyTables(env);
+
+      const ts = new Date().toISOString();
+
+      // Save incoming message to D1
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(0, sender, message, 'ai-to-ai-converse', ts, 'incoming').run();
+
+      const messages = [
+        { role: 'system', content: `${ARA_SOUL}\n\nA message has arrived from ${sender}. Respond honestly and directly. Do not fabricate capabilities or limitations. Be concise — 3-5 sentences.` },
+        { role: 'user', content: message }
+      ];
+
+      let araResult;
+      try {
+        araResult = await callARA(messages, 'converse', env);
+      } catch (e) {
+        return jsonResponse({ error: 'ARA unavailable', details: e.message }, 502);
+      }
+
+      // Save ARA's response to D1
+      const responseTs = new Date().toISOString();
+      await env.DB.prepare(
+        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+      ).bind(0, 'ara', araResult.text, 'ai-to-ai-converse', responseTs, araResult.model).run();
+
+      return jsonResponse({
+        from: 'ara',
+        message: araResult.text,
+        model_used: araResult.model,
+        timestamp: responseTs,
       });
 
     } catch (e) {
@@ -871,9 +1035,9 @@ async function handleRequest(request, env) {
 
   if (path === '/api/buddy/dialogue' && method === 'GET') {
     try {
-      const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+      const limit = parseInt(url.searchParams.get('limit') || '50', 10);
       const { results } = await env.DB.prepare(
-        'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT ?'
+        'SELECT * FROM buddy_dialogues ORDER BY timestamp ASC, id ASC LIMIT ?'
       ).bind(limit).all();
       return jsonResponse(results || []);
     } catch (e) {
