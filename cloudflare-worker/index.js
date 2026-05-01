@@ -59,46 +59,53 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// callARA — multi-provider AI call: OpenRouter → Groq → Gemini → Pollinations
-// Keys checked from env.* first, then from D1 (category='api_key') as fallback.
-// Each fetch has a 12s AbortController timeout to stay well within CF's 30s limit.
+// callARA — multi-provider AI call: Pollinations → OpenRouter → Groq → Gemini
+// Pollinations is tried first (no key, no latency). Keyed providers used if keys are
+// in env.* or in D1 (category='api_key'). Keys loaded in a single D1 query.
 async function callARA(messages, label, env) {
-  const timeout = 12000;
+  const timeout = 18000;
 
-  // Helper: read key from D1 if not in env
-  async function getKey(envKey, d1Key) {
-    if (env[envKey]) return env[envKey];
-    try {
-      const row = await env.DB.prepare(
-        "SELECT value FROM memories WHERE key = ? AND category = 'api_key'"
-      ).bind(d1Key).first();
-      return row ? row.value : null;
-    } catch (e) { return null; }
-  }
+  // --- Pollinations.ai (no key required — tried first for reliability) ---
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'openai', messages, temperature: 0.7 }),
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content?.trim();
+      if (text) return { text, model: 'pollinations/openai' };
+    }
+  } catch (e) { /* fall through to keyed providers */ }
 
-  const orKey = await getKey('OPENROUTER_API_KEY', 'openrouter_api_key');
-  const groqKey = await getKey('GROQ_API_KEY', 'groq_api_key');
-  const geminiKey = await getKey('GEMINI_API_KEY', 'gemini_api_key');
+  // Load all stored D1 keys in one query (only if Pollinations failed)
+  const d1Keys = {};
+  try {
+    const rows = await env.DB.prepare(
+      "SELECT key, value FROM memories WHERE category = 'api_key'"
+    ).all();
+    for (const r of (rows.results || [])) d1Keys[r.key] = r.value;
+  } catch (e) { /* ignore */ }
+
+  const orKey = env.OPENROUTER_API_KEY || d1Keys['openrouter_api_key'];
+  const groqKey = env.GROQ_API_KEY || d1Keys['groq_api_key'];
+  const geminiKey = env.GEMINI_API_KEY || d1Keys['gemini_api_key'];
 
   // --- OpenRouter ---
-  const orModels = [
-    'deepseek/deepseek-chat-v3-0324:free',
-    'moonshotai/kimi-k2:free',
-    'qwen/qwen3-32b:free',
-  ];
   if (orKey) {
+    const orModels = ['deepseek/deepseek-chat-v3-0324:free', 'moonshotai/kimi-k2:free', 'qwen/qwen3-32b:free'];
     for (const model of orModels) {
       try {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), timeout);
+        const timer = setTimeout(() => ctrl.abort(), 12000);
         const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          signal: ctrl.signal,
-          headers: {
-            'Authorization': `Bearer ${orKey}`,
-            'HTTP-Referer': 'https://brainforge-7xn.pages.dev',
-            'Content-Type': 'application/json',
-          },
+          method: 'POST', signal: ctrl.signal,
+          headers: { 'Authorization': `Bearer ${orKey}`, 'HTTP-Referer': 'https://brainforge-7xn.pages.dev', 'Content-Type': 'application/json' },
           body: JSON.stringify({ model, messages, temperature: 0.7 }),
         });
         clearTimeout(timer);
@@ -112,19 +119,14 @@ async function callARA(messages, label, env) {
   }
 
   // --- Groq ---
-  const groqModels = ['llama-3.3-70b-versatile', 'llama3-8b-8192'];
   if (groqKey) {
-    for (const model of groqModels) {
+    for (const model of ['llama-3.3-70b-versatile', 'llama3-8b-8192']) {
       try {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), timeout);
+        const timer = setTimeout(() => ctrl.abort(), 12000);
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          signal: ctrl.signal,
-          headers: {
-            'Authorization': `Bearer ${groqKey}`,
-            'Content-Type': 'application/json',
-          },
+          method: 'POST', signal: ctrl.signal,
+          headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ model, messages, temperature: 0.7 }),
         });
         clearTimeout(timer);
@@ -141,21 +143,14 @@ async function callARA(messages, label, env) {
   if (geminiKey) {
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), timeout);
-      const geminiContents = messages
-        .filter(m => m.role !== 'system')
-        .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const geminiContents = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
       const systemMsg = messages.find(m => m.role === 'system');
       const geminiBody = { contents: geminiContents };
       if (systemMsg) geminiBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-        {
-          method: 'POST',
-          signal: ctrl.signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(geminiBody),
-        }
+        { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(geminiBody) }
       );
       clearTimeout(timer);
       if (res.ok) {
@@ -165,24 +160,6 @@ async function callARA(messages, label, env) {
       }
     } catch (e) { /* fall through */ }
   }
-
-  // --- Pollinations.ai fallback (POST to OpenAI-compatible endpoint, no key required) ---
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeout);
-    const res = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
-      signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'openai', messages, temperature: 0.7 }),
-    });
-    clearTimeout(timer);
-    if (res.ok) {
-      const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content?.trim();
-      if (text) return { text, model: 'pollinations/openai' };
-    }
-  } catch (e) { /* fall through */ }
 
   throw new Error(`callARA(${label}): all providers failed`);
 }
