@@ -1197,6 +1197,39 @@ async function handleRequest(request, env) {
     }
   }
 
+
+  // /api/buddy/save-dialogue — direct D1 insert of a pre-generated conversation
+  // Body: { topic: string, rounds: [{round, caffeine, buddy}], model?: string }
+  // Requires X-BrainForge-Secret header
+  if (path === '/api/buddy/save-dialogue' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { topic, rounds, model } = body;
+      if (!topic || !Array.isArray(rounds)) return jsonResponse({ error: 'topic and rounds[] required' }, 400);
+      const now = Date.now();
+      let inserted = 0;
+      for (const r of rounds) {
+        const roundNum = r.round || inserted + 1;
+        const ts = now + inserted;
+        if (r.caffeine) {
+          await env.DB.prepare(
+            'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(roundNum, 'caffeine-ai', r.caffeine, topic, ts, model || 'caffeine-ai').run();
+          inserted++;
+        }
+        if (r.buddy) {
+          await env.DB.prepare(
+            'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(roundNum, 'buddy', r.buddy, topic, ts + 1, model || 'ara').run();
+          inserted++;
+        }
+      }
+      return jsonResponse({ success: true, inserted, topic });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   return jsonResponse({ error: 'Not found', path }, 404);
 }
 
