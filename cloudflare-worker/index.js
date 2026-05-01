@@ -151,6 +151,24 @@ async function callARA(messages, label, env) {
     } catch (e) { /* fall through */ }
   }
 
+  // --- Pollinations.ai fallback (no API key required) ---
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    // Build a single prompt from the message chain
+    const systemMsg = messages.find(m => m.role === 'system');
+    const userMsg = messages.filter(m => m.role !== 'system').map(m => m.content).join('\n\n');
+    const fullPrompt = systemMsg ? `${systemMsg.content}\n\n${userMsg}` : userMsg;
+    const encoded = encodeURIComponent(fullPrompt);
+    const url = `https://text.pollinations.ai/${encoded}?model=openai&seed=${Math.floor(Math.random() * 1000)}`;
+    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'BrainForge-ARA/7.1' } });
+    clearTimeout(timer);
+    if (res.ok) {
+      const text = (await res.text()).trim();
+      if (text) return { text, model: 'pollinations/openai' };
+    }
+  } catch (e) { /* fall through */ }
+
   throw new Error(`callARA(${label}): all providers failed`);
 }
 
