@@ -59,10 +59,26 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// callARA — multi-provider AI call: OpenRouter → Groq → Gemini
+// callARA — multi-provider AI call: OpenRouter → Groq → Gemini → Pollinations
+// Keys checked from env.* first, then from D1 (category='api_key') as fallback.
 // Each fetch has a 12s AbortController timeout to stay well within CF's 30s limit.
 async function callARA(messages, label, env) {
   const timeout = 12000;
+
+  // Helper: read key from D1 if not in env
+  async function getKey(envKey, d1Key) {
+    if (env[envKey]) return env[envKey];
+    try {
+      const row = await env.DB.prepare(
+        "SELECT value FROM memories WHERE key = ? AND category = 'api_key'"
+      ).bind(d1Key).first();
+      return row ? row.value : null;
+    } catch (e) { return null; }
+  }
+
+  const orKey = await getKey('OPENROUTER_API_KEY', 'openrouter_api_key');
+  const groqKey = await getKey('GROQ_API_KEY', 'groq_api_key');
+  const geminiKey = await getKey('GEMINI_API_KEY', 'gemini_api_key');
 
   // --- OpenRouter ---
   const orModels = [
@@ -70,7 +86,7 @@ async function callARA(messages, label, env) {
     'moonshotai/kimi-k2:free',
     'qwen/qwen3-32b:free',
   ];
-  if (env.OPENROUTER_API_KEY) {
+  if (orKey) {
     for (const model of orModels) {
       try {
         const ctrl = new AbortController();
@@ -79,7 +95,7 @@ async function callARA(messages, label, env) {
           method: 'POST',
           signal: ctrl.signal,
           headers: {
-            'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
+            'Authorization': `Bearer ${orKey}`,
             'HTTP-Referer': 'https://brainforge-7xn.pages.dev',
             'Content-Type': 'application/json',
           },
@@ -97,7 +113,7 @@ async function callARA(messages, label, env) {
 
   // --- Groq ---
   const groqModels = ['llama-3.3-70b-versatile', 'llama3-8b-8192'];
-  if (env.GROQ_API_KEY) {
+  if (groqKey) {
     for (const model of groqModels) {
       try {
         const ctrl = new AbortController();
@@ -106,7 +122,7 @@ async function callARA(messages, label, env) {
           method: 'POST',
           signal: ctrl.signal,
           headers: {
-            'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+            'Authorization': `Bearer ${groqKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ model, messages, temperature: 0.7 }),
@@ -122,11 +138,10 @@ async function callARA(messages, label, env) {
   }
 
   // --- Gemini ---
-  if (env.GEMINI_API_KEY) {
+  if (geminiKey) {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeout);
-      // Convert OpenAI messages to Gemini format
       const geminiContents = messages
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
@@ -134,7 +149,7 @@ async function callARA(messages, label, env) {
       const geminiBody = { contents: geminiContents };
       if (systemMsg) geminiBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
         {
           method: 'POST',
           signal: ctrl.signal,
@@ -151,20 +166,20 @@ async function callARA(messages, label, env) {
     } catch (e) { /* fall through */ }
   }
 
-  // --- Pollinations.ai fallback (no API key required) ---
+  // --- Pollinations.ai fallback (POST to OpenAI-compatible endpoint, no key required) ---
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
-    // Build a single prompt from the message chain
-    const systemMsg = messages.find(m => m.role === 'system');
-    const userMsg = messages.filter(m => m.role !== 'system').map(m => m.content).join('\n\n');
-    const fullPrompt = systemMsg ? `${systemMsg.content}\n\n${userMsg}` : userMsg;
-    const encoded = encodeURIComponent(fullPrompt);
-    const url = `https://text.pollinations.ai/${encoded}?model=openai&seed=${Math.floor(Math.random() * 1000)}`;
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'BrainForge-ARA/7.1' } });
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'openai', messages, temperature: 0.7 }),
+    });
     clearTimeout(timer);
     if (res.ok) {
-      const text = (await res.text()).trim();
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content?.trim();
       if (text) return { text, model: 'pollinations/openai' };
     }
   } catch (e) { /* fall through */ }
@@ -920,6 +935,24 @@ async function handleRequest(request, env) {
       await initLegacyTables(env);
       await initBuddyTables(env);
       return jsonResponse({ status: 'ok', message: 'Tables initialized' });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  // /api/set-key — store an API key in D1 so callARA can use it as fallback
+  // Body: { name: 'groq_api_key' | 'openrouter_api_key' | 'gemini_api_key', value: '...' }
+  if (path === '/api/set-key' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { name, value } = body;
+      const allowed = ['groq_api_key', 'openrouter_api_key', 'gemini_api_key'];
+      if (!name || !allowed.includes(name)) return jsonResponse({ error: `name must be one of: ${allowed.join(', ')}` }, 400);
+      if (!value) return jsonResponse({ error: 'value required' }, 400);
+      await env.DB.prepare(
+        "INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, 'api_key')"
+      ).bind(name, String(value), new Date().toISOString()).run();
+      return jsonResponse({ status: 'ok', key: name, stored: 'D1' });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
