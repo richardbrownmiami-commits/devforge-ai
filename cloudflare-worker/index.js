@@ -1,4 +1,4 @@
-// BrainForge API Worker v7 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini)
+// BrainForge API Worker v7.1 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini → keyless fallback)
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -59,18 +59,24 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// callARA — multi-provider AI call: OpenRouter → Groq → Gemini
+// callARA — multi-provider AI call: OpenRouter → Groq → Gemini → keyless fallback
 // Each fetch has a 12s AbortController timeout to stay well within CF's 30s limit.
+// Tries multiple env variable name variants per provider to handle dashboard naming differences.
 async function callARA(messages, label, env) {
   const timeout = 12000;
 
-  // --- OpenRouter ---
+  // Resolve env key with multiple name variants (Cloudflare dashboard naming may differ)
+  const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || '';
+  const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || '';
+  const geminiKey = env.GEMINI_API_KEY || env.GEMINI_KEY || env.GOOGLE_API_KEY || '';
+
+  // --- OpenRouter (keyed) ---
   const orModels = [
     'deepseek/deepseek-chat-v3-0324:free',
     'moonshotai/kimi-k2:free',
     'qwen/qwen3-32b:free',
   ];
-  if (env.OPENROUTER_API_KEY) {
+  if (orKey) {
     for (const model of orModels) {
       try {
         const ctrl = new AbortController();
@@ -79,7 +85,7 @@ async function callARA(messages, label, env) {
           method: 'POST',
           signal: ctrl.signal,
           headers: {
-            'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
+            'Authorization': `Bearer ${orKey}`,
             'HTTP-Referer': 'https://brainforge-7xn.pages.dev',
             'Content-Type': 'application/json',
           },
@@ -95,9 +101,9 @@ async function callARA(messages, label, env) {
     }
   }
 
-  // --- Groq ---
+  // --- Groq (keyed) ---
   const groqModels = ['llama-3.3-70b-versatile', 'llama3-8b-8192'];
-  if (env.GROQ_API_KEY) {
+  if (groqKey) {
     for (const model of groqModels) {
       try {
         const ctrl = new AbortController();
@@ -106,7 +112,7 @@ async function callARA(messages, label, env) {
           method: 'POST',
           signal: ctrl.signal,
           headers: {
-            'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+            'Authorization': `Bearer ${groqKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ model, messages, temperature: 0.7 }),
@@ -121,8 +127,8 @@ async function callARA(messages, label, env) {
     }
   }
 
-  // --- Gemini ---
-  if (env.GEMINI_API_KEY) {
+  // --- Gemini (keyed) ---
+  if (geminiKey) {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeout);
@@ -134,7 +140,7 @@ async function callARA(messages, label, env) {
       const geminiBody = { contents: geminiContents };
       if (systemMsg) geminiBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
         {
           method: 'POST',
           signal: ctrl.signal,
@@ -149,6 +155,35 @@ async function callARA(messages, label, env) {
         if (text) return { text, model: 'gemini/gemini-1.5-flash' };
       }
     } catch (e) { /* fall through */ }
+  }
+
+  // --- Keyless fallback: OpenRouter free models without Authorization header ---
+  // google/gemma-3-12b-it:free and a few others work on OpenRouter without auth for short prompts
+  const keylessModels = [
+    'google/gemma-3-12b-it:free',
+    'mistralai/mistral-7b-instruct:free',
+  ];
+  for (const model of keylessModels) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: {
+          'HTTP-Referer': 'https://brainforge-7xn.pages.dev',
+          'X-Title': 'BrainForge ARA',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model, messages, temperature: 0.7 }),
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content?.trim();
+        if (text) return { text, model: `openrouter-keyless/${model}` };
+      }
+    } catch (e) { /* try next */ }
   }
 
   throw new Error(`callARA(${label}): all providers failed`);
@@ -1111,6 +1146,30 @@ async function handleRequest(request, env) {
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
+  }
+
+  // /api/buddy/health — no auth required, diagnoses which API keys are actually available
+  if (path === '/api/buddy/health' && method === 'GET') {
+    const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || '';
+    const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || '';
+    const geminiKey = env.GEMINI_API_KEY || env.GEMINI_KEY || env.GOOGLE_API_KEY || '';
+    const envKeysFound = [];
+    if (env.OPENROUTER_API_KEY) envKeysFound.push('OPENROUTER_API_KEY');
+    if (env.OPENROUTER_KEY) envKeysFound.push('OPENROUTER_KEY');
+    if (env.OPEN_ROUTER_KEY) envKeysFound.push('OPEN_ROUTER_KEY');
+    if (env.GROQ_API_KEY) envKeysFound.push('GROQ_API_KEY');
+    if (env.GROQ_KEY) envKeysFound.push('GROQ_KEY');
+    if (env.GEMINI_API_KEY) envKeysFound.push('GEMINI_API_KEY');
+    if (env.GEMINI_KEY) envKeysFound.push('GEMINI_KEY');
+    if (env.GOOGLE_API_KEY) envKeysFound.push('GOOGLE_API_KEY');
+    return jsonResponse({
+      openrouter: !!orKey,
+      groq: !!groqKey,
+      gemini: !!geminiKey,
+      keyless_fallback: true,
+      env_keys_found: envKeysFound,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   return jsonResponse({ error: 'Not found', path }, 404);
