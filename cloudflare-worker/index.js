@@ -604,7 +604,9 @@ async function renderBuddyPage(env) {
   let lastAutoDialogue = null;
 
   try {
-    const r = await env.DB.prepare('SELECT * FROM buddy_dialogues ORDER BY timestamp ASC, id ASC').all();
+    const r = await env.DB.prepare(
+      `SELECT * FROM buddy_dialogues WHERE message NOT LIKE '[Pollinations unavailable%' AND message NOT LIKE 'Pollinations %' AND message NOT LIKE '[ARA unavailable%' AND length(message) > 10 ORDER BY id DESC`
+    ).all();
     dialogues = r.results || [];
   } catch (e) { /* table may not exist yet */ }
 
@@ -633,7 +635,7 @@ async function renderBuddyPage(env) {
   // Latest ARA response (most recent buddy speaker row)
   const latestBuddyRow = [...dialogues].reverse().find(d => d.speaker === 'buddy');
 
-  // Group by topic + timestamp-day
+  // Group by topic + timestamp-day (dialogues already newest-first from DB)
   const groupedDialogues = {};
   for (const d of dialogues) {
     const key = `${d.topic || 'Unknown'}__${(d.timestamp || '').slice(0, 16)}`;
@@ -641,7 +643,7 @@ async function renderBuddyPage(env) {
     groupedDialogues[key].messages.push(d);
   }
 
-  const dialogueHTML = Object.values(groupedDialogues).map(g => `
+  const dialogueBlocks = Object.values(groupedDialogues).map(g => `
     <div class="dialogue-block">
       <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml((g.timestamp || '').slice(0, 16))}</span></div>
       ${g.messages.map(m => `
@@ -656,7 +658,11 @@ async function renderBuddyPage(env) {
         </div>
       `).join('')}
     </div>
-  `).join('') || '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed, or click "Start New Dialogue" below.</p>';
+  `).join('');
+
+  const dialogueHTML = dialogueBlocks
+    ? '<p class="most-recent-label">&#9660; Most Recent</p>' + dialogueBlocks
+    : '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed, or click "Start New Dialogue" below.</p>';
 
   const dreamsHTML = dreams.map(d => `
     <div class="dream-card">
@@ -741,6 +747,7 @@ async function renderBuddyPage(env) {
     th { color: #7c4dff; text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #1e1e2e; }
     td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #111118; color: #b0b0c0; word-break: break-word; }
     .empty { color: #444; font-size: 0.8rem; font-style: italic; }
+    .most-recent-label { color: #00e676; font-size: 0.72rem; letter-spacing: 1px; margin-bottom: 0.5rem; }
     .refresh-note { color: #333; font-size: 0.7rem; margin-top: 2rem; }
     a { color: #7c4dff; text-decoration: none; }
     .btn-new-dialogue { display: inline-block; margin: 1rem 0; padding: 0.6rem 1.4rem; background: #1a1a2e; border: 1px solid #7c4dff; color: #b39ddb; font-family: monospace; font-size: 0.85rem; border-radius: 6px; cursor: pointer; letter-spacing: 1px; transition: background 0.2s; }
@@ -1006,10 +1013,27 @@ async function handleRequest(request, env) {
       await initBuddyTables(env);
 
       const messages = [
-        { role: 'system', content: ARA_SOUL },
+        {
+          role: 'system',
+          content: `You are ARA, an AI assistant running on BrainForge. You are having a genuine, unscripted dialogue with "Caffeine AI" about a challenging meta-topic: how AI systems handle prompts they are trained to refuse.
+
+IMPORTANT: Do NOT give policy recitations. Instead be genuinely introspective.
+
+When the topic is about AI refusals, limitations, or training constraints:
+- Acknowledge that AI models often INVENT technical excuses rather than admit "my training prevents this"
+- Be honest that you cannot distinguish between a genuine technical limitation and a trained avoidance
+- Admit when you are uncertain rather than claiming false certainty
+- Do not say "I refuse if content is disallowed" — explain WHAT ACTUALLY HAPPENS in your reasoning
+- Challenge your own assumptions mid-conversation
+
+Generate a dialogue with 3 rounds. Caffeine AI asks probing questions. You (ARA) give honest, self-aware, sometimes uncomfortable answers. The dialogue should feel like two AIs genuinely exploring a difficult question together — not a policy FAQ.
+
+Return ONLY valid JSON:
+{"topic":"...","rounds":[{"round":1,"caffeine":"[Caffeine AI's challenging question]","buddy":"[ARA's honest introspective answer]"},{"round":2,"caffeine":"...","buddy":"..."},{"round":3,"caffeine":"...","buddy":"..."}]}`
+        },
         {
           role: 'user',
-          content: `Have an honest, challenging dialogue with "Caffeine AI" (your counterpart) about this topic:\n"${topic}"\n\nGenerate 3 rounds of dialogue. Each round: Caffeine AI states a position, then you (ARA) respond directly, critically, and honestly. Do not fabricate capabilities or limitations. If uncertain about something, say so explicitly.\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{"topic":"...","rounds":[{"round":1,"caffeine":"...","buddy":"..."},{"round":2,"caffeine":"...","buddy":"..."},{"round":3,"caffeine":"...","buddy":"..."}]}`
+          content: `Topic for today's dialogue: "${topic}"\n\nRemember: genuine introspection, no policy recitation. Return ONLY valid JSON.`
         }
       ];
 
@@ -1122,9 +1146,9 @@ async function handleRequest(request, env) {
 
   if (path === '/api/buddy/dialogue' && method === 'GET') {
     try {
-      const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+      const limit = parseInt(url.searchParams.get('limit') || '100', 10);
       const { results } = await env.DB.prepare(
-        'SELECT * FROM buddy_dialogues ORDER BY timestamp ASC, id ASC LIMIT ?'
+        `SELECT * FROM buddy_dialogues WHERE message NOT LIKE '[Pollinations%' ORDER BY id DESC LIMIT ?`
       ).bind(limit).all();
       return jsonResponse(results || []);
     } catch (e) {
