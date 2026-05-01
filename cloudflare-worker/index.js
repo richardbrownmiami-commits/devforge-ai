@@ -554,6 +554,7 @@ async function renderBuddyPage(env) {
   let lastAutoDialogue = null;
 
   try {
+    // Load all valid rows, then JS-deduplicate to keep only the latest session (20 most-recent ids) per topic
     const r = await env.DB.prepare(
       'SELECT * FROM buddy_dialogues' +
       ' WHERE message NOT LIKE \'[Pollinations%\'' +
@@ -566,9 +567,20 @@ async function renderBuddyPage(env) {
       ' AND message NOT LIKE \'%queue%\'' +
       ' AND message NOT LIKE \'%deprecat%\'' +
       ' AND length(TRIM(message)) > 20' +
-      ' ORDER BY timestamp ASC, id ASC'
+      ' ORDER BY id ASC'
     ).all();
-    dialogues = r.results || [];
+    const allRows = r.results || [];
+
+    // Deduplicate: per topic, keep only the 20 rows with the highest id values (= latest session)
+    const topicMaxId = {};
+    for (const row of allRows) {
+      const k = row.topic || 'Unknown';
+      if ((row.id || 0) > (topicMaxId[k] || 0)) topicMaxId[k] = row.id || 0;
+    }
+    dialogues = allRows.filter(row => {
+      const k = row.topic || 'Unknown';
+      return (row.id || 0) >= (topicMaxId[k] || 0) - 20;
+    });
   } catch (e) { /* table may not exist yet */ }
 
   try {
@@ -629,14 +641,14 @@ async function renderBuddyPage(env) {
 
   const dialogueHTML = sortedGroupKeys.map(k => { const g = groupedDialogues[k]; return `
     <div class="dialogue-block">
-      <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml((g.timestamp || '').slice(0, 16))}</span></div>
+      <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml((g.timestamp || '').split('T')[0] + ' ' + ((g.timestamp || '').split('T').pop() || '').split('.')[0])}</span></div>
       ${g.messages.map(m => `
         <div class="msg ${m.speaker === 'caffeine' ? 'msg-caffeine' : 'msg-ara'}">
           <div class="msg-meta">
             <span class="speaker">${m.speaker === 'caffeine' ? '&#129302; Caffeine AI' : '&#9775; ARA'}</span>
             <span class="round-badge">Round ${m.round || '?'}</span>
             ${m.model && m.model !== 'unknown' ? `<span class="model-badge">${escapeHtml(m.model)}</span>` : ''}
-            <span class="msg-ts">${escapeHtml((m.timestamp || '').slice(11, 19))}</span>
+            <span class="msg-ts">${escapeHtml((m.timestamp || '').split('T').pop().split('.')[0] || (m.timestamp || '').slice(0, 16))}</span>
           </div>
           <div class="msg-text">${escapeHtml(m.message || '')}</div>
         </div>
