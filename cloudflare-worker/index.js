@@ -65,21 +65,24 @@ function escapeHtml(str) {
 async function callARA(messages, label, env) {
   const timeout = 18000;
 
-  // --- Pollinations.ai (no key required — tried first for reliability) ---
+  // --- Pollinations.ai (GET endpoint — no key required, tried first) ---
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
-    const res = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
+    // Build a combined prompt from message chain for GET URL
+    const systemMsg = messages.find(m => m.role === 'system');
+    const userMsgs = messages.filter(m => m.role !== 'system').map(m => m.content).join('\n\n');
+    const fullPrompt = systemMsg ? `${systemMsg.content}\n\n${userMsgs}` : userMsgs;
+    const encoded = encodeURIComponent(fullPrompt.slice(0, 4000)); // cap at 4000 chars for URL safety
+    const url = `https://text.pollinations.ai/${encoded}?model=openai-large&seed=${Date.now() % 9999}`;
+    const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'openai', messages, temperature: 0.7 }),
+      headers: { 'User-Agent': 'BrainForge-ARA/7.2' },
     });
     clearTimeout(timer);
     if (res.ok) {
-      const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content?.trim();
-      if (text) return { text, model: 'pollinations/openai' };
+      const text = (await res.text()).trim();
+      if (text) return { text, model: 'pollinations/openai-large' };
     }
   } catch (e) { /* fall through to keyed providers */ }
 
