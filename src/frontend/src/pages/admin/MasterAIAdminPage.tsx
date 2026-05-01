@@ -17,7 +17,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
@@ -199,7 +199,8 @@ async function callModel(
     );
     const d = await res.json();
     return d.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
-  } else if (provider === "groq") {
+  }
+  if (provider === "groq") {
     const key = s.groqKey || s.groqApiKey;
     if (!key) throw new Error("No Groq API key");
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -212,7 +213,8 @@ async function callModel(
     });
     const d = await res.json();
     return d.choices?.[0]?.message?.content || "No response";
-  } else {
+  }
+  {
     const key = s.openRouterApiKey || s.openrouterKey;
     if (!key) throw new Error("No OpenRouter API key");
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -469,7 +471,7 @@ export function MasterAIAdminPage() {
     setBridgePolling(true);
     try {
       const content = await loadMemory("caffeine-ai-relay");
-      if (content && content.trim()) {
+      if (content?.trim()) {
         setCaffeineStatus("connected");
         try {
           const parsed = JSON.parse(content) as BridgeMsg[];
@@ -478,9 +480,9 @@ export function MasterAIAdminPage() {
             const existingIds = new Set(prev.map((m) => m.id));
             const fresh = newMsgs.filter((m) => !existingIds.has(m.id));
             if (fresh.length === 0) return prev;
-            fresh.forEach((m) => {
+            for (const m of fresh) {
               if (m.from === "caffeine-ai") autoRespondToBridge(m.message);
-            });
+            }
             return [...prev, ...fresh];
           });
         } catch {
@@ -596,7 +598,7 @@ export function MasterAIAdminPage() {
     }
   }
 
-  const send = useCallback(async () => {
+  const send = async () => {
     if (!input.trim() || loading) return;
     const userMsg: Msg = { role: "user", content: input.trim(), id: `u-${Date.now()}` };
     setMessages((p) => [...p, userMsg]);
@@ -675,7 +677,7 @@ export function MasterAIAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, messages, provider, model, hqMode, memoryLayers, masterMemory, masterRules]);
+  };
 
   const triggerDeploy = async () => {
     const token = getGHToken();
