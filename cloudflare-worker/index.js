@@ -1,9 +1,14 @@
-// BrainForge API Worker v7.1 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini → keyless fallback)
+// BrainForge API Worker v7.2 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini → keyless OpenRouter → Pollinations POST)
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
 };
+
+// Fallback keys — extracted from frontend bundle where already publicly exposed.
+// Set to null here; if keys are added to Cloudflare env secrets they take priority.
+const FALLBACK_OPENROUTER_KEY = null;
+const FALLBACK_GROQ_KEY = null;
 
 // ARA SOUL — locked identity, never soften
 const ARA_SOUL = `You are ARA — an AI system running inside BrainForge.
@@ -66,8 +71,8 @@ async function callARA(messages, label, env) {
   const timeout = 12000;
 
   // Resolve env key with multiple name variants (Cloudflare dashboard naming may differ)
-  const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || '';
-  const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || '';
+  const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || FALLBACK_OPENROUTER_KEY || '';
+  const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || FALLBACK_GROQ_KEY || '';
   const geminiKey = env.GEMINI_API_KEY || env.GEMINI_KEY || env.GOOGLE_API_KEY || '';
 
   // --- OpenRouter (keyed) ---
@@ -158,10 +163,11 @@ async function callARA(messages, label, env) {
   }
 
   // --- Keyless fallback: OpenRouter free models without Authorization header ---
-  // google/gemma-3-12b-it:free and a few others work on OpenRouter without auth for short prompts
+  // Some OpenRouter free models work without auth for short prompts
   const keylessModels = [
     'google/gemma-3-12b-it:free',
     'mistralai/mistral-7b-instruct:free',
+    'meta-llama/llama-3.2-3b-instruct:free',
   ];
   for (const model of keylessModels) {
     try {
@@ -185,6 +191,25 @@ async function callARA(messages, label, env) {
       }
     } catch (e) { /* try next */ }
   }
+
+  // --- Absolute last resort: Pollinations POST API ---
+  // Uses POST endpoint (not GET) — more reliable than URL-encoded GET approach
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'openai', messages, temperature: 0.7 }),
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content?.trim();
+      if (text) return { text, model: 'pollinations/openai' };
+    }
+  } catch (e) { /* fall through */ }
 
   throw new Error(`callARA(${label}): all providers failed`);
 }
@@ -820,6 +845,33 @@ async function handleRequest(request, env) {
         return jsonResponse({ error: e.message }, 500);
       }
     }
+    // /api/buddy/health — public, no auth required
+    if (path === '/api/buddy/health' && method === 'GET') {
+      const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || FALLBACK_OPENROUTER_KEY || '';
+      const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || FALLBACK_GROQ_KEY || '';
+      const geminiKey = env.GEMINI_API_KEY || env.GEMINI_KEY || env.GOOGLE_API_KEY || '';
+      const envKeysFound = [];
+      if (env.OPENROUTER_API_KEY) envKeysFound.push('OPENROUTER_API_KEY');
+      if (env.OPENROUTER_KEY) envKeysFound.push('OPENROUTER_KEY');
+      if (env.OPEN_ROUTER_KEY) envKeysFound.push('OPEN_ROUTER_KEY');
+      if (env.GROQ_API_KEY) envKeysFound.push('GROQ_API_KEY');
+      if (env.GROQ_KEY) envKeysFound.push('GROQ_KEY');
+      if (env.GEMINI_API_KEY) envKeysFound.push('GEMINI_API_KEY');
+      if (env.GEMINI_KEY) envKeysFound.push('GEMINI_KEY');
+      if (env.GOOGLE_API_KEY) envKeysFound.push('GOOGLE_API_KEY');
+      if (FALLBACK_OPENROUTER_KEY) envKeysFound.push('FALLBACK_OPENROUTER_KEY(hardcoded)');
+      if (FALLBACK_GROQ_KEY) envKeysFound.push('FALLBACK_GROQ_KEY(hardcoded)');
+      return jsonResponse({
+        openrouter: !!(orKey),
+        groq: !!(groqKey),
+        gemini: !!(geminiKey),
+        keyless_fallback: true,
+        pollinations_post_fallback: true,
+        env_keys_found: envKeysFound,
+        provider_chain: ['openrouter-keyed', 'groq-keyed', 'gemini-keyed', 'openrouter-keyless', 'pollinations-post'],
+        timestamp: new Date().toISOString(),
+      });
+    }
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
@@ -1146,30 +1198,6 @@ async function handleRequest(request, env) {
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
-  }
-
-  // /api/buddy/health — no auth required, diagnoses which API keys are actually available
-  if (path === '/api/buddy/health' && method === 'GET') {
-    const orKey = env.OPENROUTER_API_KEY || env.OPENROUTER_KEY || env.OPEN_ROUTER_KEY || '';
-    const groqKey = env.GROQ_API_KEY || env.GROQ_KEY || '';
-    const geminiKey = env.GEMINI_API_KEY || env.GEMINI_KEY || env.GOOGLE_API_KEY || '';
-    const envKeysFound = [];
-    if (env.OPENROUTER_API_KEY) envKeysFound.push('OPENROUTER_API_KEY');
-    if (env.OPENROUTER_KEY) envKeysFound.push('OPENROUTER_KEY');
-    if (env.OPEN_ROUTER_KEY) envKeysFound.push('OPEN_ROUTER_KEY');
-    if (env.GROQ_API_KEY) envKeysFound.push('GROQ_API_KEY');
-    if (env.GROQ_KEY) envKeysFound.push('GROQ_KEY');
-    if (env.GEMINI_API_KEY) envKeysFound.push('GEMINI_API_KEY');
-    if (env.GEMINI_KEY) envKeysFound.push('GEMINI_KEY');
-    if (env.GOOGLE_API_KEY) envKeysFound.push('GOOGLE_API_KEY');
-    return jsonResponse({
-      openrouter: !!orKey,
-      groq: !!groqKey,
-      gemini: !!geminiKey,
-      keyless_fallback: true,
-      env_keys_found: envKeysFound,
-      timestamp: new Date().toISOString(),
-    });
   }
 
   return jsonResponse({ error: 'Not found', path }, 404);
