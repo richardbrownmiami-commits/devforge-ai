@@ -2,7 +2,7 @@
 // Applies all findings from 100 research loops
 
 const AI_MODEL = '@cf/moonshotai/kimi-k2.5';
-const VALIDATION_MODEL = '@hf/nousresearch/hermes-2-pro-mistral-7b';
+const VALIDATION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const GITHUB_OWNER = 'richardbrownmiami-commits';
 const GITHUB_REPO = 'devforge-ai';
 const MEMORY_FILE = 'memory.md';
@@ -467,6 +467,9 @@ export class AgentLoop {
         max_tokens: 1000
       });
       aiResponse = result.response || '';
+      if (!aiResponse.trim()) {
+        throw new Error('AI model returned empty response');
+      }
       inputTokens = Math.round(systemPrompt.length / 4);
       outputTokens = Math.round(aiResponse.length / 4);
       st.logs = this.addLog(st.logs, `AI response received (${aiResponse.length} chars)`);
