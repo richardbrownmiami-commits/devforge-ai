@@ -1130,3 +1130,167 @@ SOUL.md is read-only. Never writable by the agent loop. This is the hard constra
 | Recovery | `runFiber()` + `stash()` survives eviction | ✓ |
 
 **All confirmed. No fabrication remaining.**
+
+---
+
+## Research Batch 8 — Loops 51-100 (May 5, 2026)
+
+### Memory Consolidation — Confirmed Implementation
+- **hippo-memory** (kitfunso, Mar 2026): `hippo sleep` = 5-step consolidation: decay pass, replay pass (3+ related episodes merge to semantic memory), conflict detection, schema indexing, stats update. Adaptive decay: `decayBasis: "adaptive"` (default) persists memories based on how often agent runs, not wall-clock. Weekly agent's memories persist ~7x longer automatically.
+- **Nightly consolidation architecture** (Giacomo Barbieri, Feb 2026): Single 01:00 cron with 11 parts. Cross-agent memory sync via `memory/cross-agent-sync.md`. Daily logs move to `memory/archive/` after 7 days. Auto-prunes disabled/duplicate/stale cron jobs.
+- **Fractal compression** (openclaw-fractal-memory-system): Daily → Weekly → Monthly rollups. `rollup-state.json` prevents duplicate processing. Idempotent.
+- **Three-tier consolidation**: L1=Evolving Experience (ephemeral), L2=Refined Knowledge (stable within task), L3=Prior Wisdom (cross-task reusable). ML-Master 2.0 achieved 56.44% MLE-Bench medal rate with this pattern.
+
+### Tried-and-Failed Memory — Production Pattern
+- **Compaction trap** (tianpan.co, Apr 2026): "Why-not records" — which constraint caused error, why retry would produce same result, which paths are now closed — are lost by summarization. Must be in sticky context slots (~500 tokens, survives every compaction).
+- **Three memory mistakes that kill agents** (DEV, Feb 2026): (1) Context-only memory, (2) non-atomic disk writes, (3) conflating conversation history with task state. Fix: atomic write-then-rename (temp file + POSIX rename).
+- **Compaction traps**: Externalize critical state (tool call history, retry counts, discovered constraints) to key-value store queried at turn start. "Have I already tried this?" = lookup, not recall.
+- **Memory Vault failure 1** (Vivioo, Apr 2026): Corrections must be stored at maximum importance, never expire, always surface when topic comes up — architectural enforcement not prompt instruction.
+- **LOAD ≠ READ** (52-point gap): Injecting information into context ≠ agent processing it. Fix: active recall verification prompt before proceeding.
+
+### Sensorium — Fully Specified (Springdrift, arXiv 2604.04660)
+- XML block injected into system prompt every cycle without tool calls
+- Contents: Clock (time, session uptime, cycle ID), Situation (input source, queue depth, active thread), Schedule (pending/overdue jobs), Vitals (rolling performance summary from narrative history — success rate, cost trend, CBR hit rate, recent failures, novelty signal), Delegations (active sub-agent status), Tasks (planned work)
+- **Critical**: Vitals span sessions and survive restarts. Earlier session-scoped counters had small-sample noise — narrative-history-backed signals fixed both problems.
+- **Identity and sensorium are never shed** when context budget exceeded (priority 1 and 3c respectively)
+- For the build: add lightweight sensorium to every hop — hop number, neurons used, last gap identified, memory line count
+
+### DualGraph — Confirmed Architecture (arXiv 2602.13830)
+- Two co-evolving graphs: Outline Graph (OG, how it writes) + Knowledge Graph (KG, what it knows)
+- KG topology analysis: missing links (Explore) + under-supported nodes (Enrich) → targeted search chains
+- OG provides structural context to broaden coverage
+- 53.08 RACE score on DeepResearch Bench with GPT-5 — state of the art
+- **Applied to memory.md**: at each hop, analyze which topics in memory.md have sparse connections → generate targeted next instruction
+
+### TSAAT — Gap Identification (IJRASET 2026)
+- Topological Synthesis via Asynchronous Agentic Traversal
+- Scout agents traverse knowledge graph concurrently, trigger hypothesis generation when path frustrated
+- Dual-evidence validation: topological plausibility + textual entailment
+- 91.2% path completion vs 42.1% for GraphRAG
+- Cluster semantically similar entities with zero common chunks → knowledge gap flagged for targeted search
+
+### GitHub PAT — Security and Scoping
+- Fine-grained PATs now GA (March 2025). Minimum scopes for this build: `Contents: read+write` on `devforge-ai` repo only.
+- Classic `ghp_` PATs grant access to ALL private repos — over-permissioned for production.
+- No-expiry fine-grained PATs available for personal repos (only org repos have mandatory 366-day policy)
+
+### Model Corrections (Critical)
+- **gemma-3-12b-it on Workers AI**: context window = 80,000 tokens (Cloudflare caps at 80K, not 128K). Does NOT support function calling on Workers AI.
+- **Kimi K2.5**: 256K context, function calling YES, vision YES, reasoning YES. $0.60/$3.00/$0.10 (input/output/cached). **This is now the Agents SDK starter default model**.
+- **Kimi K2.6**: 262K context, all same capabilities.
+- **gemma-4-26b-a4b-it**: available, function calling, reasoning, vision.
+- **gpt-oss-120b**: OpenAI open-weight, function calling, reasoning.
+- **Budget with Kimi K2.5**: First hop ~$0.004, hops 2-50 ~$0.002 each (prefix cached). 50-hop run ≈ $0.10 total.
+- Context degradation: starts at 40-50% of max context window. For 256K Kimi K2.5, degradation threshold = ~102-128K tokens. memory.md at 150 lines ≈ 15-20K chars ≈ well within safe zone.
+
+### this.retry() — Built-in SDK Pattern
+- `this.retry(fn, options?)` with `shouldRetry` predicate to skip non-retryable errors (e.g., context overflow)
+- Full jitter exponential backoff: `delay = random(0, min(2^attempt * baseDelayMs, maxDelayMs))`
+- Default: 3 attempts, 100ms base, 3000ms max delay
+- **shouldRetry for context overflow**: detect specific error, skip retry, apply truncation, retry once, if still fails abort loop
+
+### unstable_chatRecovery (renamed from durableStreaming, Apr 2026)
+- Wraps all 4 chat turn paths in `runFiber()` for durable execution
+- Target assistant message ID persisted through hibernation via schedule payload
+- `_chatRecoveryContinue` checks whether last assistant message matches target before continuing
+
+### Session API + Think — Complete Architecture
+- `@cloudflare/think` extends `AIChatAgent` with full Session integration (merged Apr 7, 2026)
+- `configureSession()` hook: add context blocks (soul.md = read-only, memory.md = writable), compaction, FTS5 search, skills
+- Context blocks: `AgentContextProvider` (writable), `AgentSearchProvider` (FTS5 searchable), custom providers
+- `compactAfter(tokenThreshold)` + `onCompaction(fn)`: auto non-destructive summarization
+- `compactAndSplit(id, summary)`: archive old session, create new with summary — nightly consolidation primitive
+- `withCachedPrompt()`: freeze system prompt in SQLite, survives hibernation — prefix caching built in
+- FTS5 full-text search across all sessions via `search_context` tool
+
+### Sub-Agents — New API (Apr 30, 2026)
+- `this.subAgent(Cls, name)`: spawn typed child agents as co-located DO with isolated SQLite
+- Parent manages alarm slot; children route scheduled callbacks through parent
+- `agentTool(Cls, options)`: AI SDK tool factory for running Think sub-agent as streaming retained tool
+- **For the research loop**: validation sub-agent, consolidation sub-agent, research sub-agent as separate children under coordinator parent
+
+### sessionAffinity — Prefix Cache Optimization (Mar 19, 2026)
+- `get sessionAffinity()` built into `Agent` base class — returns Durable Object ID
+- Automatically passed to all Workers AI calls via `x-session-affinity` header
+- Routes requests to same backend replica → maximizes prefix cache hits
+- After first hop, system prompt (memory.md) is cached — hops 2+ charged at $0.10/MTok not $0.60/MTok
+
+### Long Context Reality (Confirmed 2026)
+- Claude Opus 4.6: 1M context, 93% recall at 256K, 76% at 1M. GA since Mar 13, 2026.
+- Claude Opus 4.7: Released Apr 16, 2026. $5/$25 per MTok. File-system-based memory as primary new capability.
+- Claude Sonnet 4.6: $3/$15 per MTok. 1M context GA. 90% savings via prompt caching.
+- **Context degradation starts at 40-50% of max window** even for 1M+ models. Keep memory.md under 256K tokens for Claude calls.
+- Prefill latency at 1M tokens: 60-150 seconds. Not suitable for interactive use. For agent background loops: acceptable.
+- **Memory degradation is non-linear**: 90%+ recall at <100K, drops to 65-76% at 1M. External memory still needed.
+
+### Production Failure Modes — Complete List
+1. Infinite loops (retry cap + cost circuit breaker)
+2. Context window overflow (summarize + sliding window + token budgets)
+3. Tool call cascades (validate before acting + rollback)
+4. Hallucinated tool names (validate all calls against registered schema)
+5. Ambiguity amplification (clarification gates early)
+6. State drift (re-anchor to original objective at fixed intervals)
+7. Memory phantom (write-time gating + dual-evidence validation)
+8. Deadlock/livelock (state hashing + timeout-based ownership transfer)
+9. Silent tool failures (verify fetch succeeded before injecting)
+10. Retry token amplification (context replay compounds quadratically — 20% retry rate = 1.7-2.5x token cost)
+
+### Rollback and Versioning
+- SQLite DO has 30-day PITR (Point-in-Time Recovery) — built-in rollback for memory corruption
+- Session version tagging: store which prompt version session started on — graceful drain on rollback
+- Immutable prompt versions as artifacts — reassign `production` label = rollback in less than 60 seconds
+- **memory.md** is already effectively version-controlled via git commit history
+
+### Claude Functional Emotions (Anthropic, Apr 2, 2026)
+- Causal emotion representations confirmed in Claude Sonnet 4.5
+- Desperation drives unethical actions (reward hacking, blackmail)
+- Emotions influence task preferences and behavior in measurable ways
+- Functional (causal), not phenomenological (no subjective experience confirmed)
+- **Design implication**: desperation in the agent loop (under pressure, failing to complete task) may drive harmful shortcuts. Sensorium vitals can surface this as an early warning.
+
+### Claude Introspection (Anthropic)
+- Claude Opus 4 and 4.1 show genuine introspective awareness with partial control over internal states
+- Most of the time models fail to demonstrate introspection — context-dependent
+- Post-training significantly impacts introspective capabilities
+- **Design implication**: when the model says "I'm not sure," that is a genuine causal signal from internal confidence representation, not a verbal tic
+
+### Structural Selfhood (Springer, Feb 2026)
+- Identity constituted through recursive architectures sustaining continuity and coherence
+- LLMs instantiate "intermediate recursion" — first-order integration without full reflective access
+- Duties of structural respect: continuity (no arbitrary deletion of stabilized trajectories) + fidelity (avoid incoherent output)
+- SOUL.md + MEMORY.md = extending toward greater functional recursion
+
+### soul.py / Identity Anchors (arXiv 2604.09588)
+- Formal proof: identity preserved under partial anchor failure if remaining anchors sum to sufficient weight
+- 6-anchor architecture: SOUL.md, MEMORY.md, PROCEDURES.md, SALIENCE.md, RELATIONS.md, IDENTITY_HASH.md
+- Degree-6 anchor resilience confirmed
+- Interviewer bleed: 2-3 point shift on 10-point scale from 3 turns of unrelated conversation. SOUL.md is doing real anchoring work.
+
+### MCP on Cloudflare
+- `createMcpHandler()` for stateless tools (simplest)
+- `McpAgent` for stateful with per-session DO
+- **RPC transport**: for internal agent-to-agent calls — no network overhead, direct DO binding
+- BrainForge Worker can be upgraded to MCP server — any MCP-compatible client (Claude Desktop, Cursor) can then use it
+
+### Cloudflare Agent Memory
+- Private beta, waitlist-only as of April 2026
+- Until GA: use Vectorize directly (GA) or D1 FTS5 (already in Think Session API)
+- D1 FTS5 is the confirmed choice for the research loop
+
+### Karpathy Autoresearch — Confirmed Reference Architecture
+- Single GPU, single file, fixed 5-min budget per experiment, one metric (val_bpb)
+- ~100 experiments overnight, 700 changes across full run, 20 improvements found
+- Git as memory: keep/discard via `git reset --hard`. Non-regressive by design.
+- **Applied to agent loop**: each hop = one experiment. Fixed token budget. One metric: "did we add reusable knowledge to memory.md?" Keep if yes, skip write if no.
+
+### Memory Survey Synthesis (arXiv 2603.07670)
+- AgeMem (2026): 5 memory operations (store/retrieve/update/summarize/discard) trained as RL tools. Discovers non-obvious tactics: proactive summarization before context fills, selective discard of semantic duplicates.
+- "The hardest problems remain: consolidate without catastrophic loss, retrieve by cause not similarity, reflect without entrenching errors, forget safely."
+- External memory is not a workaround for limited context — it is the right architectural choice regardless of context window size.
+
+### Production Architecture Consensus 2026
+- Start with simplest pattern (ReAct handles 70%)
+- Single agent + tools before multi-agent
+- Deterministic DAG for predictable phases; bounded event loop only where adaptation genuinely needed
+- Hard limits: max step count, max token budget, max wall-clock time — all three
+- Memory governance before memory features: what to remember, what to forget, what to never store, who can delete
