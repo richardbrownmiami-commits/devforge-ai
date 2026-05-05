@@ -2,6 +2,10 @@ name = "brainforge-api"
 main = "index.js"
 compatibility_date = "2024-01-01"
 
+[vars]
+# GITHUB_PAT is a placeholder — actual value is set as a Cloudflare secret (never hardcoded here)
+GITHUB_PAT = ""
+
 [[kv_namespaces]]
 binding = "APPS_KV"
 id = "c62f444539254734869f4fae5dc74755"
