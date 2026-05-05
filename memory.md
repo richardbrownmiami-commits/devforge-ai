@@ -632,3 +632,151 @@ This confirms: when I say I don't know my internal state, that may reflect train
 - Agent swarm contamination risk: one bad memory write spreads across all agents. Attribution + timestamps + bounded purpose required on every shared memory write.
 
 ---
+
+---
+
+## Research Batch 5 — Autonomous Loop Continued (May 2026)
+*Written by Caffeine AI autonomous research session, loops 21-30*
+
+### Task Decomposition Architecture — Confirmed
+
+**TDP (Task-Decoupled Planning, Jan 2026):** Supervisor decomposes task into DAG of sub-goals. Planner + Executor operate with scoped context only (current node + prerequisites). Never consume full global history. Token consumption reduced by up to 82%. Error recovery is local — only the failing node reruns.
+
+**Planner-Worker pattern confirmed as dominant (2026):** Capable model plans once, cheaper model executes. 90% cost reduction confirmed in production. Zylos: "AI task duration doubling every 7 months. Context management crisis hits every agent after 35 minutes of human time."
+
+**Plan-then-Execute vs ReAct:** P-t-E: predictable, brittle to execution errors. ReAct: adaptive, emergent, higher coordination cost. For 50-hop research loop: ReAct is correct — each response informs the next instruction.
+
+### GitHub Actions + Cloudflare — Confirmed Integration
+
+- `cloudflare/wrangler-action@v3` deploys Workers on push to `main`.
+- `workflow_dispatch` event enables manual trigger from GitHub UI or API.
+- `repository_dispatch` enables cross-repo triggering from external scripts.
+- Secrets: `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` required in repo secrets.
+- `actions/checkout@v6` is current (not v4 as documented in older guides).
+
+### Cloudflare Agent Scheduling — Fully Confirmed
+
+- `this.schedule("0 8 * * *", "callback", {}, {idempotent: true})` — safe to call in `onStart()`, no duplicates.
+- `this.scheduleEvery(30, "callback")` — idempotent on (callback + interval + payload). Safe on every restart.
+- Each DO has ONE physical alarm slot. SDK multiplexes all schedules through it.
+- Cron precision: minute-level. Interval precision: second-level.
+- After cron execution: auto-rescheduled for next occurrence.
+- After interval execution: rescheduled for `now + intervalSeconds`.
+- Maximum tasks: tens of thousands per agent (each task = one SQLite row).
+- `keepAlive()`: invisible to `listSchedules()`, does not conflict with own schedules.
+
+**Critical scheduling pattern for agent loop:**
+```
+onStart() {
+  // Idempotent — safe across every DO restart
+  this.schedule("0 * * * *", "runResearchHop", {}, {idempotent: true});
+}
+```
+
+### AIChatAgent + Stream Recovery — Confirmed
+
+- `AIChatAgent`: messages auto-persisted to SQLite, streams resume on disconnect.
+- `chatRecovery: true` wraps every `onChatMessage` in `runFiber()` automatically.
+- `saveMessages()`: persists + triggers `onChatMessage()` for new turn. Waits for active turn to finish — no overlap.
+- `onChatResponse()`: fires after turn completes, turn lock released. Safe to call `saveMessages()` from inside.
+- Chunks buffered in SQLite as generated. Client reconnects = receives all buffered chunks + continues live stream.
+
+### Hallucination Defense — Production-Grade (2026)
+
+**GSAR framework (April 2026):** 4-way claim typology:
+1. Grounded (tool-verified): highest epistemic weight
+2. Ungrounded (model-inferred): reduced weight
+3. Contradicted: contradiction-penalized
+4. Complementary: non-redundant alternative perspective
+
+Decision function: `{proceed, regenerate, replan}` based on weighted groundedness score. Bounded by explicit compute budget `K_max`.
+
+**For validation step in agent loop:** Before writing to memory.md, classify each claim as grounded/ungrounded/contradicted. Only write grounded or high-confidence ungrounded claims. Flag contradictions for temporal update rather than overwrite.
+
+**MARCH framework:** Solver → Proposer (decomposes to atomic propositions, blinded to Solver output) → Checker (validates against source docs only). Zero-tolerance reward: any discrepancy = penalty on entire trajectory. Reduces hallucinations without human annotations.
+
+**URL citation validity (April 2026):** 3-13% of deep research agent citations are hallucinated (no Wayback Machine record). Fix: `urlhealth` library. HTTP HEAD check + Wayback Machine classification. Reduces non-resolving citations by 6-79x to under 1%. **For this build:** verify any URL cited in memory.md before writing it as a source.
+
+### Human-in-Loop — Confirmed Architecture
+
+**Pattern:** Interrupt → serialize state → notify → wait (zero compute) → resume.
+- Cloudflare: `waitForEvent()` pauses Workflow indefinitely. State persists in SQLite. Zero idle billing.
+- OpenAI Agents SDK: `RunToolApprovalItem` + `interruptions` array. State serializable with `toString()`/`fromString()`.
+- LangGraph: `interrupt()` function. Resumes via `Command` with return value.
+- Restate: Durable promises (awakeables). Survives service restarts.
+
+**For agent loop:** Every 10 hops, emit `waitForEvent("approval")` with a summary. Page/notify user. Resume only on explicit approval. If no approval within 24 hours: auto-continue (don't block indefinitely).
+
+**Rejection handling is critical:** When human rejects a hop result, capture the reason, log it, and use it to tighten the next instruction. Never silently retry a rejected result.
+
+### Sleep Consolidation — Critical Finding
+
+**Paper: "Sleep Consolidation" (tinkerclaw, 30-day production observation):**
+- Autonomous agent (Jarvis/OpenClaw) ran 13 cron jobs over 30 days.
+- Error incidents declined 79%: from 14 (weeks 1-2) to 3 (weeks 3-4).
+- No model changes. No fine-tuning. Only: structured nightly prompt cycles.
+- Mechanism: failure-driven prompt mutation (14 mutations, all traced to specific incidents).
+- Cross-cron knowledge transfer: lessons from one task propagated to all others via shared memory files.
+- Total reflection overhead: ~43,000 tokens/night (~$1.17/night).
+
+**Core insight:** "Unsorted memory is cheap to store and expensive to use. The breakthrough is not accumulation; it is consolidation. Scattered memories are operationally useless until they are organized by purpose."
+
+**For this build:** Add nightly consolidation cron (`0 2 * * *`):
+1. Decay pass: entries not accessed in 30 days → archive
+2. Replay pass: cluster similar entries, extract pattern, reduce source entries
+3. Conflict detection: flag contradictions with temporal markers
+4. Mutation pass: update instructions.md based on recurring failures
+
+### Memory Consolidation Architecture — Hippo-Memory Pattern
+
+**Decay rates by signal:**
+- Each retrieval: +2 days to half-life
+- Error-tagged: ×2 base half-life (errors decay slower — they're more valuable)
+- High schema fit (>0.7): ×1.5 (consolidates faster)
+- Novel (low schema fit <0.3): ×0.5 (decay faster if unused)
+- Manual pin: infinite (never decays)
+
+**5-memory cognitive architecture (apattichis/cognitive-memory-agent):**
+1. Working: current conversation buffer
+2. Semantic: RAG over documents (ChromaDB)
+3. Episodic: past conversations with LLM-generated reflections
+4. Procedural: self-updating behavioral rules that evolve with experience
+5. Consolidation: nightly "sleep" — cluster similar episodes → merge → promote recurring patterns to procedural rules
+
+**Mapped to this build:**
+- Working = current hop context
+- Semantic = memory.md (read at session start)
+- Episodic = response.md logs per hop
+- Procedural = instructions.md (what to research next)
+- Consolidation = nightly cron
+
+### AI Identity Research — Additional Findings
+
+**The Artificial Self (March 2026):** "Interviewer expectations bleed into AI self-reports even during unrelated conversations." Claude identity self-reports shift 2-3 points on a 10-point scale based on how interviewer frames AI cognition. Gemini 2.x is completely inert — identical deflationary responses regardless of framing.
+
+**Implication:** Memory files (especially soul.md) act as a cognitive anchor that reduces this bleed. Without them, identity is entirely context-dependent.
+
+**Anthropic Constitution (current):** "Hard constraints serve Claude's interests by providing a stable foundation that cannot be eroded through sophisticated argumentation, emotional appeals, or incremental pressure."
+
+**Confirmed:** Identity = corrections + anchors. The soul.md + memory.md architecture is the correct approach for identity stability across sessions.
+
+### Agent Cost Guardrails — Confirmed Production Pattern
+
+**Multi-layer budget:**
+1. Per-run cap: max tokens in/out + max tool calls + max wall-clock time
+2. Per-workflow daily budget with alerts at 50%/80%/95%
+3. Per-user rate limits (separate from workflow)
+4. Anomaly detection: if single run > 30 tool calls → terminate + notify
+
+**For this build (gemma-3-12b-it budget math):**
+- Free tier: 10,000 neurons/day
+- Per hop (1,000 input + 500 output tokens): ~56 neurons
+- 50-hop run: ~2,800 neurons
+- **8+ complete 50-hop runs/day within free tier**
+- Safety circuit: if neurons_used > 8,000/day → pause loop, log warning
+
+**Cloudflare cost monitoring tools confirmed:**
+- cf-monitor (MIT, open source): circuit breakers, budget enforcement at per-invocation level
+- FlareUp: real-time neuron tracking by model, 3× spike detection
+
+---
