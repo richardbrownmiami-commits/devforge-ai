@@ -3,7 +3,7 @@
 
 const AI_MODEL = '@cf/moonshotai/kimi-k2.5';
 const AI_MODEL_FALLBACK = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'; // fallback if kimi unavailable
-const VALIDATION_MODEL = '@hf/nousresearch/hermes-2-pro-mistral-7b'; // supports function calling + JSON
+const VALIDATION_MODEL = '@cf/meta/llama-3.1-8b-instruct'; // reliable on free tier (hermes causes CUDA OOM)
 const GITHUB_OWNER = 'richardbrownmiami-commits';
 const GITHUB_REPO = 'devforge-ai';
 const MEMORY_FILE = 'memory.md';
