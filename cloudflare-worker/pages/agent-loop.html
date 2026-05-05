@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent Loop — BrainForge</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f0f13; color: #e2e8f0; min-height: 100vh; }
+    
+    header {
+      background: #1a1a2e;
+      border-bottom: 1px solid #2d2d44;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; color: #a78bfa; }
+    header .badge { font-size: 0.7rem; background: #2d2d44; color: #94a3b8; padding: 2px 8px; border-radius: 9999px; }
+    header a { margin-left: auto; color: #64748b; text-decoration: none; font-size: 0.875rem; }
+    header a:hover { color: #a78bfa; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      height: calc(100vh - 57px);
+    }
+
+    .panel {
+      border-right: 1px solid #2d2d44;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid #2d2d44;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #13131a;
+      flex-shrink: 0;
+    }
+    .panel-header h2 { font-size: 0.875rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; flex: 1; }
+    
+    .controls { display: flex; gap: 8px; align-items: center; }
+    
+    .btn {
+      padding: 7px 18px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-run { background: #22c55e; color: #052e16; }
+    .btn-stop { background: #ef4444; color: #fff; }
+    .btn-init { background: #3b82f6; color: #fff; padding: 7px 14px; }
+    .btn-sm { padding: 4px 10px; font-size: 0.75rem; background: #2d2d44; color: #94a3b8; }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #4b5563;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .status-dot.running { background: #22c55e; box-shadow: 0 0 6px #22c55e; animation: pulse 1.5s infinite; }
+    .status-dot.stopped { background: #4b5563; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .hop-badge { font-size: 0.75rem; color: #64748b; }
+
+    .log-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      font-family: 'Fira Mono', 'Courier New', monospace;
+      font-size: 0.8rem;
+      line-height: 1.7;
+      background: #0a0a0f;
+    }
+
+    .log-entry { color: #94a3b8; }
+    .log-entry .ts { color: #4b5563; }
+    .log-entry.info { color: #60a5fa; }
+    .log-entry.success { color: #4ade80; }
+    .log-entry.warn { color: #fbbf24; }
+    .log-entry.error { color: #f87171; }
+
+    .right-panel { display: flex; flex-direction: column; overflow: hidden; }
+
+    .sub-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-bottom: 1px solid #2d2d44;
+    }
+    .sub-panel:last-child { border-bottom: none; }
+
+    .sub-panel-header {
+      padding: 10px 16px;
+      border-bottom: 1px solid #2d2d44;
+      background: #13131a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .sub-panel-header span { font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; flex: 1; }
+    .sub-panel-header .refresh-time { font-size: 0.7rem; color: #374151; }
+
+    .sub-panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .sub-panel-content h1, .sub-panel-content h2, .sub-panel-content h3 { color: #a78bfa; margin: 8px 0 4px; }
+    .sub-panel-content strong, .sub-panel-content b { color: #e2e8f0; }
+    .sub-panel-content code { background: #1e1e2e; padding: 1px 4px; border-radius: 3px; font-family: monospace; color: #7dd3fc; }
+    .sub-panel-content hr { border: none; border-top: 1px solid #2d2d44; margin: 8px 0; }
+
+    .instruction-box {
+      background: #1a1a2e;
+      border: 1px solid #2d2d44;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 0.8125rem;
+      color: #c4b5fd;
+      margin: 12px 16px;
+      flex-shrink: 0;
+      font-style: italic;
+    }
+
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+      .panel { border-right: none; border-bottom: 1px solid #2d2d44; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Agent Loop</h1>
+  <span class="badge">BrainForge</span>
+  <a href="/">&#8592; Dashboard</a>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT: Controls + Log -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="status-dot stopped" id="statusDot"></div>
+      <h2>Run Log</h2>
+      <span class="hop-badge" id="hopBadge">Hop 0</span>
+      <div class="controls">
+        <button class="btn btn-init" id="btnInit" onclick="initAgent()">Init</button>
+        <button class="btn btn-run" id="btnRun" onclick="runAgent()">Run</button>
+        <button class="btn btn-stop" id="btnStop" onclick="stopAgent()" disabled>Stop</button>
+      </div>
+    </div>
+    <div class="log-container" id="logContainer">
+      <div class="log-entry info"><span class="ts">[--:--:--]</span> Agent Loop ready. Click Init then Run to start.</div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Memory + Instructions -->
+  <div class="right-panel">
+
+    <div class="sub-panel">
+      <div class="sub-panel-header">
+        <span>Memory</span>
+        <button class="btn btn-sm" onclick="loadMemory()">Refresh</button>
+        <span class="refresh-time" id="memoryRefreshTime"></span>
+      </div>
+      <div class="sub-panel-content" id="memoryContent">Loading memory...</div>
+    </div>
+
+    <div class="sub-panel">
+      <div class="sub-panel-header">
+        <span>Current Instruction</span>
+        <button class="btn btn-sm" onclick="loadInstructions()">Refresh</button>
+        <span class="refresh-time" id="instrRefreshTime"></span>
+      </div>
+      <div class="instruction-box" id="instructionContent">Loading...</div>
+      <div class="sub-panel-header" style="border-top: 1px solid #2d2d44; margin-top: auto;">
+        <span>Last Response</span>
+      </div>
+      <div class="sub-panel-content" id="responseContent" style="max-height: 200px;">&#8212;</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const API = 'https://brainforge-api.richard-brown-miami.workers.dev';
+  let statusInterval = null;
+  let isRunning = false;
+
+  function ts() {
+    return new Date().toLocaleTimeString('en-US', { hour12: false });
+  }
+
+  function addLog(msg, type = 'info') {
+    const container = document.getElementById('logContainer');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry ' + type;
+    entry.innerHTML = '<span class="ts">[' + ts() + ']</span> ' + escapeHtml(msg);
+    container.appendChild(entry);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function renderMarkdown(text) {
+    return text
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/`(.+?)`/g, '<code>$1</code>')
+      .replace(/^---$/gm, '<hr>')
+      .replace(/\n/g, '<br>');
+  }
+
+  async function initAgent() {
+    addLog('Initializing agent — writing first instruction...', 'info');
+    try {
+      const res = await fetch(API + '/agent/init', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        addLog('Init complete. Instruction: ' + data.instruction, 'success');
+        loadInstructions();
+      } else {
+        addLog('Init failed: ' + (data.error || 'unknown'), 'error');
+      }
+    } catch (e) {
+      addLog('Init error: ' + e.message, 'error');
+    }
+  }
+
+  async function runAgent() {
+    addLog('Starting agent loop (max 50 hops)...', 'info');
+    document.getElementById('btnRun').disabled = true;
+    document.getElementById('btnStop').disabled = false;
+    document.getElementById('btnInit').disabled = true;
+    try {
+      const res = await fetch(API + '/agent/run', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        addLog(data.message, 'success');
+        startPolling();
+      } else {
+        addLog('Run failed: ' + (data.error || 'unknown'), 'error');
+        resetButtons();
+      }
+    } catch (e) {
+      addLog('Run error: ' + e.message, 'error');
+      resetButtons();
+    }
+  }
+
+  async function stopAgent() {
+    addLog('Stopping agent loop...', 'warn');
+    try {
+      await fetch(API + '/agent/stop', { method: 'POST' });
+      addLog('Stop signal sent.', 'warn');
+      stopPolling();
+      resetButtons();
+    } catch (e) {
+      addLog('Stop error: ' + e.message, 'error');
+    }
+  }
+
+  function startPolling() {
+    if (statusInterval) clearInterval(statusInterval);
+    statusInterval = setInterval(pollStatus, 3000);
+    pollStatus();
+  }
+
+  function stopPolling() {
+    if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
+    document.getElementById('statusDot').className = 'status-dot stopped';
+  }
+
+  function resetButtons() {
+    document.getElementById('btnRun').disabled = false;
+    document.getElementById('btnStop').disabled = true;
+    document.getElementById('btnInit').disabled = false;
+  }
+
+  async function pollStatus() {
+    try {
+      const res = await fetch(API + '/agent/status');
+      const data = await res.json();
+
+      isRunning = data.running;
+      const dot = document.getElementById('statusDot');
+      dot.className = 'status-dot ' + (isRunning ? 'running' : 'stopped');
+      document.getElementById('hopBadge').textContent = 'Hop ' + (data.hop || 0);
+
+      if (data.lastInstruction) {
+        document.getElementById('instructionContent').textContent = data.lastInstruction;
+      }
+      if (data.lastResponse) {
+        document.getElementById('responseContent').innerHTML = renderMarkdown(data.lastResponse);
+      }
+
+      if (data.logs && data.logs.length > 0) {
+        const container = document.getElementById('logContainer');
+        const existing = container.querySelectorAll('[data-log-ts]');
+        const existingTs = new Set(Array.from(existing).map(el => el.getAttribute('data-log-ts')));
+        
+        for (const entry of data.logs) {
+          if (!existingTs.has(entry.ts)) {
+            const el = document.createElement('div');
+            el.className = 'log-entry info';
+            el.setAttribute('data-log-ts', entry.ts);
+            const t = new Date(entry.ts).toLocaleTimeString('en-US', { hour12: false });
+            el.innerHTML = '<span class="ts">[' + t + ']</span> ' + escapeHtml(entry.msg);
+            container.appendChild(el);
+          }
+        }
+        container.scrollTop = container.scrollHeight;
+      }
+
+      if (!isRunning && statusInterval) {
+        addLog('Loop stopped.', 'warn');
+        stopPolling();
+        resetButtons();
+      }
+    } catch (e) {
+      addLog('Status poll error: ' + e.message, 'error');
+    }
+  }
+
+  async function loadMemory() {
+    try {
+      const res = await fetch(API + '/agent/memory');
+      const data = await res.json();
+      document.getElementById('memoryContent').innerHTML = renderMarkdown(data.content || '(empty)');
+      document.getElementById('memoryRefreshTime').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      document.getElementById('memoryContent').textContent = 'Error loading memory: ' + e.message;
+    }
+  }
+
+  async function loadInstructions() {
+    try {
+      const res = await fetch(API + '/agent/instructions');
+      const data = await res.json();
+      document.getElementById('instructionContent').textContent = data.content || '(empty)';
+      document.getElementById('instrRefreshTime').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      document.getElementById('instructionContent').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  setInterval(loadMemory, 30000);
+  setInterval(() => { if (isRunning) loadInstructions(); }, 5000);
+
+  loadMemory();
+  loadInstructions();
+  pollStatus();
+</script>
+
+</body>
+</html>
