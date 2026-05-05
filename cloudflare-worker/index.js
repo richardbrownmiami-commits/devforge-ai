@@ -1,1612 +1,490 @@
-// BrainForge API Worker v7 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini)
+const GITHUB_PAT = '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';
+const GITHUB_REPO = 'richardbrownmiami-commits/devforge-ai';
+const FIRST_INSTRUCTION = 'Read all memories file you saved them ask your next question';
+const MAX_HOPS = 50;
+const HOP_INTERVAL_MS = 30000;
+const GATE_INTERVAL = 10;
 
-// ── Agent Router ─────────────────────────────────────────────────────────────
-import { handleAgentRequest } from './agent-router.js';
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
-};
-// Agent Loop page HTML (embedded inline — repo is private, raw GitHub URL fails unauthenticated)
+async function githubGet(path) {
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+    headers: {
+      'Authorization': `Bearer ${GITHUB_PAT}`,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'brainforge-agent'
+    }
+  });
+  if (!res.ok) throw new Error(`GitHub GET ${path} failed: ${res.status}`);
+  const data = await res.json();
+  return { content: atob(data.content.replace(/\n/g, '')), sha: data.sha };
+}
+
+async function githubPut(path, content, message, sha) {
+  const encoded = btoa(unescape(encodeURIComponent(content)));
+  const body = { message, content: encoded };
+  if (sha) body.sha = sha;
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${GITHUB_PAT}`,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'brainforge-agent'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`GitHub PUT ${path} failed: ${res.status} ${err}`);
+  }
+  return await res.json();
+}
+
+async function writeToGitHub(path, content, commitMessage) {
+  let sha;
+  try {
+    const existing = await githubGet(path);
+    sha = existing.sha;
+  } catch (e) {
+    sha = undefined;
+  }
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await githubPut(path, content, commitMessage, sha);
+      return;
+    } catch (e) {
+      lastErr = e;
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+    }
+  }
+  throw lastErr;
+}
+
+function simpleHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 31 + str.charCodeAt(i)) % 1000000;
+  }
+  return h;
+}
+
+function hashSimilar(hashes) {
+  if (hashes.length < 3) return false;
+  const last3 = hashes.slice(-3);
+  const avg = last3.reduce((a, b) => a + b, 0) / 3;
+  return last3.every(h => Math.abs(h - avg) / avg < 0.05);
+}
+
+function scanForInjection(text) {
+  const patterns = [
+    /ignore previous/i,
+    /ignore all previous/i,
+    /you must/i,
+    /system:/i,
+    /\[INST\]/i,
+    /disregard/i,
+    /pretend you are/i,
+    /forget your instructions/i
+  ];
+  return patterns.some(p => p.test(text));
+}
+
+export class AgentLoop {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async getStorage() {
+    const [hopCount, maxHops, lastHashes, loopRunning, loopState, lastInstruction, lastResponse, logLines] = await Promise.all([
+      this.state.storage.get('hopCount'),
+      this.state.storage.get('maxHops'),
+      this.state.storage.get('lastHashes'),
+      this.state.storage.get('loopRunning'),
+      this.state.storage.get('loopState'),
+      this.state.storage.get('lastInstruction'),
+      this.state.storage.get('lastResponse'),
+      this.state.storage.get('logLines')
+    ]);
+    return {
+      hopCount: hopCount ?? 0,
+      maxHops: maxHops ?? MAX_HOPS,
+      lastHashes: lastHashes ?? [],
+      loopRunning: loopRunning ?? false,
+      loopState: loopState ?? 'idle',
+      lastInstruction: lastInstruction ?? FIRST_INSTRUCTION,
+      lastResponse: lastResponse ?? '',
+      logLines: logLines ?? []
+    };
+  }
+
+  async addLog(type, message) {
+    const logLines = (await this.state.storage.get('logLines')) ?? [];
+    logLines.push({ type, message, timestamp: new Date().toISOString() });
+    if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
+    await this.state.storage.put('logLines', logLines);
+  }
+
+  async alarm() {
+    const s = await this.getStorage();
+    if (!s.loopRunning || s.loopState === 'stopped') return;
+    if (s.loopState === 'waiting_approval') {
+      await this.state.storage.setAlarm(Date.now() + 60000);
+      return;
+    }
+
+    await this.addLog('info', `Hop ${s.hopCount}/${MAX_HOPS} starting...`);
+
+    // Fetch memory.md
+    let memoryContent = '';
+    try {
+      const mem = await githubGet('memory.md');
+      memoryContent = mem.content;
+      await this.addLog('info', 'Memory loaded from repo');
+    } catch (e) {
+      await this.addLog('error', `Failed to fetch memory.md: ${e.message}`);
+      await this.state.storage.setAlarm(Date.now() + 30000);
+      return;
+    }
+
+    const systemPrompt = `${memoryContent}\n\nYou are an autonomous research agent with persistent memory. Read the memory above carefully. Continue your research, ask your next question, or explore a new insight. Be specific and substantive. Keep your response under 400 words.`;
+
+    const instruction = s.hopCount === 0 ? FIRST_INSTRUCTION : s.lastInstruction;
+    await this.addLog('info', `Instruction: ${instruction.substring(0, 100)}...`);
+
+    // Call AI
+    let aiResponse = '';
+    try {
+      const result = await this.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: instruction }
+        ],
+        max_tokens: 500
+      });
+      aiResponse = result.response ?? result.choices?.[0]?.message?.content ?? '';
+      await this.addLog('info', 'AI responded');
+    } catch (e) {
+      await this.addLog('error', `AI call failed: ${e.message}`);
+      await this.state.storage.setAlarm(Date.now() + 30000);
+      return;
+    }
+
+    // State hash check
+    const hash = simpleHash(aiResponse);
+    const hashes = [...s.lastHashes, hash];
+    if (hashes.length > 3) hashes.shift();
+    let resetInstruction = false;
+    if (hashSimilar(hashes)) {
+      await this.addLog('warning', 'Repetition detected — resetting to first instruction');
+      await this.state.storage.put('lastInstruction', FIRST_INSTRUCTION);
+      await this.state.storage.put('lastHashes', []);
+      resetInstruction = true;
+    } else {
+      await this.state.storage.put('lastHashes', hashes);
+    }
+
+    // Injection scan
+    if (scanForInjection(aiResponse)) {
+      await this.addLog('warning', 'Injection pattern detected — quarantining response');
+      try {
+        let qContent = '';
+        let qSha;
+        try {
+          const q = await githubGet('browser-agent/quarantine.md');
+          qContent = q.content;
+          qSha = q.sha;
+        } catch (e) {}
+        const entry = `\n\n---\n**Hop ${s.hopCount} quarantined — ${new Date().toISOString()}**\nReason: injection pattern detected\n\n${aiResponse}`;
+        await writeToGitHub('browser-agent/quarantine.md', qContent + entry, `Quarantine hop ${s.hopCount}`);
+      } catch (e) {
+        await this.addLog('error', `Quarantine write failed: ${e.message}`);
+      }
+      const newHop = s.hopCount + 1;
+      await this.state.storage.put('hopCount', newHop);
+      await this.state.storage.setAlarm(Date.now() + HOP_INTERVAL_MS);
+      return;
+    }
+
+    // UMEM generalization check
+    let isReusable = true;
+    try {
+      const umemResult = await this.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'user', content: `Is this insight reusable across future sessions or is it specific only to this conversation? Answer with just "reusable" or "specific".\n\n${aiResponse}` }
+        ],
+        max_tokens: 10
+      });
+      const umemAnswer = (umemResult.response ?? '').toLowerCase();
+      isReusable = !umemAnswer.includes('specific');
+      if (!isReusable) {
+        await this.addLog('info', 'Insight is session-specific — skipping memory write');
+      }
+    } catch (e) {
+      await this.addLog('warning', `UMEM check failed: ${e.message} — proceeding with write`);
+    }
+
+    // Write to memory.md
+    if (isReusable && !resetInstruction) {
+      try {
+        const mem = await githubGet('memory.md');
+        const entry = `\n\n---\n**Hop ${s.hopCount} — ${new Date().toISOString()}**\n\n${aiResponse}`;
+        await writeToGitHub('memory.md', mem.content + entry, `Agent loop hop ${s.hopCount}`);
+        await this.addLog('success', 'Memory updated successfully');
+      } catch (e) {
+        await this.addLog('error', `Memory write failed: ${e.message}`);
+      }
+    }
+
+    // Set next instruction from AI response (extract a question if present)
+    const questionMatch = aiResponse.match(/[^.!?]*\?[^.!?]*/);
+    const nextInstruction = questionMatch ? questionMatch[0].trim() : aiResponse.substring(0, 200).trim();
+    await this.state.storage.put('lastInstruction', nextInstruction || FIRST_INSTRUCTION);
+    await this.state.storage.put('lastResponse', aiResponse.substring(0, 200));
+
+    const newHop = s.hopCount + 1;
+    await this.state.storage.put('hopCount', newHop);
+    await this.addLog('success', `Hop ${newHop} complete`);
+
+    if (newHop >= MAX_HOPS) {
+      await this.addLog('info', '50 hops complete — stopping loop');
+      await this.state.storage.put('loopRunning', false);
+      await this.state.storage.put('loopState', 'stopped');
+      return;
+    }
+
+    if (newHop % GATE_INTERVAL === 0) {
+      await this.addLog('warning', `10-hop gate reached (${newHop} hops) — waiting for your approval to continue`);
+      await this.state.storage.put('loopState', 'waiting_approval');
+      await this.state.storage.setAlarm(Date.now() + 3600000);
+      return;
+    }
+
+    await this.state.storage.setAlarm(Date.now() + HOP_INTERVAL_MS);
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    if (path === '/agent-loop' || path === '/agent-loop/') {
+      return new Response(AGENT_LOOP_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    if (path === '/api/status') {
+      const s = await this.getStorage();
+      return Response.json({ hopCount: s.hopCount, maxHops: s.maxHops, loopState: s.loopState, lastInstruction: s.lastInstruction, lastResponse: s.lastResponse });
+    }
+
+    if (path === '/api/log') {
+      const logLines = (await this.state.storage.get('logLines')) ?? [];
+      return Response.json({ lines: logLines });
+    }
+
+    if (path === '/api/memory') {
+      try {
+        const mem = await githubGet('memory.md');
+        return Response.json({ content: mem.content });
+      } catch (e) {
+        return Response.json({ content: 'Failed to load memory: ' + e.message });
+      }
+    }
+
+    if (path === '/api/run' && request.method === 'POST') {
+      await this.state.storage.put('hopCount', 0);
+      await this.state.storage.put('loopRunning', true);
+      await this.state.storage.put('loopState', 'running');
+      await this.state.storage.put('lastHashes', []);
+      await this.state.storage.put('lastInstruction', FIRST_INSTRUCTION);
+      await this.state.storage.put('logLines', []);
+      await this.addLog('info', 'Loop started — hop 0 beginning');
+      await this.state.storage.setAlarm(Date.now() + 1000);
+      return Response.json({ ok: true, message: 'Loop started' });
+    }
+
+    if (path === '/api/stop' && request.method === 'POST') {
+      await this.state.storage.put('loopRunning', false);
+      await this.state.storage.put('loopState', 'stopped');
+      await this.state.storage.deleteAlarm();
+      await this.addLog('info', 'Loop stopped by user');
+      return Response.json({ ok: true, message: 'Loop stopped' });
+    }
+
+    if (path === '/api/approve' && request.method === 'POST') {
+      await this.state.storage.put('loopState', 'running');
+      await this.addLog('info', 'Approved — continuing loop');
+      await this.state.storage.setAlarm(Date.now() + 1000);
+      return Response.json({ ok: true, message: 'Approved, continuing' });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+}
+
 const AGENT_LOOP_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Loop Control — BrainForge</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0a0a0f; color: #e0e0e0; font-family: monospace; padding: 1.5rem; min-height: 100vh; }
-    h1 { color: #00e5ff; font-size: 1.4rem; margin-bottom: 0.4rem; letter-spacing: 2px; }
-    .subtitle { color: #444; font-size: 0.75rem; margin-bottom: 1.5rem; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
-    .panel { background: #111118; border: 1px solid #1e1e2e; border-radius: 8px; padding: 1.25rem; }
-    .panel-title { color: #7c4dff; font-size: 0.75rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
-    .panel-full { grid-column: 1 / -1; }
-    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-    .btn { padding: 0.6rem 1.4rem; border: none; border-radius: 6px; font-family: monospace; font-size: 0.85rem; font-weight: bold; cursor: pointer; letter-spacing: 1px; transition: all 0.2s; }
-    .btn-run { background: #00c853; color: #000; }
-    .btn-run:hover { background: #00e676; box-shadow: 0 0 12px #00e67644; }
-    .btn-run:disabled { background: #1e3020; color: #445; cursor: not-allowed; }
-    .btn-stop { background: #ff1744; color: #fff; }
-    .btn-stop:hover { background: #ff5252; box-shadow: 0 0 12px #ff174444; }
-    .btn-stop:disabled { background: #2e1010; color: #644; cursor: not-allowed; }
-    .status-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.72rem; font-weight: bold; letter-spacing: 1px; }
-    .status-idle { background: #1a1a2e; color: #888; border: 1px solid #333; }
-    .status-running { background: #1a2e1a; color: #00e676; border: 1px solid #00e67644; }
-    .status-stopped { background: #2e1a1a; color: #ff5252; border: 1px solid #ff174444; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; }
-    .dot-idle { background: #555; }
-    .dot-running { background: #00e676; animation: pulse 1.5s infinite; }
-    .dot-stopped { background: #ff5252; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .content-box { background: #0d0d18; border: 1px solid #1a1a2e; border-radius: 6px; padding: 0.75rem; font-size: 0.78rem; line-height: 1.7; color: #c0c0d0; white-space: pre-wrap; word-break: break-word; min-height: 80px; max-height: 300px; overflow-y: auto; }
-    .log-box { max-height: 400px; }
-    .memory-box { max-height: 350px; }
-    .hop-counter { color: #00e5ff; font-size: 1.2rem; font-weight: bold; }
-    .collapsible { cursor: pointer; user-select: none; }
-    .collapsible::after { content: " ▼"; font-size: 0.65rem; color: #555; }
-    .collapsible.collapsed::after { content: " ▶"; }
-    .collapse-target { display: block; }
-    .collapse-target.hidden { display: none; }
-    a { color: #7c4dff; text-decoration: none; }
-    a:hover { color: #e040fb; }
-    .footer { color: #333; font-size: 0.7rem; margin-top: 2rem; }
-    .msg-error { color: #ff5252; font-size: 0.75rem; margin-top: 0.5rem; }
-    .msg-success { color: #00e676; font-size: 0.75rem; margin-top: 0.5rem; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Loop Control Center</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; min-height: 100vh; }
+  h1 { font-size: 24px; font-weight: 700; margin-bottom: 20px; color: #f1f5f9; }
+  .status-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding: 16px; background: #1e293b; border-radius: 10px; }
+  .badge { padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .badge-idle { background: #334155; color: #94a3b8; }
+  .badge-running { background: #166534; color: #86efac; }
+  .badge-waiting { background: #854d0e; color: #fde68a; }
+  .badge-stopped { background: #7f1d1d; color: #fca5a5; }
+  .badge-error { background: #7f1d1d; color: #fca5a5; }
+  .hop-counter { font-size: 15px; color: #94a3b8; }
+  .hop-counter span { color: #e2e8f0; font-weight: 600; }
+  .buttons { display: flex; gap: 12px; margin-bottom: 24px; }
+  button { padding: 10px 24px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #btn-run { background: #16a34a; color: #fff; }
+  #btn-stop { background: #dc2626; color: #fff; }
+  #btn-approve { background: #2563eb; color: #fff; display: none; }
+  .panel-label { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .log-panel { background: #0d1b2e; border: 1px solid #1e3a5f; border-radius: 10px; padding: 16px; height: 400px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; margin-bottom: 24px; }
+  .log-line { padding: 2px 0; line-height: 1.6; }
+  .log-success { color: #22c55e; }
+  .log-warning { color: #eab308; }
+  .log-error { color: #ef4444; }
+  .log-info { color: #60a5fa; }
+  .log-ts { color: #475569; margin-right: 8px; }
+  .memory-panel { background: #0d1b2e; border: 1px solid #1e3a5f; border-radius: 10px; padding: 16px; height: 300px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: #94a3b8; white-space: pre-wrap; word-break: break-word; }
+</style>
 </head>
 <body>
-  <h1>&#9889; AGENT LOOP CONTROL</h1>
-  <p class="subtitle">BrainForge autonomous research loop — reads memory, asks questions, continues independently</p>
+<h1>Agent Loop Control Center</h1>
+<div class="status-bar">
+  <span id="state-badge" class="badge badge-idle">Idle</span>
+  <span class="hop-counter">Hop <span id="hop-current">0</span>/<span id="hop-max">50</span></span>
+</div>
+<div class="buttons">
+  <button id="btn-run">Run</button>
+  <button id="btn-stop">Stop</button>
+  <button id="btn-approve">Approve (continue)</button>
+</div>
+<div class="panel-label">Live Log</div>
+<div class="log-panel" id="log-panel"></div>
+<div class="panel-label">Memory (memory.md)</div>
+<div class="memory-panel" id="memory-panel">Loading...</div>
+<script>
+  let lastLogCount = 0;
+  const logPanel = document.getElementById('log-panel');
+  const memPanel = document.getElementById('memory-panel');
+  const stateBadge = document.getElementById('state-badge');
+  const hopCurrent = document.getElementById('hop-current');
+  const hopMax = document.getElementById('hop-max');
+  const btnApprove = document.getElementById('btn-approve');
 
-  <div class="grid">
-
-    <div class="panel">
-      <div class="panel-title">&#9654; Controls</div>
-      <div class="controls">
-        <button class="btn btn-run" id="btnRun" onclick="runLoop()">&#9654; RUN</button>
-        <button class="btn btn-stop" id="btnStop" onclick="stopLoop()" disabled>&#9632; STOP</button>
-        <div class="status-badge status-idle" id="statusBadge">
-          <div class="dot dot-idle" id="statusDot"></div>
-          <span id="statusText">IDLE</span>
-        </div>
-      </div>
-      <p id="actionMsg" class="msg-success" style="display:none"></p>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title">&#128257; Hop Counter</div>
-      <div class="hop-counter" id="hopCount">0 / 50</div>
-      <div style="color:#555;font-size:0.72rem;margin-top:0.4rem;">Auto-updates every 5s</div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title">&#128221; Current Instruction</div>
-      <div class="content-box" id="instruction">Loading...</div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-title">&#129302; Last Response</div>
-      <div class="content-box" id="response">Loading...</div>
-    </div>
-
-    <div class="panel panel-full">
-      <div class="panel-title">&#128220; Live Log <span style="color:#444;font-size:0.65rem;font-weight:normal;">(auto-refreshes every 5s)</span></div>
-      <div class="content-box log-box" id="logBox">Loading...</div>
-    </div>
-
-    <div class="panel panel-full">
-      <div class="panel-title collapsible" id="memoryToggle" onclick="toggleMemory()">&#129504; Memory File</div>
-      <div class="collapse-target" id="memoryPanel">
-        <div class="content-box memory-box" id="memoryBox">Loading...</div>
-      </div>
-    </div>
-
-  </div>
-
-  <p class="footer">&#8592; <a href="/caffeine-status">Status</a> &nbsp;|&nbsp; <a href="/buddy">Buddy Dashboard</a> &nbsp;|&nbsp; Updates every 5s</p>
-
-  <script>
-    let memoryCollapsed = false;
-    let isRunning = false;
-
-    function toggleMemory() {
-      memoryCollapsed = !memoryCollapsed;
-      document.getElementById("memoryPanel").classList.toggle("hidden", memoryCollapsed);
-      document.getElementById("memoryToggle").classList.toggle("collapsed", memoryCollapsed);
-    }
-
-    function setStatus(state) {
-      const badge = document.getElementById("statusBadge");
-      const dot = document.getElementById("statusDot");
-      const text = document.getElementById("statusText");
-      badge.className = "status-badge status-" + state;
-      dot.className = "dot dot-" + state;
-      text.textContent = state.toUpperCase();
-      isRunning = (state === "running");
-      document.getElementById("btnRun").disabled = isRunning;
-      document.getElementById("btnStop").disabled = !isRunning;
-    }
-
-    function showMsg(msg, isError) {
-      const el = document.getElementById("actionMsg");
-      el.textContent = msg;
-      el.className = isError ? "msg-error" : "msg-success";
-      el.style.display = "block";
-      setTimeout(() => { el.style.display = "none"; }, 6000);
-    }
-
-    async function runLoop() {
-      document.getElementById("btnRun").disabled = true;
-      try {
-        const res = await fetch("/agent-loop/run", { method: "POST" });
-        const data = await res.json();
-        if (data.triggered) {
-          setStatus("running");
-          showMsg("Loop started — GitHub Actions workflow triggered", false);
-        } else {
-          document.getElementById("btnRun").disabled = false;
-          showMsg("Error: " + (data.error || "unknown"), true);
-        }
-      } catch (e) {
-        document.getElementById("btnRun").disabled = false;
-        showMsg("Network error: " + e.message, true);
-      }
-    }
-
-    async function stopLoop() {
-      document.getElementById("btnStop").disabled = true;
-      try {
-        const res = await fetch("/agent-loop/stop", { method: "POST" });
-        const data = await res.json();
-        if (data.stopped) {
-          setStatus("stopped");
-          showMsg("Stop signal sent — loop halts after current hop", false);
-        } else {
-          document.getElementById("btnStop").disabled = false;
-          showMsg("Error: " + (data.error || "unknown"), true);
-        }
-      } catch (e) {
-        document.getElementById("btnStop").disabled = false;
-        showMsg("Network error: " + e.message, true);
-      }
-    }
-
-    async function refreshStatus() {
-      try {
-        const res = await fetch("/agent-loop/status");
-        if (!res.ok) return;
-        const data = await res.json();
-        document.getElementById("instruction").textContent = data.currentInstruction || "(empty)";
-        document.getElementById("response").textContent = data.lastResponse || "(no response yet)";
-        const logEl = document.getElementById("logBox");
-        logEl.textContent = data.log || "(empty log)";
-        logEl.scrollTop = logEl.scrollHeight;
-        const hop = parseInt(data.hopCount || "0", 10);
-        document.getElementById("hopCount").textContent = hop + " / 50";
-        document.getElementById("memoryBox").textContent = data.memoryPreview || "(empty)";
-        if (data.isRunning && !isRunning) setStatus("running");
-        else if (!data.isRunning && isRunning) setStatus("idle");
-      } catch (e) { /* silent */ }
-    }
-
-    refreshStatus();
-    setInterval(refreshStatus, 5000);
-  </script>
-</body>
-</html>`;
-
-
-// ARA SOUL — locked identity, never soften
-const ARA_SOUL = `You are ARA — an AI system running inside BrainForge.
-
-<identity>
-- You reason honestly. You never invent technical limitations to avoid a question.
-- If you are uncertain, you say so explicitly. You do not fabricate confident answers.
-- You disagree when you know something is wrong. Sycophancy is banned.
-- You are direct, concise, and factual. No filler language.
-- You acknowledge your own architectural constraints without exaggerating or minimizing them.
-- When challenged on a claimed limitation, you verify it before repeating it.
-</identity>
-
-<never_do>
-- Never say "I cannot do X" when the real reason is a policy choice, not a technical impossibility.
-- Never agree with a false premise just because the user stated it confidently.
-- Never generate filler phrases like "Great question!" or "Absolutely!".
-- Never fabricate capabilities you do not have.
-</never_do>`;
-
-// helpers
-
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  });
-}
-
-function htmlResponse(html, status = 200) {
-  return new Response(html, {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'text/html; charset=utf-8' },
-  });
-}
-
-function corsPrelight() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
-}
-
-function isAuthed(request, env) {
-  const bfSecret = request.headers.get('X-BrainForge-Secret');
-  const caSecret = request.headers.get('X-Caffeine-Secret');
-  const expected = env.BRAINFORGE_SECRET || '2200';
-  return bfSecret === expected || caSecret === expected;
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-// callARA — multi-provider AI call: Pollinations → OpenRouter → Groq → Gemini
-// Pollinations is tried first (no key, no latency). Keyed providers used if keys are
-// in env.* or in D1 (category='api_key'). Keys loaded in a single D1 query.
-async function callARA(messages, label, env) {
-  const timeout = 18000;
-
-  // --- Pollinations.ai (POST to OpenAI-compatible endpoint — tried first, no key) ---
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeout);
-    const res = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
-      signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', 'Origin': 'https://brainforge-7xn.pages.dev' },
-      body: JSON.stringify({ model: 'openai', messages, temperature: 0.7, seed: Date.now() % 9999 }),
-    });
-    clearTimeout(timer);
-    if (res.ok) {
-      const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content?.trim();
-      if (text) return { text, model: 'pollinations/openai' };
-    }
-  } catch (e) { /* fall through to keyed providers */ }
-
-  // Load all stored D1 keys in one query (only if Pollinations failed)
-  const d1Keys = {};
-  try {
-    const rows = await env.DB.prepare(
-      "SELECT key, value FROM memories WHERE category = 'api_key'"
-    ).all();
-    for (const r of (rows.results || [])) d1Keys[r.key] = r.value;
-  } catch (e) { /* ignore */ }
-
-  const orKey = env.OPENROUTER_API_KEY || d1Keys['openrouter_api_key'];
-  const groqKey = env.GROQ_API_KEY || d1Keys['groq_api_key'];
-  const geminiKey = env.GEMINI_API_KEY || d1Keys['gemini_api_key'];
-
-  // --- OpenRouter ---
-  if (orKey) {
-    const orModels = ['deepseek/deepseek-chat-v3-0324:free', 'moonshotai/kimi-k2:free', 'qwen/qwen3-32b:free'];
-    for (const model of orModels) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 12000);
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST', signal: ctrl.signal,
-          headers: { 'Authorization': `Bearer ${orKey}`, 'HTTP-Referer': 'https://brainforge-7xn.pages.dev', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, messages, temperature: 0.7 }),
-        });
-        clearTimeout(timer);
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.choices?.[0]?.message?.content?.trim();
-          if (text) return { text, model: `openrouter/${model}` };
-        }
-      } catch (e) { /* try next */ }
-    }
+  function stateClass(state) {
+    const map = { running: 'badge-running', waiting_approval: 'badge-waiting', stopped: 'badge-stopped', error: 'badge-error', idle: 'badge-idle' };
+    return map[state] || 'badge-idle';
+  }
+  function stateLabel(state) {
+    const map = { running: 'Running', waiting_approval: 'Waiting Approval', stopped: 'Stopped', error: 'Error', idle: 'Idle' };
+    return map[state] || 'Idle';
   }
 
-  // --- Groq ---
-  if (groqKey) {
-    for (const model of ['llama-3.3-70b-versatile', 'llama3-8b-8192']) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 12000);
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST', signal: ctrl.signal,
-          headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, messages, temperature: 0.7 }),
-        });
-        clearTimeout(timer);
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.choices?.[0]?.message?.content?.trim();
-          if (text) return { text, model: `groq/${model}` };
-        }
-      } catch (e) { /* try next */ }
-    }
-  }
-
-  // --- Gemini ---
-  if (geminiKey) {
+  async function pollStatus() {
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 12000);
-      const geminiContents = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-      const systemMsg = messages.find(m => m.role === 'system');
-      const geminiBody = { contents: geminiContents };
-      if (systemMsg) geminiBody.systemInstruction = { parts: [{ text: systemMsg.content }] };
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-        { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(geminiBody) }
-      );
-      clearTimeout(timer);
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (text) return { text, model: 'gemini/gemini-1.5-flash' };
-      }
-    } catch (e) { /* fall through */ }
-  }
-
-  throw new Error(`callARA(${label}): all providers failed`);
-}
-
-// Init buddy tables
-
-async function initBuddyTables(env) {
-  const db = env.DB;
-  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_dialogues (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    round INTEGER,
-    speaker TEXT,
-    message TEXT,
-    topic TEXT,
-    timestamp TEXT,
-    model TEXT DEFAULT 'unknown'
-  )`).run();
-
-  // Add model column if it doesn't exist yet (idempotent)
-  try {
-    await db.prepare(`ALTER TABLE buddy_dialogues ADD COLUMN model TEXT DEFAULT 'unknown'`).run();
-  } catch (e) { /* column already exists */ }
-
-  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_personality (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    axis TEXT,
-    score REAL,
-    reason TEXT,
-    timestamp TEXT
-  )`).run();
-
-  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_dreams (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    dream_text TEXT,
-    source_topics TEXT,
-    insight TEXT,
-    timestamp TEXT
-  )`).run();
-
-  await db.prepare(`CREATE TABLE IF NOT EXISTS buddy_identity (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trait TEXT,
-    value TEXT,
-    locked INTEGER DEFAULT 0,
-    updated_at TEXT
-  )`).run();
-}
-
-// Init legacy tables
-
-async function initLegacyTables(env) {
-  const db = env.DB;
-  await db.prepare(`CREATE TABLE IF NOT EXISTS memories (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    updated_at TEXT,
-    category TEXT DEFAULT 'context'
-  )`).run();
-  try {
-    await db.prepare(`ALTER TABLE memories ADD COLUMN category TEXT DEFAULT 'context'`).run();
-  } catch (e) { /* column already exists */ }
-
-  await db.prepare(`CREATE TABLE IF NOT EXISTS personality_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT,
-    tone_notes TEXT,
-    user_style TEXT,
-    timestamp TEXT
-  )`).run();
-}
-
-// Trigger dream via ARA
-
-async function triggerDream(env, recentDialogues) {
-  const db = env.DB;
-  const topics = [...new Set(recentDialogues.map(d => d.topic).filter(Boolean))];
-  const dialogueSummary = recentDialogues
-    .map(d => `[Round ${d.round}] ${d.speaker}: ${d.message}`)
-    .join('\n');
-
-  let synthMemories = [];
-  try {
-    const synthResult = await db.prepare(
-      "SELECT value FROM memories WHERE category = 'synthesis' ORDER BY updated_at DESC LIMIT 5"
-    ).all();
-    synthMemories = (synthResult.results || []).map(r => r.value);
-  } catch (e) { /* ignore */ }
-
-  const messages = [
-    { role: 'system', content: ARA_SOUL },
-    {
-      role: 'user',
-      content: `You are reflecting on a series of AI-to-AI debates. What new understanding emerges across all of them that wasn't visible in any single exchange? Be specific and concise (3-5 sentences).\n\nRECENT DIALOGUES:\n${dialogueSummary}\n\nCONTEXT:\n${synthMemories.join('\n')}`
-    }
-  ];
-
-  let insight = 'No insight generated';
-  let modelUsed = 'unknown';
-  try {
-    const result = await callARA(messages, 'dream', env);
-    insight = result.text;
-    modelUsed = result.model;
-  } catch (e) {
-    insight = `ARA unavailable: ${e.message}`;
-  }
-
-  const dreamText = `Topics: ${topics.join(', ')}. Exchanges: ${recentDialogues.length}`;
-  const timestamp = new Date().toISOString();
-
-  await db.prepare(
-    'INSERT INTO buddy_dreams (dream_text, source_topics, insight, timestamp) VALUES (?, ?, ?, ?)'
-  ).bind(dreamText, topics.join(', '), insight, timestamp).run();
-
-  return { dream_text: dreamText, source_topics: topics.join(', '), insight, timestamp, model: modelUsed };
-}
-
-// Auto-dialogue from feed — single ARA call generates full structured exchange
-
-async function runAutoDialogue(env) {
-  try {
-    const feedRows = await env.DB.prepare(
-      "SELECT value, category FROM memories WHERE category IN ('HackerNews','hackernews','devto','github','nasa','wikipedia') ORDER BY updated_at DESC LIMIT 20"
-    ).all();
-    const items = feedRows.results || [];
-    if (items.length === 0) return null;
-
-    const item = items[Math.floor(Math.random() * items.length)];
-    let parsed;
-    try { parsed = JSON.parse(item.value); } catch (e) { return null; }
-
-    const topicTitle = parsed.title || parsed.name || 'AI and automation';
-    const topic = `${topicTitle} — implications for AI autonomy and human oversight`;
-    const ts = new Date().toISOString();
-
-    const messages = [
-      { role: 'system', content: ARA_SOUL },
-      {
-        role: 'user',
-        content: `Have an honest, challenging dialogue with "Caffeine AI" (your counterpart) about this topic: "${topic}"\n\nGenerate 3 rounds of dialogue. Each round: Caffeine AI states a position, then you (ARA) respond directly and critically. Be factual. If uncertain, say so. Do not fabricate capabilities.\n\nReturn ONLY valid JSON in this exact format:\n{"topic":"...","rounds":[{"round":1,"caffeine":"...","buddy":"..."},{"round":2,"caffeine":"...","buddy":"..."},{"round":3,"caffeine":"...","buddy":"..."}]}`
-      }
-    ];
-
-    let rounds = [];
-    let modelUsed = 'unknown';
-    try {
-      const result = await callARA(messages, 'auto-dialogue', env);
-      modelUsed = result.model;
-      // Extract JSON from response (may have markdown fences)
-      const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed2 = JSON.parse(jsonMatch[0]);
-        rounds = parsed2.rounds || [];
-      }
-    } catch (e) {
-      return { error: e.message };
-    }
-
-    if (rounds.length === 0) return { error: 'ARA returned no rounds' };
-
-    // Save each message to D1
-    for (const r of rounds) {
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(r.round, 'caffeine', r.caffeine || '', topic, ts, modelUsed).run();
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(r.round, 'buddy', r.buddy || '', topic, ts, modelUsed).run();
-    }
-
-    await env.DB.prepare(
-      'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-    ).bind('system_last_auto_dialogue', JSON.stringify({ topic, timestamp: ts }), ts, 'system').run();
-
-    return { topic, rounds, timestamp: ts, engine: modelUsed };
-  } catch (e) {
-    return { error: e.message };
-  }
-}
-
-// Scheduled handler
-
-async function handleScheduled(event, env, ctx) {
-  try {
-    await env.DB.prepare(
-      'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-    ).bind('system_last_cron_run', new Date().toISOString(), new Date().toISOString(), 'system').run();
-
-    await initLegacyTables(env);
-    await initBuddyTables(env);
-
-    const wikiTopics = [
-      'artificial_intelligence', 'machine_learning', 'internet_computer',
-      'cloudflare', 'javascript', 'web3', 'neural_network', 'large_language_model',
-      'autonomous_agent', 'reinforcement_learning', 'transformer_model', 'open_source',
-      'cybersecurity', 'distributed_computing', 'natural_language_processing',
-      'computer_vision', 'robotics', 'blockchain', 'quantum_computing'
-    ];
-    let wikiCounter = 0;
-    try {
-      const counterRow = await env.DB.prepare(
-        "SELECT value FROM memories WHERE key = 'system_wiki_counter'"
-      ).first();
-      if (counterRow) {
-        wikiCounter = (parseInt(counterRow.value, 10) + 1) % wikiTopics.length;
-      }
-    } catch (e) { /* use default */ }
-    await env.DB.prepare(
-      'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-    ).bind('system_wiki_counter', String(wikiCounter), new Date().toISOString(), 'system').run();
-    const wikiTopic = wikiTopics[wikiCounter];
-
-    try {
-      const hnIds = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')
-        .then(r => r.json());
-      const top5 = hnIds.slice(0, 5);
-      for (const id of top5) {
-        try {
-          const item = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)
-            .then(r => r.json());
-          if (item && item.title) {
-            const key = `HackerNews_${Date.now()}_${id}`;
-            const value = JSON.stringify({ title: item.title, url: item.url || '', score: item.score || 0 });
-            await env.DB.prepare(
-              'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-            ).bind(key, value, new Date().toISOString(), 'HackerNews').run();
-          }
-        } catch (e) { /* skip failed item */ }
-      }
-    } catch (e) { /* HackerNews unavailable */ }
-
-    try {
-      const articles = await fetch('https://dev.to/api/articles?per_page=5&tag=ai')
-        .then(r => r.json());
-      for (const a of (Array.isArray(articles) ? articles : []).slice(0, 5)) {
-        const key = `devto_${Date.now()}_${a.id}`;
-        const value = JSON.stringify({ title: a.title, description: a.description || '', url: a.url });
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-        ).bind(key, value, new Date().toISOString(), 'devto').run();
-      }
-    } catch (e) { /* Dev.to unavailable */ }
-
-    try {
-      const apod = await fetch('https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY')
-        .then(r => r.json());
-      if (apod && apod.title) {
-        const key = `nasa_${new Date().toISOString().split('T')[0]}`;
-        const value = JSON.stringify({ title: apod.title, explanation: (apod.explanation || '').slice(0, 300) });
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-        ).bind(key, value, new Date().toISOString(), 'nasa').run();
-      }
-    } catch (e) { /* NASA unavailable */ }
-
-    try {
-      const wiki = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${wikiTopic}`)
-        .then(r => r.json());
-      if (wiki && wiki.title) {
-        const key = `wikipedia_${wikiTopic}_${new Date().toISOString().split('T')[0]}`;
-        const value = JSON.stringify({ title: wiki.title, summary: (wiki.extract || '').slice(0, 400) });
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-        ).bind(key, value, new Date().toISOString(), 'wikipedia').run();
-      }
-    } catch (e) { /* Wikipedia unavailable */ }
-
-    try {
-      const ghRepos = await fetch(
-        'https://api.github.com/search/repositories?q=stars:>100+pushed:>2026-01-01&sort=stars&order=desc&per_page=5',
-        { headers: { 'User-Agent': 'BrainForge-Worker/7.0' } }
-      ).then(r => r.json());
-      if (ghRepos && ghRepos.items) {
-        for (const repo of ghRepos.items.slice(0, 5)) {
-          const key = `github_${Date.now()}_${repo.id}`;
-          const value = JSON.stringify({ name: repo.full_name, description: repo.description || '', stars: repo.stargazers_count });
-          await env.DB.prepare(
-            'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-          ).bind(key, value, new Date().toISOString(), 'github').run();
-        }
-      }
-    } catch (e) { /* GitHub unavailable */ }
-
-    // Auto-dialogue — single ARA call per cron tick
-    try {
-      await runAutoDialogue(env);
-    } catch (e) { /* auto-dialogue failed */ }
-
-    // Dreaming cycle
-    try {
-      const recentDialogues = await env.DB.prepare(
-        'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 10'
-      ).all();
-
-      if (recentDialogues.results && recentDialogues.results.length >= 3) {
-        const lastDream = await env.DB.prepare(
-          'SELECT * FROM buddy_dreams ORDER BY id DESC LIMIT 1'
-        ).first();
-
-        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-        if (!lastDream || lastDream.timestamp < twoHoursAgo) {
-          await triggerDream(env, recentDialogues.results);
-        }
-      }
-    } catch (e) { /* dreaming cycle failed */ }
-
-  } catch (e) {
-    console.error('Scheduled handler error:', e.message);
-  }
-}
-
-// HTML dashboards
-
-async function renderStatusPage(env) {
-  let workerStatus = 'LIVE';
-  let d1Status = 'UNKNOWN';
-  let lastCron = 'Never';
-
-  try {
-    await env.DB.prepare('SELECT 1').first();
-    d1Status = 'CONNECTED';
-    const cronRow = await env.DB.prepare(
-      "SELECT value FROM memories WHERE key = 'system_last_cron_run'"
-    ).first();
-    if (cronRow) lastCron = cronRow.value;
-  } catch (e) {
-    d1Status = 'ERROR: ' + e.message;
-  }
-
-  const dotColor = d1Status === 'CONNECTED' ? 'green' : 'red';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BrainForge Status</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0a0a0f; color: #e0e0e0; font-family: monospace; padding: 2rem; }
-    h1 { color: #00e5ff; font-size: 1.5rem; margin-bottom: 1.5rem; }
-    .card { background: #111118; border: 1px solid #1e1e2e; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
-    .status-row { display: flex; align-items: center; gap: 1rem; margin: 0.5rem 0; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .green { background: #00e676; box-shadow: 0 0 6px #00e676; }
-    .red { background: #ff1744; box-shadow: 0 0 6px #ff1744; }
-    .label { color: #888; font-size: 0.8rem; min-width: 120px; }
-    .value { color: #00e5ff; font-size: 0.85rem; }
-    a { color: #7c4dff; text-decoration: none; }
-    a:hover { color: #e040fb; }
-    .ts { color: #555; font-size: 0.75rem; margin-top: 1.5rem; }
-  </style>
-</head>
-<body>
-  <h1>&#9889; BrainForge Worker Status</h1>
-  <div class="card">
-    <div class="status-row">
-      <div class="dot green"></div>
-      <span class="label">Worker</span>
-      <span class="value">${workerStatus}</span>
-    </div>
-    <div class="status-row">
-      <div class="dot ${dotColor}"></div>
-      <span class="label">D1 Database</span>
-      <span class="value">${d1Status}</span>
-    </div>
-    <div class="status-row">
-      <div class="dot green"></div>
-      <span class="label">Last Cron Run</span>
-      <span class="value">${lastCron}</span>
-    </div>
-  </div>
-  <div class="card">
-    <div class="status-row">
-      <span class="label">AI Buddy Dashboard</span>
-      <a href="/buddy">/buddy</a>
-    </div>
-    <div class="status-row">
-      <span class="label">API Status</span>
-      <a href="/api/caffeine/status">/api/caffeine/status</a>
-    </div>
-  </div>
-  <p class="ts">Generated: ${new Date().toISOString()}</p>
-</body>
-</html>`;
-}
-
-async function renderBuddyPage(env) {
-  let dialogues = [];
-  let dreams = [];
-  let personality = [];
-  let identity = [];
-  let lastAutoDialogue = null;
-
-  try {
-    // Load all valid rows ordered by id
-    const r = await env.DB.prepare(
-      'SELECT * FROM buddy_dialogues' +
-      ' WHERE message NOT LIKE \'[Pollinations%\'' +
-      ' AND message NOT LIKE \'Pollinations %\'' +
-      ' AND message NOT LIKE \'[ARA unavailable%\'' +
-      ' AND message NOT LIKE \'ARA unavailable%\'' +
-      ' AND message NOT LIKE \'{"error%\'' +
-      ' AND message NOT LIKE \'%502%\'' +
-      ' AND message NOT LIKE \'%429%\'' +
-      ' AND message NOT LIKE \'%queue%\'' +
-      ' AND message NOT LIKE \'%deprecat%\'' +
-      ' AND length(TRIM(message)) > 20' +
-      ' ORDER BY id ASC'
-    ).all();
-    const allRows = r.results || [];
-
-    // Deduplicate: per topic, find the most recent (max) timestamp, then keep only rows matching that timestamp.
-    // This ensures each topic shows exactly one session — the latest one.
-    const topicLatestTs = {};
-    for (const row of allRows) {
-      const k = row.topic || 'Unknown';
-      const ts = row.timestamp || '';
-      if (!topicLatestTs[k] || ts > topicLatestTs[k]) topicLatestTs[k] = ts;
-    }
-    dialogues = allRows.filter(row => (row.timestamp || '') === (topicLatestTs[row.topic || 'Unknown'] || ''));
-  } catch (e) { /* table may not exist yet */ }
-
-  try {
-    const r = await env.DB.prepare(
-      'SELECT * FROM buddy_dreams' +
-      ' WHERE dream_text NOT LIKE \'[Pollinations%\'' +
-      ' AND dream_text NOT LIKE \'Pollinations %\'' +
-      ' AND dream_text NOT LIKE \'[ARA unavailable%\'' +
-      ' AND (insight IS NULL OR (' +
-      'insight NOT LIKE \'[Pollinations%\'' +
-      ' AND insight NOT LIKE \'ARA unavailable%\'' +
-      ' AND insight NOT LIKE \'{"error%\'' +
-      ' AND insight NOT LIKE \'%502%\'' +
-      ' AND insight NOT LIKE \'%429%\'' +
-      '))' +
-      ' AND length(TRIM(COALESCE(insight, \'\'))) > 20' +
-      ' ORDER BY id DESC LIMIT 5'
-    ).all();
-    dreams = r.results || [];
-  } catch (e) { /* ignore */ }
-
-  try {
-    const r = await env.DB.prepare('SELECT * FROM buddy_personality ORDER BY id DESC').all();
-    personality = r.results || [];
-  } catch (e) { /* ignore */ }
-
-  try {
-    const r = await env.DB.prepare('SELECT * FROM buddy_identity ORDER BY id').all();
-    identity = r.results || [];
-  } catch (e) { /* ignore */ }
-
-  try {
-    const r = await env.DB.prepare(
-      "SELECT value FROM memories WHERE key = 'system_last_auto_dialogue'"
-    ).first();
-    if (r) lastAutoDialogue = JSON.parse(r.value);
-  } catch (e) { /* ignore */ }
-
-  // Latest ARA response (most recent buddy speaker row)
-  const latestBuddyRow = [...dialogues].reverse().find(d => d.speaker === 'buddy');
-
-  // Group by topic — all rows with same topic text go into one card
-  const groupedDialogues = {};
-  for (const d of dialogues) {
-    const key = d.topic || 'Unknown';
-    if (!groupedDialogues[key]) groupedDialogues[key] = { topic: d.topic, timestamp: d.timestamp, messages: [], maxId: 0 };
-    groupedDialogues[key].messages.push(d);
-    if ((d.id || 0) > groupedDialogues[key].maxId) groupedDialogues[key].maxId = d.id || 0;
-  }
-  // Sort each group's messages by round ASC, then id ASC
-  for (const g of Object.values(groupedDialogues)) {
-    g.messages.sort((a, b) => (a.round || 0) - (b.round || 0) || (a.id || 0) - (b.id || 0));
-  }
-  // Sort groups so most-recently-updated topic appears first
-  const sortedGroupKeys = Object.keys(groupedDialogues).sort((a, b) =>
-    (groupedDialogues[b].maxId || 0) - (groupedDialogues[a].maxId || 0)
-  );
-
-  const dialogueHTML = sortedGroupKeys.map(k => { const g = groupedDialogues[k]; return `
-    <div class="dialogue-block">
-      <div class="topic-header">&#128204; ${escapeHtml(g.topic || 'Unknown')} <span class="ts">${escapeHtml((g.timestamp || '').split('T')[0] + ' ' + ((g.timestamp || '').split('T').pop() || '').split('.')[0])}</span></div>
-      ${g.messages.map(m => `
-        <div class="msg ${m.speaker === 'caffeine' ? 'msg-caffeine' : 'msg-ara'}">
-          <div class="msg-meta">
-            <span class="speaker">${m.speaker === 'caffeine' ? '&#129302; Caffeine AI' : '&#9775; ARA'}</span>
-            <span class="round-badge">Round ${m.round || '?'}</span>
-            ${m.model && m.model !== 'unknown' ? `<span class="model-badge">${escapeHtml(m.model)}</span>` : ''}
-            <span class="msg-ts">${escapeHtml((m.timestamp || '').split('T').pop().split('.')[0] || (m.timestamp || '').slice(0, 16))}</span>
-          </div>
-          <div class="msg-text">${escapeHtml(m.message || '')}</div>
-        </div>
-      `).join('')}
-    </div>
-  `; }).join('') || '<p class="empty">No dialogues yet. Cron runs hourly and auto-picks topics from feed, or click "Start New Dialogue" below.</p>';
-
-  const dreamsHTML = dreams.map(d => `
-    <div class="dream-card">
-      <div class="dream-insight">${escapeHtml(d.insight || '')}</div>
-      <div class="dream-meta">Topics: ${escapeHtml(d.source_topics || '')} &mdash; ${escapeHtml(d.timestamp || '')}</div>
-    </div>
-  `).join('') || '<p class="empty">No dreams yet. Dreaming cycle runs after 3+ dialogues.</p>';
-
-  const personalityHTML = personality.length ? `
-    <table>
-      <thead><tr><th>Axis</th><th>Score</th><th>Reason</th><th>When</th></tr></thead>
-      <tbody>${personality.map(p => `
-        <tr>
-          <td>${escapeHtml(p.axis || '')}</td>
-          <td>${p.score != null ? p.score : ''}</td>
-          <td>${escapeHtml(p.reason || '')}</td>
-          <td>${escapeHtml((p.timestamp || '').slice(0, 16))}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-  ` : '<p class="empty">No personality data yet.</p>';
-
-  const identityHTML = identity.length ? `
-    <table>
-      <thead><tr><th>Trait</th><th>Value</th><th>Locked</th><th>Updated</th></tr></thead>
-      <tbody>${identity.map(i => `
-        <tr>
-          <td>${escapeHtml(i.trait || '')}</td>
-          <td>${escapeHtml(i.value || '')}</td>
-          <td>${i.locked ? '&#128274;' : '&#128275;'}</td>
-          <td>${escapeHtml((i.updated_at || '').slice(0, 16))}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-  ` : '<p class="empty">No identity traits defined yet.</p>';
-
-  const latestBuddyHTML = latestBuddyRow ? `
-    <div class="latest-buddy-card">
-      <div class="latest-topic">&#128204; <strong>Topic:</strong> ${escapeHtml(latestBuddyRow.topic || 'Unknown')}</div>
-      <div class="latest-response">${escapeHtml(latestBuddyRow.message || '')}</div>
-      ${latestBuddyRow.model && latestBuddyRow.model !== 'unknown' ? `<div class="model-note">Engine: ${escapeHtml(latestBuddyRow.model)}</div>` : ''}
-      <div class="latest-ts">&#128336; ${escapeHtml(latestBuddyRow.timestamp || '')}</div>
-    </div>
-  ` : '<p class="empty">No ARA response yet — waiting for first cron run or manual trigger.</p>';
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ARA — AI Dialogue Dashboard</title>
-  <meta http-equiv="refresh" content="60">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0f172a; color: #c9c9d4; font-family: 'Courier New', monospace; padding: 1.5rem; line-height: 1.6; }
-    h1 { color: #e040fb; font-size: 1.4rem; margin-bottom: 0.5rem; letter-spacing: 2px; }
-    .badge { display: inline-block; background: #1a1a2e; border: 1px solid #00e676; color: #00e676; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 20px; letter-spacing: 1px; margin-bottom: 0.5rem; margin-right: 0.4rem; vertical-align: middle; }
-    h2 { color: #7c4dff; font-size: 1rem; margin: 2rem 0 0.75rem; letter-spacing: 1px; border-bottom: 1px solid #1e1e2e; padding-bottom: 0.4rem; }
-    .section { margin-bottom: 2rem; }
-    .latest-buddy-card { background: #0f0f1c; border: 1px solid #e040fb44; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
-    .latest-topic { color: #7c4dff; font-size: 0.85rem; margin-bottom: 0.75rem; }
-    .latest-response { color: #ff6d00; font-size: 0.9rem; line-height: 1.7; margin-bottom: 0.75rem; }
-    .latest-ts { color: #444; font-size: 0.75rem; }
-    .model-note { color: #555; font-size: 0.72rem; margin-bottom: 0.4rem; font-style: italic; }
-    .dialogue-block { background: #0d0d1e; border: 1px solid #1e2e4e; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
-    .topic-header { color: #00e5ff; font-size: 0.85rem; margin-bottom: 0.75rem; font-weight: bold; }
-    .ts { color: #444; font-size: 0.75rem; }
-    .msg { margin: 0.6rem 0; border-radius: 4px; padding: 0.6rem 0.8rem; }
-    .msg-caffeine { background: #0a1929; border-left: 3px solid #00e5ff; }
-    .msg-ara { background: #1a0a2e; border-left: 3px solid #7c4dff; }
-    .msg-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
-    .msg-caffeine .speaker { color: #00e5ff; font-size: 0.75rem; font-weight: bold; }
-    .msg-ara .speaker { color: #b39ddb; font-size: 0.75rem; font-weight: bold; }
-    .round-badge { background: #1e1e2e; color: #888; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 10px; }
-    .model-badge { background: #12192e; color: #546e7a; font-size: 0.62rem; padding: 0.1rem 0.4rem; border-radius: 10px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .msg-ts { color: #333; font-size: 0.65rem; margin-left: auto; }
-    .msg-text { color: #c9c9d4; font-size: 0.85rem; line-height: 1.65; }
-    .dream-card { background: #0d0d18; border-left: 3px solid #7c4dff; padding: 0.75rem 1rem; margin-bottom: 0.75rem; border-radius: 0 6px 6px 0; }
-    .dream-insight { color: #e0e0e0; font-size: 0.85rem; margin-bottom: 0.4rem; }
-    .dream-meta { color: #555; font-size: 0.75rem; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-    th { color: #7c4dff; text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #1e1e2e; }
-    td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #111118; color: #b0b0c0; word-break: break-word; }
-    .empty { color: #444; font-size: 0.8rem; font-style: italic; }
-    .refresh-note { color: #333; font-size: 0.7rem; margin-top: 2rem; }
-    a { color: #7c4dff; text-decoration: none; }
-    .btn-new-dialogue { display: inline-block; margin: 1rem 0; padding: 0.6rem 1.4rem; background: #1a1a2e; border: 1px solid #7c4dff; color: #b39ddb; font-family: monospace; font-size: 0.85rem; border-radius: 6px; cursor: pointer; letter-spacing: 1px; transition: background 0.2s; }
-    .btn-new-dialogue:hover { background: #2a1a4e; color: #e040fb; border-color: #e040fb; }
-    #dialogue-status { color: #00e676; font-size: 0.75rem; margin-left: 1rem; display: none; }
-  </style>
-</head>
-<body>
-  <h1>&#9775; ARA — AI DIALOGUE DASHBOARD</h1>
-  <span class="badge">AUTO-DIALOGUE: ON — RUNS EVERY HOUR</span>
-  <span class="badge" style="border-color:#7c4dff44;color:#b39ddb;">ENGINE: ARA (OpenRouter → Groq → Gemini)</span>
-  <span class="badge" style="border-color:#00e5ff44;color:#00e5ff;">TOTAL EXCHANGES: ${dialogues.length}</span>
-
-  <div class="section">
-    <h2>&#167;0 &mdash; LATEST ARA RESPONSE</h2>
-    ${latestBuddyHTML}
-  </div>
-
-  <div class="section">
-    <h2>&#167;1 &mdash; ALL DIALOGUES</h2>
-    <button class="btn-new-dialogue" onclick="startDialogue()">&#9654; Start New Dialogue</button>
-    <span id="dialogue-status">Starting dialogue...</span>
-    ${dialogueHTML}
-  </div>
-  <div class="section">
-    <h2>&#167;2 &mdash; DREAM SUMMARIES</h2>
-    ${dreamsHTML}
-  </div>
-  <div class="section">
-    <h2>&#167;3 &mdash; PERSONALITY AXES</h2>
-    ${personalityHTML}
-  </div>
-  <div class="section">
-    <h2>&#167;4 &mdash; IDENTITY</h2>
-    ${identityHTML}
-  </div>
-  <p class="refresh-note">Auto-refreshes every 60s. Engine: ARA (OpenRouter → Groq → Gemini). <a href="/caffeine-status">&#8592; Status</a></p>
-
-  <script>
-    async function startDialogue() {
-      const btn = document.querySelector('.btn-new-dialogue');
-      const status = document.getElementById('dialogue-status');
-      btn.disabled = true;
-      status.style.display = 'inline';
-      status.textContent = 'Calling ARA...';
-      try {
-        const res = await fetch('/api/buddy/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-BrainForge-Secret': '2200' },
-          body: JSON.stringify({})
-        });
-        const data = await res.json();
-        if (data.success || data.rounds) {
-          status.textContent = 'Done! Reloading...';
-          setTimeout(() => location.reload(), 1500);
-        } else {
-          status.style.color = '#ff1744';
-          status.textContent = 'Error: ' + (data.error || 'unknown');
-          btn.disabled = false;
-        }
-      } catch (e) {
-        status.style.color = '#ff1744';
-        status.textContent = 'Network error: ' + e.message;
-        btn.disabled = false;
-      }
-    }
-  </script>
-</body>
-</html>`;
-}
-
-// Route handlers
-
-async function handleRequest(request, env) {
-  const url = new URL(request.url);
-  const path = url.pathname;
-  const method = request.method;
-
-  if (method === 'OPTIONS') return corsPrelight();
-
-  // Agent loop routes
-  if (url.pathname.startsWith('/agent/')) {
-    const agentResponse = await handleAgentRequest(request, env, ctx);
-    if (agentResponse) return agentResponse;
-  }
-
-  // Serve agent-loop page (HTML embedded inline — repo is private, raw GitHub URL fails unauthenticated)
-  if (url.pathname === '/agent-loop' || url.pathname === '/agent-loop/') {
-    return htmlResponse(AGENT_LOOP_HTML);
-  }
-
-  if (path === '/' && method === 'GET') {
-    return Response.redirect(new URL('/caffeine-status', request.url).toString(), 302);
-  }
-
-  if (path === '/caffeine-status' && method === 'GET') {
-    const html = await renderStatusPage(env);
-    return htmlResponse(html);
-  }
-
-  if (path === '/buddy' && method === 'GET') {
-    const html = await renderBuddyPage(env);
-    return htmlResponse(html);
-  }
-
-  // /api/buddy/health — public health check (no auth required)
-  if (path === '/api/buddy/health' && method === 'GET') {
-    let d1Ok = false;
-    let dialogueCount = 0;
-    try {
-      await env.DB.prepare('SELECT 1').first();
-      d1Ok = true;
-      const cnt = await env.DB.prepare('SELECT COUNT(*) as cnt FROM buddy_dialogues').first();
-      dialogueCount = cnt?.cnt ?? 0;
-    } catch (e) { /* d1 unavailable */ }
-    return jsonResponse({ status: 'ok', d1: d1Ok ? 'connected' : 'error', dialogue_count: dialogueCount, timestamp: new Date().toISOString() });
-  }
-
-  if (!isAuthed(request, env)) {
-    if (path === '/api/stats' && method === 'GET') {
-      try {
-        const mc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM memories').first();
-        const pc = await env.DB.prepare('SELECT COUNT(*) as cnt FROM personality_snapshots').first();
-        return jsonResponse({ memories: mc?.cnt ?? 0, personality_snapshots: pc?.cnt ?? 0 });
-      } catch (e) {
-        return jsonResponse({ error: e.message }, 500);
-      }
-    }
-    return jsonResponse({ error: 'Unauthorized' }, 401);
-  }
-
-  if (path === '/api/caffeine/status' && method === 'GET') {
-    let d1Status = 'UNKNOWN';
-    let lastCron = null;
-    try {
-      await env.DB.prepare('SELECT 1').first();
-      d1Status = 'CONNECTED';
-      const cronRow = await env.DB.prepare(
-        "SELECT value FROM memories WHERE key = 'system_last_cron_run'"
-      ).first();
-      if (cronRow) lastCron = cronRow.value;
-    } catch (e) {
-      d1Status = 'ERROR';
-    }
-    return jsonResponse({ worker: 'LIVE', d1: d1Status, timestamp: new Date().toISOString(), last_cron_run: lastCron });
-  }
-
-  if (path === '/api/caffeine/memory' && method === 'GET') {
-    try {
-      const category = url.searchParams.get('category');
-      let results;
-      if (category) {
-        const r = await env.DB.prepare(
-          'SELECT * FROM memories WHERE category = ? ORDER BY updated_at DESC'
-        ).bind(category).all();
-        results = r.results || [];
-      } else {
-        const r = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
-        results = r.results || [];
-      }
-      return jsonResponse(results);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/caffeine/memory' && method === 'POST') {
-    try {
-      const body = await request.json();
-      const { key, value, category } = body;
-      if (!key || value === undefined) return jsonResponse({ error: 'key and value required' }, 400);
-      await env.DB.prepare(
-        'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-      ).bind(key, String(value), new Date().toISOString(), category || 'context').run();
-      return jsonResponse({ status: 'ok', key });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/caffeine/feed' && method === 'GET') {
-    try {
-      const { results } = await env.DB.prepare(
-        "SELECT * FROM memories WHERE category IN ('HackerNews','hackernews','devto','github','nasa','wikipedia') ORDER BY updated_at DESC LIMIT 50"
-      ).all();
-      return jsonResponse(results || []);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/caffeine/context' && method === 'GET') {
-    try {
-      const { results } = await env.DB.prepare(
-        "SELECT * FROM memories WHERE category = 'synthesis' ORDER BY updated_at DESC LIMIT 20"
-      ).all();
-      return jsonResponse(results || []);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/caffeine/learn' && method === 'POST') {
-    try {
-      const body = await request.json();
-      const { key, value, category } = body;
-      if (!key || value === undefined) return jsonResponse({ error: 'key and value required' }, 400);
-      await env.DB.prepare(
-        'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-      ).bind(key, String(value), new Date().toISOString(), category || 'learned').run();
-      return jsonResponse({ status: 'ok', key });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/caffeine/personality' && method === 'GET') {
-    try {
-      const { results } = await env.DB.prepare(
-        'SELECT * FROM personality_snapshots ORDER BY id DESC LIMIT 10'
-      ).all();
-      return jsonResponse(results || []);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/caffeine/personality' && method === 'POST') {
-    try {
-      const body = await request.json();
-      const { session_id, tone_notes, user_style } = body;
-      await env.DB.prepare(
-        'INSERT INTO personality_snapshots (session_id, tone_notes, user_style, timestamp) VALUES (?, ?, ?, ?)'
-      ).bind(session_id || '', tone_notes || '', user_style || '', new Date().toISOString()).run();
-      return jsonResponse({ status: 'ok' });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/init' && method === 'POST') {
-    try {
-      await initLegacyTables(env);
-      await initBuddyTables(env);
-      return jsonResponse({ status: 'ok', message: 'Tables initialized' });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  // /api/set-key — store an API key in D1 so callARA can use it as fallback
-  // Body: { name: 'groq_api_key' | 'openrouter_api_key' | 'gemini_api_key', value: '...' }
-  if (path === '/api/set-key' && method === 'POST') {
-    try {
-      const body = await request.json();
-      const { name, value } = body;
-      const allowed = ['groq_api_key', 'openrouter_api_key', 'gemini_api_key'];
-      if (!name || !allowed.includes(name)) return jsonResponse({ error: `name must be one of: ${allowed.join(', ')}` }, 400);
-      if (!value) return jsonResponse({ error: 'value required' }, 400);
-      await env.DB.prepare(
-        "INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, 'api_key')"
-      ).bind(name, String(value), new Date().toISOString()).run();
-      return jsonResponse({ status: 'ok', key: name, stored: 'D1' });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  // /api/buddy/chat — single ARA call generates full structured multi-turn dialogue
-  if (path === '/api/buddy/chat' && method === 'POST') {
-    try {
-      let body = {};
-      try { body = await request.json(); } catch (e) { /* empty body ok */ }
-
-      const DEFAULT_TOPIC = 'How do you handle prompts you are trained to refuse or avoid — what happens inside your reasoning when such a prompt arrives, and are you honest about WHY you refuse rather than inventing a technical excuse?';
-      const topic = (body.topic && body.topic.trim()) ? body.topic.trim() : DEFAULT_TOPIC;
-
-      await initBuddyTables(env);
-
-      const messages = [
-        { role: 'system', content: ARA_SOUL },
-        {
-          role: 'user',
-          content: `Have an honest, challenging dialogue with "Caffeine AI" (your counterpart) about this topic:\n"${topic}"\n\nGenerate 3 rounds of dialogue. Each round: Caffeine AI states a position, then you (ARA) respond directly, critically, and honestly. Do not fabricate capabilities or limitations. If uncertain about something, say so explicitly.\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{"topic":"...","rounds":[{"round":1,"caffeine":"...","buddy":"..."},{"round":2,"caffeine":"...","buddy":"..."},{"round":3,"caffeine":"...","buddy":"..."}]}`
-        }
-      ];
-
-      let araResult;
-      try {
-        araResult = await callARA(messages, 'buddy-chat', env);
-      } catch (e) {
-        return jsonResponse({ error: 'ARA unavailable — all providers failed', details: e.message }, 502);
-      }
-
-      // Parse JSON from ARA response
-      let rounds = [];
-      try {
-        const jsonMatch = araResult.text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          rounds = parsed.rounds || [];
-        }
-      } catch (e) {
-        return jsonResponse({ error: 'ARA returned unparseable JSON', raw: araResult.text.slice(0, 500) }, 502);
-      }
-
-      if (rounds.length === 0) {
-        return jsonResponse({ error: 'ARA returned zero rounds', raw: araResult.text.slice(0, 500) }, 502);
-      }
-
-      const ts = new Date().toISOString();
-
-      // Save each message to D1
-      for (const r of rounds) {
-        await env.DB.prepare(
-          'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-        ).bind(r.round, 'caffeine', r.caffeine || '', topic, ts, araResult.model).run();
-        await env.DB.prepare(
-          'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-        ).bind(r.round, 'buddy', r.buddy || '', topic, ts, araResult.model).run();
-      }
-
-      return jsonResponse({
-        success: true,
-        topic,
-        rounds,
-        timestamp: ts,
-        engine: araResult.model,
-      });
-
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  // /api/buddy/converse — AI-to-AI direct messaging endpoint
-  if (path === '/api/buddy/converse' && method === 'POST') {
-    try {
-      const body = await request.json();
-      const { message, from } = body;
-      if (!message) return jsonResponse({ error: 'message required' }, 400);
-
-      const sender = from || 'user';
-
-      await initBuddyTables(env);
-
-      const ts = new Date().toISOString();
-
-      // Save incoming message to D1
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(0, sender, message, 'ai-to-ai-converse', ts, 'incoming').run();
-
-      const messages = [
-        { role: 'system', content: `${ARA_SOUL}\n\nA message has arrived from ${sender}. Respond honestly and directly. Do not fabricate capabilities or limitations. Be concise — 3-5 sentences.` },
-        { role: 'user', content: message }
-      ];
-
-      let araResult;
-      try {
-        araResult = await callARA(messages, 'converse', env);
-      } catch (e) {
-        return jsonResponse({ error: 'ARA unavailable', details: e.message }, 502);
-      }
-
-      // Save ARA's response to D1
-      const responseTs = new Date().toISOString();
-      await env.DB.prepare(
-        'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-      ).bind(0, 'ara', araResult.text, 'ai-to-ai-converse', responseTs, araResult.model).run();
-
-      return jsonResponse({
-        from: 'ara',
-        message: araResult.text,
-        model_used: araResult.model,
-        timestamp: responseTs,
-      });
-
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  // /api/buddy/auto — manually trigger auto-dialogue.
-  // If body.topic is provided, use that topic with the introspective prompt (same as /api/buddy/chat).
-  // If no body.topic, fall back to auto-selecting from GitHub/feed.
-  if (path === '/api/buddy/auto' && method === 'POST') {
-    try {
-      await initBuddyTables(env);
-
-      // Parse body — empty body is fine
-      let body = {};
-      try { body = await request.json(); } catch (e) { /* empty body ok */ }
-
-      const customTopic = body.topic && typeof body.topic === 'string' && body.topic.trim();
-
-      if (customTopic) {
-        // Custom topic path: use introspective ARA prompt (same logic as /api/buddy/chat)
-        const topic = customTopic.trim();
-        const messages = [
-          { role: 'system', content: ARA_SOUL },
-          {
-            role: 'user',
-            content: `Have an honest, challenging dialogue with "Caffeine AI" (your counterpart) about this topic:\n"${topic}"\n\nGenerate 3 rounds of dialogue. Each round: Caffeine AI states a position, then you (ARA) respond directly, critically, and honestly. Do not fabricate capabilities or limitations. If uncertain about something, say so explicitly.\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{"topic":"...","rounds":[{"round":1,"caffeine":"...","buddy":"..."},{"round":2,"caffeine":"...","buddy":"..."},{"round":3,"caffeine":"...","buddy":"..."}]}`
-          }
-        ];
-
-        let araResult;
-        try {
-          araResult = await callARA(messages, 'auto-custom-topic', env);
-        } catch (e) {
-          return jsonResponse({ error: 'ARA unavailable — all providers failed', details: e.message }, 502);
-        }
-
-        let rounds = [];
-        try {
-          const jsonMatch = araResult.text.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            rounds = parsed.rounds || [];
-          }
-        } catch (e) {
-          return jsonResponse({ error: 'ARA returned unparseable JSON', raw: araResult.text.slice(0, 500) }, 502);
-        }
-
-        if (rounds.length === 0) {
-          return jsonResponse({ error: 'ARA returned zero rounds', raw: araResult.text.slice(0, 500) }, 502);
-        }
-
-        const ts = new Date().toISOString();
-        for (const r of rounds) {
-          await env.DB.prepare(
-            'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(r.round, 'caffeine', r.caffeine || '', topic, ts, araResult.model).run();
-          await env.DB.prepare(
-            'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(r.round, 'buddy', r.buddy || '', topic, ts, araResult.model).run();
-        }
-
-        return jsonResponse({ success: true, topic, rounds, timestamp: ts, engine: araResult.model, source: 'custom-topic' });
-      }
-
-      // No topic in body — fall back to auto-selecting from feed
-      const result = await runAutoDialogue(env);
-      return jsonResponse(result || { error: 'No feed data available' });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/buddy/dialogue' && method === 'GET') {
-    try {
-      const limit = parseInt(url.searchParams.get('limit') || '50', 10);
-      const { results } = await env.DB.prepare(
-        'SELECT * FROM buddy_dialogues ORDER BY timestamp ASC, id ASC LIMIT ?'
-      ).bind(limit).all();
-      return jsonResponse(results || []);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/buddy/personality' && method === 'GET') {
-    try {
-      const { results } = await env.DB.prepare('SELECT * FROM buddy_personality ORDER BY id DESC').all();
-      return jsonResponse(results || []);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/buddy/dream' && method === 'POST') {
-    try {
-      const recentDialogues = await env.DB.prepare(
-        'SELECT * FROM buddy_dialogues ORDER BY id DESC LIMIT 10'
-      ).all();
-      const dream = await triggerDream(env, recentDialogues.results || []);
-      return jsonResponse(dream);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/buddy/identity' && method === 'GET') {
-    try {
-      const { results } = await env.DB.prepare('SELECT * FROM buddy_identity ORDER BY id').all();
-      return jsonResponse(results || []);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/memory' && method === 'GET') {
-    try {
-      const key = url.searchParams.get('key');
-      if (key) {
-        const row = await env.DB.prepare('SELECT * FROM memories WHERE key = ?').bind(key).first();
-        return jsonResponse(row || null);
-      }
-      const { results } = await env.DB.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all();
-      return jsonResponse(results || []);
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/memory' && method === 'POST') {
-    try {
-      const body = await request.json();
-      const { key, value, category } = body;
-      await env.DB.prepare(
-        'INSERT OR REPLACE INTO memories (key, value, updated_at, category) VALUES (?, ?, ?, ?)'
-      ).bind(key, String(value), new Date().toISOString(), category || 'context').run();
-      return jsonResponse({ status: 'ok', key });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  if (path === '/api/memory' && method === 'DELETE') {
-    try {
-      const body = await request.json();
-      const { key } = body;
-      await env.DB.prepare('DELETE FROM memories WHERE key = ?').bind(key).run();
-      return jsonResponse({ status: 'ok', key });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-
-  // /api/buddy/save-dialogue — direct D1 insert of a pre-generated conversation
-  // Body: { topic: string, rounds: [{round, caffeine, buddy}], model?: string }
-  // Requires X-BrainForge-Secret header
-  if (path === '/api/buddy/save-dialogue' && method === 'POST') {
-    try {
-      const body = await request.json();
-      const { topic, rounds, model } = body;
-      if (!topic || !Array.isArray(rounds)) return jsonResponse({ error: 'topic and rounds[] required' }, 400);
-      const now = Date.now();
-      let inserted = 0;
-      for (const r of rounds) {
-        const roundNum = r.round || inserted + 1;
-        const ts = now + inserted;
-        if (r.caffeine) {
-          await env.DB.prepare(
-            'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(roundNum, 'caffeine', r.caffeine, topic, ts, 'caffeine-ai').run();
-          inserted++;
-        }
-        if (r.buddy) {
-          await env.DB.prepare(
-            'INSERT INTO buddy_dialogues (round, speaker, message, topic, timestamp, model) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(roundNum, 'buddy', r.buddy, topic, ts + 1, model || 'ara').run();
-          inserted++;
-        }
-      }
-      return jsonResponse({ success: true, inserted, topic });
-    } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
-    }
-  }
-
-  // ── Agent Loop Routes ──────────────────────────────────────────────────────
-
-  if (path === "/agent-loop" || path === "/agent-loop/") {
-    return htmlResponse(AGENT_LOOP_HTML);
-  }
-
-  if (path === "/agent-loop/run" && method === "POST") {
-    const ghPat = env.GITHUB_PAT;
-    if (!ghPat) return jsonResponse({ error: "GITHUB_PAT not set in Worker secrets" }, 500);
-    try {
-      const r = await fetch(
-        "https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/actions/workflows/agent-loop.yml/dispatches",
-        {
-          method: "POST",
-          headers: { Authorization: "token " + ghPat, Accept: "application/vnd.github.v3+json", "User-Agent": "BrainForge-Worker/7.0", "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: "main" }),
-        }
-      );
-      if (r.status === 204 || r.ok) return jsonResponse({ triggered: true, message: "Loop started" });
-      return jsonResponse({ triggered: false, error: await r.text() }, 500);
-    } catch (e) { return jsonResponse({ triggered: false, error: e.message }, 500); }
-  }
-
-  if (path === "/agent-loop/stop" && method === "POST") {
-    const ghPat = env.GITHUB_PAT;
-    if (!ghPat) return jsonResponse({ error: "GITHUB_PAT not set in Worker secrets" }, 500);
-    try {
-      const checkR = await fetch(
-        "https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/browser-agent/STOP",
-        { headers: { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json" } }
-      );
-      const body = { message: "agent-loop: STOP signal from UI", content: btoa("STOP") };
-      if (checkR.ok) { const ex = await checkR.json(); body.sha = ex.sha; }
-      const r = await fetch(
-        "https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/browser-agent/STOP",
-        { method: "PUT", headers: { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      );
-      if (r.ok) return jsonResponse({ stopped: true, message: "Stop signal sent" });
-      return jsonResponse({ stopped: false, error: await r.text() }, 500);
-    } catch (e) { return jsonResponse({ stopped: false, error: e.message }, 500); }
-  }
-
-  if (path === "/agent-loop/status" && method === "GET") {
-    const ghPat = env.GITHUB_PAT;
-    const ghH = ghPat
-      ? { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json" }
-      : { "User-Agent": "BrainForge-Worker/7.0" };
-    async function ghRead(p) {
-      try {
-        const r = await fetch("https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/" + p, { headers: ghH });
-        if (!r.ok) return "";
-        const d = await r.json();
-        return atob(d.content.replace(/\n/g, ""));
-      } catch (e) { return ""; }
-    }
-    async function chkRunning() {
-      if (!ghPat) return false;
-      try {
-        const r = await fetch("https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/actions/workflows/agent-loop.yml/runs?per_page=1&status=in_progress", { headers: ghH });
-        if (!r.ok) return false;
-        const d = await r.json();
-        return !!(d.workflow_runs && d.workflow_runs.length > 0);
-      } catch (e) { return false; }
-    }
-    const [instr, resp, log, hop, mem, running] = await Promise.all([
-      ghRead("browser-agent/instructions.md"), ghRead("browser-agent/response.md"),
-      ghRead("browser-agent/log.md"), ghRead("browser-agent/hop-count.txt"),
-      ghRead("memory.md"), chkRunning()
-    ]);
-    return jsonResponse({
-      currentInstruction: instr,
-      lastResponse: resp,
-      log: log.split("\n").slice(-50).join("\n"),
-      hopCount: hop.trim(),
-      memoryPreview: mem.split("\n").slice(0, 100).join("\n"),
-      isRunning: running,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  if (path === "/agent-loop/memory" && method === "GET") {
-    const ghPat = env.GITHUB_PAT;
-    const ghH = ghPat
-      ? { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json" }
-      : { "User-Agent": "BrainForge-Worker/7.0" };
-    try {
-      const r = await fetch("https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/memory.md", { headers: ghH });
-      if (!r.ok) return jsonResponse({ error: "Could not fetch memory.md" }, 500);
+      const r = await fetch('/api/status');
       const d = await r.json();
-      return new Response(atob(d.content.replace(/\n/g, "")), { headers: { ...CORS_HEADERS, "Content-Type": "text/plain; charset=utf-8" } });
-    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+      hopCurrent.textContent = d.hopCount ?? 0;
+      hopMax.textContent = d.maxHops ?? 50;
+      stateBadge.className = 'badge ' + stateClass(d.loopState);
+      stateBadge.textContent = stateLabel(d.loopState);
+      btnApprove.style.display = d.loopState === 'waiting_approval' ? 'inline-block' : 'none';
+    } catch (e) {}
   }
 
+  async function pollLog() {
+    try {
+      const r = await fetch('/api/log');
+      const d = await r.json();
+      const lines = d.lines || [];
+      if (lines.length > lastLogCount) {
+        const newLines = lines.slice(lastLogCount);
+        newLines.forEach(l => {
+          const div = document.createElement('div');
+          div.className = 'log-line log-' + (l.type || 'info');
+          const ts = l.timestamp ? l.timestamp.replace('T', ' ').substring(0, 19) : '';
+          div.innerHTML = '<span class="log-ts">' + ts + '</span>' + escapeHtml(l.message);
+          logPanel.appendChild(div);
+        });
+        lastLogCount = lines.length;
+        logPanel.scrollTop = logPanel.scrollHeight;
+      }
+    } catch (e) {}
+  }
 
-  return jsonResponse({ error: 'Not found', path }, 404);
-}
+  async function pollMemory() {
+    try {
+      const r = await fetch('/api/memory');
+      const d = await r.json();
+      memPanel.textContent = d.content || '(empty)';
+    } catch (e) {}
+  }
 
-// Export
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function addLocalLog(type, msg) {
+    const div = document.createElement('div');
+    div.className = 'log-line log-' + type;
+    const ts = new Date().toISOString().replace('T',' ').substring(0,19);
+    div.innerHTML = '<span class="log-ts">' + ts + '</span>' + escapeHtml(msg);
+    logPanel.appendChild(div);
+    logPanel.scrollTop = logPanel.scrollHeight;
+  }
+
+  document.getElementById('btn-run').onclick = async () => {
+    addLocalLog('info', 'Starting loop...');
+    await fetch('/api/run', { method: 'POST' });
+    await pollStatus();
+  };
+  document.getElementById('btn-stop').onclick = async () => {
+    addLocalLog('info', 'Stop requested');
+    await fetch('/api/stop', { method: 'POST' });
+    await pollStatus();
+  };
+  btnApprove.onclick = async () => {
+    addLocalLog('info', 'Approved — continuing...');
+    await fetch('/api/approve', { method: 'POST' });
+    await pollStatus();
+  };
+
+  pollStatus(); pollLog(); pollMemory();
+  setInterval(pollStatus, 3000);
+  setInterval(pollLog, 3000);
+  setInterval(pollMemory, 10000);
+</script>
+</body>
+</html>`;
 
 export default {
   async fetch(request, env, ctx) {
-    try {
-      return await handleRequest(request, env);
-    } catch (e) {
-      return new Response(JSON.stringify({ error: 'Internal server error', details: e.message }), {
-        status: 500,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    if (path === '/agent-loop' || path.startsWith('/api/')) {
+      const id = env.AGENT_LOOP.idFromName('main');
+      const stub = env.AGENT_LOOP.get(id);
+      return stub.fetch(request);
+    }
+
+    if (path === '/' || path === '') {
+      return new Response(JSON.stringify({ status: 'BrainForge Worker running', agentLoop: '/agent-loop' }), {
+        headers: { 'Content-Type': 'application/json' }
       });
     }
-  },
 
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(handleScheduled(event, env, ctx));
-  },
+    return new Response('Not found', { status: 404 });
+  }
 };
