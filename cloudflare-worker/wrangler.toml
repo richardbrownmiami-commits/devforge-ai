@@ -21,6 +21,5 @@ new_sqlite_classes = ["AgentLoop"]
 crons = ["0 3 * * *"]
 
 [vars]
-GITHUB_PAT = ""
 GITHUB_OWNER = "richardbrownmiami-commits"
 GITHUB_REPO = "devforge-ai"
