@@ -1,29 +1,26 @@
 name = "brainforge-api"
 main = "index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
 
-[vars]
-# GITHUB_PAT is a placeholder — actual value is set as a Cloudflare secret (never hardcoded here)
-GITHUB_PAT = ""
-
-[[kv_namespaces]]
-binding = "APPS_KV"
-id = "c62f444539254734869f4fae5dc74755"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "brainforge-db"
-database_id = "3814a86b-7054-465c-ae64-8bf99019cf6b"
+[placement]
+mode = "smart"
 
 [ai]
 binding = "AI"
 
-[durable_objects]
-bindings = [{ name = "AGENT_LOOP", class_name = "AgentLoop" }]
+[[durable_objects.bindings]]
+name = "AGENT_LOOP"
+class_name = "AgentLoop"
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["AgentLoop"]
 
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 3 * * *"]
+
+[vars]
+GITHUB_PAT = ""
+GITHUB_OWNER = "richardbrownmiami-commits"
+GITHUB_REPO = "devforge-ai"
