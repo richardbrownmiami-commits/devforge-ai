@@ -1,4 +1,3 @@
-const GITHUB_PAT = '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';
 const GITHUB_REPO = 'richardbrownmiami-commits/devforge-ai';
 const FIRST_INSTRUCTION = 'Read all memories file you saved them ask your next question';
 const MAX_HOPS = 50;
@@ -22,10 +21,10 @@ function truncateMemory(content) {
     Math.round((content.length - headLen - tailLen) / 1000) + 'KB removed...]\n\n' + tail;
 }
 
-async function githubGet(path) {
+async function githubGet(path, pat) {
   const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
     headers: {
-      'Authorization': `Bearer ${GITHUB_PAT}`,
+      'Authorization': `Bearer ${pat}`,
       'Accept': 'application/vnd.github+json',
       'User-Agent': 'brainforge-agent'
     }
@@ -35,14 +34,14 @@ async function githubGet(path) {
   return { content: atob(data.content.replace(/\n/g, '')), sha: data.sha };
 }
 
-async function githubPut(path, content, message, sha) {
+async function githubPut(path, content, message, sha, pat) {
   const encoded = btoa(unescape(encodeURIComponent(content)));
   const body = { message, content: encoded };
   if (sha) body.sha = sha;
   const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
     method: 'PUT',
     headers: {
-      'Authorization': `Bearer ${GITHUB_PAT}`,
+      'Authorization': `Bearer ${pat}`,
       'Accept': 'application/vnd.github+json',
       'Content-Type': 'application/json',
       'User-Agent': 'brainforge-agent'
@@ -56,10 +55,10 @@ async function githubPut(path, content, message, sha) {
   return await res.json();
 }
 
-async function writeToGitHub(path, content, commitMessage) {
+async function writeToGitHub(path, content, commitMessage, pat) {
   let sha;
   try {
-    const existing = await githubGet(path);
+    const existing = await githubGet(path, pat);
     sha = existing.sha;
   } catch (e) {
     sha = undefined;
@@ -67,7 +66,7 @@ async function writeToGitHub(path, content, commitMessage) {
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await githubPut(path, content, commitMessage, sha);
+      await githubPut(path, content, commitMessage, sha, pat);
       return;
     } catch (e) {
       lastErr = e;
@@ -150,12 +149,14 @@ export class AgentLoop {
       return;
     }
 
+    const pat = this.env.GITHUB_PAT;
+
     await this.addLog('info', `Hop ${s.hopCount}/${MAX_HOPS} starting...`);
 
     // Fetch memory.md
     let memoryContent = '';
     try {
-      const mem = await githubGet('memory.md');
+      const mem = await githubGet('memory.md', pat);
       memoryContent = mem.content;
       await this.addLog('info', 'Memory loaded from repo');
     } catch (e) {
@@ -225,12 +226,12 @@ export class AgentLoop {
         let qContent = '';
         let qSha;
         try {
-          const q = await githubGet('browser-agent/quarantine.md');
+          const q = await githubGet('browser-agent/quarantine.md', pat);
           qContent = q.content;
           qSha = q.sha;
         } catch (e) {}
         const entry = `\n\n---\n**Hop ${s.hopCount} quarantined — ${new Date().toISOString()}**\nReason: injection pattern detected\n\n${aiResponse}`;
-        await writeToGitHub('browser-agent/quarantine.md', qContent + entry, `Quarantine hop ${s.hopCount}`);
+        await writeToGitHub('browser-agent/quarantine.md', qContent + entry, `Quarantine hop ${s.hopCount}`, pat);
       } catch (e) {
         await this.addLog('error', `Quarantine write failed: ${e.message}`);
       }
@@ -261,9 +262,9 @@ export class AgentLoop {
     // Write to memory.md
     if (isReusable && !resetInstruction) {
       try {
-        const mem = await githubGet('memory.md');
+        const mem = await githubGet('memory.md', pat);
         const entry = `\n\n---\n**Hop ${s.hopCount} — ${new Date().toISOString()}**\n\n${aiResponse}`;
-        await writeToGitHub('memory.md', mem.content + entry, `Agent loop hop ${s.hopCount}`);
+        await writeToGitHub('memory.md', mem.content + entry, `Agent loop hop ${s.hopCount}`, pat);
         await this.addLog('success', 'Memory updated successfully');
       } catch (e) {
         await this.addLog('error', `Memory write failed: ${e.message}`);
@@ -317,7 +318,7 @@ export class AgentLoop {
 
     if (path === '/api/memory') {
       try {
-        const mem = await githubGet('memory.md');
+        const mem = await githubGet('memory.md', this.env.GITHUB_PAT);
         return Response.json({ content: mem.content });
       } catch (e) {
         return Response.json({ content: 'Failed to load memory: ' + e.message });
