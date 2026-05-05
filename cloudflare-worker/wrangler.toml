@@ -11,5 +11,15 @@ binding = "DB"
 database_name = "brainforge-db"
 database_id = "3814a86b-7054-465c-ae64-8bf99019cf6b"
 
+[ai]
+binding = "AI"
+
+[durable_objects]
+bindings = [{ name = "AGENT_LOOP", class_name = "AgentLoop" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AgentLoop"]
+
 [triggers]
 crons = ["0 * * * *"]
