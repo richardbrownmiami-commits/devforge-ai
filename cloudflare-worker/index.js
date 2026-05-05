@@ -460,17 +460,27 @@ export class AgentLoop {
     
     try {
       st.logs = this.addLog(st.logs, `Calling ${AI_MODEL}...`);
-      const result = await this.env.AI.run(AI_MODEL, {
+      let aiResult = await this.env.AI.run(AI_MODEL, {
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: instruction }
         ],
         max_tokens: 1000
       });
-      aiResponse = result.response || '';
+      aiResponse = aiResult.response || '';
       if (!aiResponse.trim()) {
-        throw new Error('AI model returned empty response');
+        st.logs = this.addLog(st.logs, 'Primary model returned empty, trying fallback...');
+        aiResult = await this.env.AI.run(AI_MODEL_FALLBACK, {
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: instruction }
+          ],
+          max_tokens: 1000
+        });
+        aiResponse = aiResult.response || '';
       }
+      if (!aiResponse.trim()) {
+        throw new Error('Both AI models returned empty response');      }
       inputTokens = Math.round(systemPrompt.length / 4);
       outputTokens = Math.round(aiResponse.length / 4);
       st.logs = this.addLog(st.logs, `AI response received (${aiResponse.length} chars)`);
