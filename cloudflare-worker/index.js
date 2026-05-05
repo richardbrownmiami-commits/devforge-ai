@@ -1308,6 +1308,107 @@ async function handleRequest(request, env) {
     }
   }
 
+  // ── Agent Loop Routes ──────────────────────────────────────────────────────
+
+  if (path === "/agent-loop" || path === "/agent-loop/") {
+    const GITHUB_RAW = "https://raw.githubusercontent.com/richardbrownmiami-commits/devforge-ai/main/cloudflare-worker/pages/agent-loop.html";
+    try {
+      const r = await fetch(GITHUB_RAW, { cf: { cacheEverything: false } });
+      const html = await r.text();
+      return new Response(html, { headers: { ...CORS_HEADERS, "Content-Type": "text/html; charset=utf-8" } });
+    } catch (e) {
+      return new Response("<h1>Agent Loop page unavailable</h1><p>" + e.message + "</p>", { headers: { "Content-Type": "text/html" } });
+    }
+  }
+
+  if (path === "/agent-loop/run" && method === "POST") {
+    const ghPat = env.GITHUB_PAT;
+    if (!ghPat) return jsonResponse({ error: "GITHUB_PAT not set in Worker secrets" }, 500);
+    try {
+      const r = await fetch(
+        "https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/actions/workflows/agent-loop.yml/dispatches",
+        {
+          method: "POST",
+          headers: { Authorization: "token " + ghPat, Accept: "application/vnd.github.v3+json", "User-Agent": "BrainForge-Worker/7.0", "Content-Type": "application/json" },
+          body: JSON.stringify({ ref: "main" }),
+        }
+      );
+      if (r.status === 204 || r.ok) return jsonResponse({ triggered: true, message: "Loop started" });
+      return jsonResponse({ triggered: false, error: await r.text() }, 500);
+    } catch (e) { return jsonResponse({ triggered: false, error: e.message }, 500); }
+  }
+
+  if (path === "/agent-loop/stop" && method === "POST") {
+    const ghPat = env.GITHUB_PAT;
+    if (!ghPat) return jsonResponse({ error: "GITHUB_PAT not set in Worker secrets" }, 500);
+    try {
+      const checkR = await fetch(
+        "https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/browser-agent/STOP",
+        { headers: { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json" } }
+      );
+      const body = { message: "agent-loop: STOP signal from UI", content: btoa("STOP") };
+      if (checkR.ok) { const ex = await checkR.json(); body.sha = ex.sha; }
+      const r = await fetch(
+        "https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/browser-agent/STOP",
+        { method: "PUT", headers: { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      if (r.ok) return jsonResponse({ stopped: true, message: "Stop signal sent" });
+      return jsonResponse({ stopped: false, error: await r.text() }, 500);
+    } catch (e) { return jsonResponse({ stopped: false, error: e.message }, 500); }
+  }
+
+  if (path === "/agent-loop/status" && method === "GET") {
+    const ghPat = env.GITHUB_PAT;
+    const ghH = ghPat
+      ? { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json" }
+      : { "User-Agent": "BrainForge-Worker/7.0" };
+    async function ghRead(p) {
+      try {
+        const r = await fetch("https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/" + p, { headers: ghH });
+        if (!r.ok) return "";
+        const d = await r.json();
+        return atob(d.content.replace(/\n/g, ""));
+      } catch (e) { return ""; }
+    }
+    async function chkRunning() {
+      if (!ghPat) return false;
+      try {
+        const r = await fetch("https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/actions/workflows/agent-loop.yml/runs?per_page=1&status=in_progress", { headers: ghH });
+        if (!r.ok) return false;
+        const d = await r.json();
+        return !!(d.workflow_runs && d.workflow_runs.length > 0);
+      } catch (e) { return false; }
+    }
+    const [instr, resp, log, hop, mem, running] = await Promise.all([
+      ghRead("browser-agent/instructions.md"), ghRead("browser-agent/response.md"),
+      ghRead("browser-agent/log.md"), ghRead("browser-agent/hop-count.txt"),
+      ghRead("memory.md"), chkRunning()
+    ]);
+    return jsonResponse({
+      currentInstruction: instr,
+      lastResponse: resp,
+      log: log.split("\n").slice(-50).join("\n"),
+      hopCount: hop.trim(),
+      memoryPreview: mem.split("\n").slice(0, 100).join("\n"),
+      isRunning: running,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  if (path === "/agent-loop/memory" && method === "GET") {
+    const ghPat = env.GITHUB_PAT;
+    const ghH = ghPat
+      ? { Authorization: "token " + ghPat, "User-Agent": "BrainForge-Worker/7.0", Accept: "application/vnd.github.v3+json" }
+      : { "User-Agent": "BrainForge-Worker/7.0" };
+    try {
+      const r = await fetch("https://api.github.com/repos/richardbrownmiami-commits/devforge-ai/contents/memory.md", { headers: ghH });
+      if (!r.ok) return jsonResponse({ error: "Could not fetch memory.md" }, 500);
+      const d = await r.json();
+      return new Response(atob(d.content.replace(/\n/g, "")), { headers: { ...CORS_HEADERS, "Content-Type": "text/plain; charset=utf-8" } });
+    } catch (e) { return jsonResponse({ error: e.message }, 500); }
+  }
+
+
   return jsonResponse({ error: 'Not found', path }, 404);
 }
 
