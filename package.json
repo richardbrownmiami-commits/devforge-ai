@@ -1,6 +1,7 @@
 {
   "name": "brainforge-worker",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "build": "echo done",
     "postinstall": "node setup-wrangler-wrapper.cjs"
