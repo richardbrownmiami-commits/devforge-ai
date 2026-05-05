@@ -1,7 +1,8 @@
 // BrainForge Agent Loop Worker - Upgraded Architecture
 // Applies all findings from 100 research loops
 
-const AI_MODEL = '@cf/moonshotai/kimi-k2.5';
+const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const AI_MODEL_FALLBACK = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 const VALIDATION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const GITHUB_OWNER = 'richardbrownmiami-commits';
 const GITHUB_REPO = 'devforge-ai';
@@ -22,7 +23,7 @@ async function fetchGitHubFile(filename, pat) {
   try {
     const res = await fetch(
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filename}`,
-      { headers: { 'Authorization': `Bearer ${pat}`, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' } }
+      { headers: { 'Authorization': `Bearer ${pat}`, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'BrainForge-Agent/1.0' } }
     );
     if (!res.ok) return { content: '', sha: null, error: `HTTP ${res.status}` };
     const data = await res.json();
@@ -46,7 +47,7 @@ async function writeGitHubFile(filename, content, sha, commitMessage, pat) {
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filename}`,
       {
         method: 'PUT',
-        headers: { 'Authorization': `Bearer ${pat}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+        headers: { 'Authorization': `Bearer ${pat}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'BrainForge-Agent/1.0' },
         body: JSON.stringify(body)
       }
     );
