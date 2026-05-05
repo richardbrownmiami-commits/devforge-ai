@@ -780,3 +780,186 @@ Decision function: `{proceed, regenerate, replan}` based on weighted groundednes
 - FlareUp: real-time neuron tracking by model, 3× spike detection
 
 ---
+
+## Research Batch 6 — Autonomous Loop Continued (May 2026)
+*Written by Caffeine AI autonomous research session, loops 31-40*
+
+### Workers AI Tool Calling — Confirmed Architecture
+
+**Function calling models (current):**
+- `@hf/nousresearch/hermes-2-pro-mistral-7b` — function calling + JSON mode ✓
+- `@cf/meta/llama-4-scout-17b-16e-instruct` — function calling ✓
+- `@cf/meta/llama-3.3-70b-instruct-fp8-fast` — JSON mode ✓
+- `@cf/google/gemma-3-12b-it` — 128K context, NO function calling, NO JSON mode
+
+**Implication:** For the agent loop main calls: use `gemma-3-12b-it` (128K context). For validation step that needs structured JSON output: use `hermes-2-pro-mistral-7b`. Two models in the pipeline.
+
+**`runWithTools()` pattern:**
+```javascript
+import { runWithTools, createToolsFromOpenAPISpec } from "@cloudflare/ai-utils";
+const response = await runWithTools(env.AI, "@hf/nousresearch/hermes-2-pro-mistral-7b", {
+  messages: [...],
+  tools: [{ name, description, parameters, function: async (args) => {...} }]
+});
+```
+Tool functions execute inline (embedded function calling) — no separate tool server needed.
+
+**JSON mode:**
+```javascript
+const response = await env.AI.run(model, {
+  messages: [...],
+  response_format: { type: "json_schema", json_schema: { ... } }
+});
+```
+Note: `response_format` does not support streaming.
+
+### Workers AI — AI SDK Integration
+
+**`workers-ai-provider` package** — unified API for any provider:
+```javascript
+import { createWorkersAI } from "workers-ai-provider";
+const workersai = createWorkersAI({ binding: this.env.AI });
+const { text } = await generateText({ model: workersai("@cf/google/gemma-3-12b-it"), prompt: "..." });
+```
+Works with AI SDK `generateText`, `streamText`, `generateObject`.
+
+**AIChatAgent in loop:**
+- `this.saveMessages()` → persists + triggers `onChatMessage()` + waits for active turn
+- `onChatResponse()` → fires after turn, safe to call `saveMessages()` again → loop
+- `stopWhen: stepCountIs(50)` → built-in hop counter
+- `chatRecovery: true` → every turn wrapped in `runFiber()` automatically
+
+### IterResearch Pattern — For Agent Loop
+
+**Core principle (WebResearcher, 2025):** Each hop = compact state: `[Question] + [Report_n-1] + [Last Action + Tool Response]`. The Report is the ONLY thing carried forward. Old context discarded.
+
+**Applied to this build:**
+- Hop N input: `memory.md + report_from_hop_n-1 + instruction`
+- Hop N output: updated Report (synthesis of all findings to date)
+- Written to `browser-agent/report.md` after each hop
+- `memory.md` updated only from the Report, not raw response
+
+This eliminates context bloat AND preserves all findings. The Report is the evolving central memory.
+
+### Soul.py Architecture — Peer-Reviewed Confirmed
+
+**Paper: arXiv:2604.09588 (March 2026)** — exact architecture used in this build:
+- `SOUL.md` = read-only identity anchor (injected in system prompt on every call)
+- `MEMORY.md` = writable experience log (curated, 150-line cap)
+- RAG routing: FOCUSED queries (~90%) → vector search | EXHAUSTIVE queries (~10%) → RLM recursive synthesis
+- Degree-6 multi-anchor resilience: SOUL + MEMORY + PROCEDURES + SALIENCE + RELATIONS + IDENTITY_HASH
+
+**ClawCity/OpenClaw production deployment confirms:**
+- SOUL.md injected in every decision call as system prompt — never consumed by conversation history
+- Memory.md has 4 sections: Active Context, Durable Facts, Recent Actions, Open Questions
+- 100-tick distillation: every 100 turns, compress to new Memory.md
+- soul.py Modulizer: 47% fewer tokens on 25KB file. Zero infrastructure — no vector DB needed.
+
+### EvoMaster — The Production Architecture for This Build
+
+**EvoMaster (April 2026, arXiv:2604.17406):** +316% improvement over OpenClaw baseline.
+
+**Core pattern applied to agent loop:**
+1. Knowledge prefetch: read memory.md -> identify gaps
+2. Draft instruction: generate first instruction from gaps
+3. 20+ rounds of research-driven refinement (up to 50 hops in our build)
+4. Hierarchical cognitive caching:
+   - Prefetch: what was loaded at session start
+   - Round-level: what was learned in last 10 hops
+   - Run-level "wisdom promotion": distilled insights from full session -> memory.md
+
+**Key quote:** "Agents continuously observe, self-critique, and refine hypotheses over long horizons, faithfully mirroring the iterative scientific method."
+
+### DualGraph Memory — For "What to Research Next"
+
+**DualGraph (Feb 2026, arXiv:2602.13830):**
+- Outline Graph (OG): how the report is structured (section headers, what's written)
+- Knowledge Graph (KG): fine-grained knowledge units, entities, relations
+
+Analyze KG topology against OG structure to find knowledge gaps -> generate targeted search queries.
+
+**Applied to this build:** Before each hop:
+1. Read current memory.md (= Knowledge Graph)
+2. Identify sparse nodes (topics mentioned but not explained)
+3. Identify missing edges (topics referenced but not connected)
+4. Generate instruction targeting the most critical gap
+
+This replaces the simple "ask your next question" instruction with a structured gap-analysis approach.
+
+### RE-Searcher Pattern — For Each Hop
+
+**Pattern (confirmed production standard):**
+```
+<QUERY_GOAL>: What specific information I aim to find
+<QUERY>: The search query
+[Receive results]
+<REFLECT>: Did results meet the goal? (True/False)
+  - If True: synthesize into Report
+  - If False: reformulate query (up to 5 retries)
+<REPORT>: Updated synthesis of all findings
+<NEXT_GOAL>: What gap remains in the knowledge graph
+```
+
+The explicit goal + reflection loop prevents the agent from accepting the first plausible result. "Goal-met check" is the key primitive.
+
+### GitHub PAT Security Update
+
+**Fine-grained PATs are the 2026 standard.** Classic PATs (`ghp_` prefix) grant full `repo` scope access to ALL private repos. For production:
+- Use fine-grained PAT scoped to specific repo only
+- Permissions needed: `Contents: Read/Write` only
+- Set 90-day expiration maximum
+- Rotate after any exposure in plain text
+
+**For the Worker:** Store PAT as `GITHUB_PAT` Cloudflare Worker secret. Use fine-grained PAT if PAT is rotated.
+
+### Cloudflare Agents SDK Full Feature Map (Confirmed 2026)
+
+Full feature set available:
+- `Agent` class: persistent state, callable methods, scheduling, WebSockets, AI calls, MCP, workflows, email, voice, browser agents, code mode, sandboxed execution, x402 payments, SQL
+- `AIChatAgent`: message persistence, resumable streaming, server/client tool execution
+- `@cloudflare/think`: opinionated agentic loop with stream resumption, workspace tools
+- `@cloudflare/codemode`: LLMs write executable TypeScript instead of individual tool calls
+- `@cloudflare/shell`: sandboxed JS execution + virtual filesystem
+
+**For this build:** Use `Agent` class (not `AIChatAgent`) because the loop is autonomous (no human chat). Scheduling + runFiber + saveMessages + onChatResponse.
+
+### LLM Confidence as Behavior Driver — Confirmed
+
+**Paper: arXiv:2603.22161 (March 2026):** Causal evidence that LLMs use internal confidence estimates to regulate abstention. Confidence is an ORDER OF MAGNITUDE stronger predictor than RAG scores. This means:
+- When the model says "I'm uncertain," it's a genuine internal signal, not a verbal tic
+- When the model says "I know this," the confidence is real
+- Suppressed introspection (Anthropic 2025): models have MORE introspective access than they report
+
+**Applied to this build:** When the validation step scores a response low on confidence, that's a real signal. Do not override it — flag it, retry once, then skip.
+
+### Research Architecture Summary — All Confirmed
+
+The complete autonomous research loop:
+
+```
+onStart():
+  schedule("0 * * * *", "runResearchHop", {}, {idempotent: true})
+
+runResearchHop():
+  runFiber(async () => {
+    1. Fetch memory.md (read-only PAT)
+    2. Run DualGraph analysis -> identify top knowledge gap
+    3. Set QUERY_GOAL + generate search instruction
+    4. Call gemma-3-12b-it with: [soul.md system prompt] + [memory.md context] + [report_n-1] + [instruction]
+    5. Parse response: <REFLECT> goal met?
+       - Yes: synthesize into report.md
+       - No: retry up to 3 times, then skip
+    6. Validate response (hermes-2-pro for structured JSON check):
+       - Grounded claims only -> write to memory.md
+       - Contradictions -> temporal update marker
+       - Unverified URLs -> urlhealth check
+    7. Update report.md (EvoMaster: only synthesis, not raw response)
+    8. Loop detection: SHA-256 hash of instruction -> if 3 identical -> reset
+    9. Budget check: neurons_used > 8,000/day -> pause
+    10. Hop 50 -> wisdom promotion: distill report.md to memory.md, clear report.md
+    this.stash({hop: n, report: summary, memory_lines: count})
+  })
+  onChatResponse(): -> schedule next hop (if < 50)
+```
+
+---
