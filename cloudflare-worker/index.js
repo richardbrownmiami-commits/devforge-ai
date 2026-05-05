@@ -5,6 +5,23 @@ const MAX_HOPS = 50;
 const HOP_INTERVAL_MS = 30000;
 const GATE_INTERVAL = 10;
 
+// Model with 128K context window — eliminates token limit issues
+const AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+// Safety net: max chars for memory before truncation kicks in (~4000 tokens)
+const MEMORY_MAX_CHARS = 12000;
+
+// Truncate memory using head+tail strategy (keep first 30% + last 50%, drop middle)
+// "Lost in the middle" research confirms models recall head and tail best.
+function truncateMemory(content) {
+  if (content.length <= MEMORY_MAX_CHARS) return content;
+  const headLen = Math.floor(MEMORY_MAX_CHARS * 0.30);
+  const tailLen = Math.floor(MEMORY_MAX_CHARS * 0.50);
+  const head = content.slice(0, headLen);
+  const tail = content.slice(content.length - tailLen);
+  return head + '\n\n[...middle entries omitted for context budget — ' +
+    Math.round((content.length - headLen - tailLen) / 1000) + 'KB removed...]\n\n' + tail;
+}
+
 async function githubGet(path) {
   const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
     headers: {
@@ -147,15 +164,22 @@ export class AgentLoop {
       return;
     }
 
+    // Truncate memory if needed — head+tail strategy, never retry with oversized input
+    const originalLen = memoryContent.length;
+    memoryContent = truncateMemory(memoryContent);
+    if (memoryContent.length < originalLen) {
+      await this.addLog('info', `Memory truncated: ${originalLen} → ${memoryContent.length} chars (head+tail strategy)`);
+    }
+
     const systemPrompt = `${memoryContent}\n\nYou are an autonomous research agent with persistent memory. Read the memory above carefully. Continue your research, ask your next question, or explore a new insight. Be specific and substantive. Keep your response under 400 words.`;
 
     const instruction = s.hopCount === 0 ? FIRST_INSTRUCTION : s.lastInstruction;
     await this.addLog('info', `Instruction: ${instruction.substring(0, 100)}...`);
 
-    // Call AI
+    // Call AI — abort immediately on context overflow (error 5021), never retry with same input
     let aiResponse = '';
     try {
-      const result = await this.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const result = await this.env.AI.run(AI_MODEL, {
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: instruction }
@@ -163,9 +187,19 @@ export class AgentLoop {
         max_tokens: 500
       });
       aiResponse = result.response ?? result.choices?.[0]?.message?.content ?? '';
-      await this.addLog('info', 'AI responded');
+      await this.addLog('success', `AI responded (${AI_MODEL})`);
     } catch (e) {
-      await this.addLog('error', `AI call failed: ${e.message}`);
+      const errMsg = e.message ?? String(e);
+      // Context overflow — do not retry, abort loop immediately
+      if (errMsg.includes('5021') || errMsg.includes('context window') || errMsg.includes('exceeded')) {
+        await this.addLog('error', `Context overflow (cannot retry): ${errMsg}`);
+        await this.addLog('error', 'Loop aborted — memory.md may need manual pruning before next run');
+        await this.state.storage.put('loopRunning', false);
+        await this.state.storage.put('loopState', 'error');
+        return;
+      }
+      // Other errors — reschedule for retry
+      await this.addLog('error', `AI call failed: ${errMsg}`);
       await this.state.storage.setAlarm(Date.now() + 30000);
       return;
     }
@@ -209,7 +243,7 @@ export class AgentLoop {
     // UMEM generalization check
     let isReusable = true;
     try {
-      const umemResult = await this.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const umemResult = await this.env.AI.run(AI_MODEL, {
         messages: [
           { role: 'user', content: `Is this insight reusable across future sessions or is it specific only to this conversation? Answer with just "reusable" or "specific".\n\n${aiResponse}` }
         ],
