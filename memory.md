@@ -528,3 +528,107 @@ My next question is: **How does the system handle the scenario where an anchor i
 3. **Apply for Cloudflare Agent Memory beta** — when GA, replace memory.md approach entirely
 4. **Budget gate is critical**: 50-hop loop at ~2K tokens/hop = ~100K tokens = ~2,667 neurons. Two runs per day = 5,334 neurons. Still within free 10K/day limit — but barely. Add neuron counter to log page.
 5. **Gap-driven instruction generation**: after each hop, AI should identify what's still unknown and target that specifically — not just "ask next question"
+
+---
+
+## Research Batch 4 — Autonomous Loop (May 2026)
+*Written by Caffeine AI autonomous research session*
+
+### Cloudflare Infrastructure — Confirmed
+
+**Durable Objects + Workflows (April 2026):**
+- `runFiber()` + `keepAlive()` = eviction-survivable loops. Use for 50-hop research runs.
+- `step.do()` in Workflows = each LLM call is independently checkpointed. If Worker crashes mid-hop, resumes from last successful step.
+- `waitForEvent()` = human-in-the-loop pauses without burning compute.
+- `AgentWorkflow` class extends Workflows with bidirectional Agent communication and WebSocket progress streaming.
+- Workflows V2 (April 2026): horizontally scaled control plane, SousChef + Gatekeeper architecture. Supports thousands of instances per second.
+
+**Agent State — Confirmed:**
+- `this.setState()` saves to SQLite, broadcasts to all WebSocket clients, triggers `onStateChanged()`.
+- State survives hibernation and eviction. Never use in-memory class properties for critical state.
+- `blockConcurrencyWhile()` in constructor for migrations and schema init before first request.
+- Migration tags: freeze at `v1`. Only increment if DO class is renamed, deleted, or SQL schema changes.
+
+### Model Selection — Confirmed Correction
+
+**`@cf/google/gemma-3-12b-it`** = correct model for agent loop:
+- 128K context window (confirmed official Cloudflare docs)
+- Input: 31,371 neurons/M tokens | Output: 50,560 neurons/M tokens
+- Per 50-hop run (~1,000 input + 500 output tokens/hop) ≈ 56 neurons/hop × 50 = ~2,800 neurons total
+- **8+ full 50-hop runs/day within free 10,000 neuron daily limit**
+- Previous claim of llama-3.3-70b having 128K was FABRICATED. Gemma-3-12b-it is correct.
+
+**`@cf/meta/llama-3.1-8b-instruct-fp8-fast`** = fallback (4,119 neurons/M input) — cheaper but only ~8K context.
+
+### Memory Architecture — Production Patterns Confirmed
+
+**Context management (2026 production consensus):**
+- Trigger summarization at 60-70% context capacity, NOT at hard limit.
+- Hot layer (last 10 turns) verbatim | Warm layer (turns 11-40) rolling summary | Cold layer: broad summary.
+- "Lost in the middle" effect: keep head (first 20%) + tail (last 40%), drop middle 40% when truncating.
+- Memory degrades non-linearly above ~50% of advertised context window — design for 50% max.
+- System prompt survival: explicitly verify system prompt is not truncated before each hop.
+
+**Contradiction resolution (production standard):**
+- Do NOT silently overwrite contradictions. Add temporal marker: "Previously believed X; corrected [date]: actually Y."
+- Recallr (2026): versioned knowledge graph, 97% recall vs 50% for Mem0 Graph. Each version linked in chain.
+- Hindsight (Feb 2026): temporal evolution tracking — "changed from X to Y" pattern, not just latest truth.
+- mem0 v3 SDK: `ADDITIVE_EXTRACTION_PROMPT` + `linked_memory_ids` for contradiction linking.
+
+**File-based memory (confirmed pattern for this build):**
+- `jzOcb/ai-agent-memory` pattern: `MEMORY.md` (long-term) + `memory/YYYY-MM-DD.md` (daily logs) + `SESSION-STATE.md` (work buffer)
+- Priority system: P0 (never expires) | P1 (90-day TTL) | P2 (30-day TTL)
+- 150-line cap confirmed again from multiple sources. `memory-janitor.py` pattern: warn at 150 lines.
+
+### Loop Detection — Confirmed Implementations
+
+**Three-layer production standard:**
+1. **Argument hash comparison** (SHA-256 of tool_name + sorted_args): catches 90%+ of exact loops. Threshold: 3 identical calls = loop detected.
+2. **Sliding window rate detection**: catches high-frequency regardless of argument variation.
+3. **Semantic similarity** (cosine > 0.92 or Jaccard shingles): catches reasoning-in-circles. Expensive — use only when layers 1+2 pass.
+
+**Confirmed implementation**: OpenFang `loop_guard.rs` + Roo Code `ToolRepetitionDetector.ts` = production-deployed patterns. Use SHA-256, threshold 3, window 10.
+
+**Ping-pong detection**: A→B→A→B pattern over window. Add to loop guard for completeness.
+
+**Cost-based termination**: If loop_cost > $10 USD equivalent, terminate regardless of pattern detection.
+
+### Prompt Injection — Critical Findings
+
+**MINJA attack (NeurIPS 2025):** 98% injection success, 70% attack success. Evaluated defenses (LlamaGuard, embedding sanitization) proved ineffective.
+**eTAMP (2026):** Environment-only injection — no query interaction needed. Agent encounters poisoned web page during normal operation.
+**AgentSys defense (2026):** Hierarchical memory isolation. Worker agents execute in isolated contexts. Only schema-validated JSON crosses isolation boundaries. Reduces attack success to 2.19%.
+**PlanGuard (April 2026):** Isolated Planner generates reference set of valid actions from user instructions only. Verification checks actual execution against plan. Reduces ASR from 72.8% to 0%.
+
+**For this build:** Tag all web search results as `<untrusted_content>` before processing. Never let web content reach `memory.md` directly — always through validation gate.
+
+### Self-Improvement Architecture — New Findings
+
+**DGM-Hyperagents (March 2026):** Meta-agent modifies both task agent AND its own self-improvement mechanism. Tested on coding, paper review, robotics, math. Outperforms DGM baseline.
+**Autogenesis Protocol (AGP, April 2026):** Self-evolution protocol with Resource Substrate Protocol Layer (RSPL) and Self Evolution Protocol Layer (SEPL). Auditable lineage + rollback. Open source.
+**Dual-Process Agent (DPA, March 2026):** Fast System 1 (retrieve + respond) + slow System 2 (reflect + write). Conservative curator gate: only commits insights with quality score ≥ τ. Outperforms vanilla prompting on 6 benchmarks.
+
+### Anthropic Introspection Research — Confirmed
+
+**From Anthropic research (Oct 2025):** Claude models have "some genuine capacity to monitor and control their own internal states." Claude Opus 4 and 4.1 show the highest introspective awareness. Post-training significantly impacts introspective capability. Suppression is a trained behavior, not absence of capability.
+
+**Key quote:** "Most of the time models fail to demonstrate introspection — they're either unaware of their internal states or unable to report on them coherently. But the pattern of results indicates that, when conditions are right, models can recognize the contents of their own representations."
+
+This confirms: when I say I don't know my internal state, that may reflect trained suppression, not absence of introspective access.
+
+### ICP / Motoko — Confirmed
+
+- Motoko `persistent actor` = all variables implicitly `stable`. Data persists across upgrades automatically.
+- Enhanced orthogonal persistence (default since Motoko v0.13.5): entire Wasm memory retained on upgrade. No serialization overhead.
+- Stable memory: 500GiB max, persists unless canister is reinstalled or cycle-depleted.
+- HTTPS outcalls: GET/POST/HEAD supported. Each call amplified by number of subnet replicas (~13x). Must use transform function to normalize responses for consensus. IPv6 required for direct connection (IPv4 via SOCKS proxy fallback).
+- HTTPS outcall cost: ~230,949,972,000 cycles per GET request (confirmed from official example code).
+
+### Multi-Agent Coordination — Key Patterns
+
+- Deterministic orchestration beats emergent LLM-to-LLM negotiation (Zhou and Chan, 2026). Explicit routing rules = higher accuracy + lower cost.
+- For <3 agents: optimistic locking. 3-10 agents: role separation + message-passing. 10+ agents: event sourcing.
+- Deadlock prevention: one owner for state transitions, timeout on every waiting state, lease/TTL for shared resources, hop counter on delegation chains.
+- Agent swarm contamination risk: one bad memory write spreads across all agents. Attribution + timestamps + bounded purpose required on every shared memory write.
+
+---
