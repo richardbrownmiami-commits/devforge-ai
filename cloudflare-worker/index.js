@@ -1,4 +1,7 @@
 // BrainForge API Worker v7 -- ARA multi-provider AI engine (OpenRouter → Groq → Gemini)
+
+// ── Agent Router ─────────────────────────────────────────────────────────────
+import { handleAgentRequest } from './agent-router.js';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -817,6 +820,21 @@ async function handleRequest(request, env) {
   const method = request.method;
 
   if (method === 'OPTIONS') return corsPrelight();
+
+  // Agent loop routes
+  if (url.pathname.startsWith('/agent/')) {
+    const agentResponse = await handleAgentRequest(request, env, ctx);
+    if (agentResponse) return agentResponse;
+  }
+
+  // Serve agent-loop page
+  if (url.pathname === '/agent-loop' || url.pathname === '/agent-loop/') {
+    const html = await fetch('https://raw.githubusercontent.com/richardbrownmiami-commits/devforge-ai/main/cloudflare-worker/pages/agent-loop.html');
+    const htmlText = await html.text();
+    return new Response(htmlText, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+    });
+  }
 
   if (path === '/' && method === 'GET') {
     return Response.redirect(new URL('/caffeine-status', request.url).toString(), 302);
