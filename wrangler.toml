@@ -1,6 +1,6 @@
 name = "brainforge-api"
 main = "cloudflare-worker/index.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-09-23"
 
 [[kv_namespaces]]
 binding = "APPS_KV"
@@ -15,10 +15,12 @@ database_id = "3814a86b-7054-465c-ae64-8bf99019cf6b"
 binding = "AI"
 
 [durable_objects]
-bindings = [
-  { name = "AGENT_LOOP", class_name = "AgentLoop" }
-]
+bindings = [{ name = "AGENT_LOOP", class_name = "AgentLoop" }]
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["AgentLoop"]
+
+[triggers]
+crons = ["0 * * * *"]
+
