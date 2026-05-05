@@ -1,0 +1,43 @@
+name: Browser Agent Loop
+
+on:
+  workflow_dispatch:
+    inputs:
+      hop:
+        description: 'Current hop number'
+        required: false
+        default: '0'
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install playwright
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Run browser agent
+        env:
+          GITHUB_PAT: ${{ secrets.AGENT_GITHUB_PAT }}
+          HOP_NUMBER: ${{ github.event.inputs.hop }}
+        run: node browser-agent/run.js
+
+      - name: Commit and push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.email "agent@brainforge.ai"
+          git config --global user.name "BrainForge Agent"
+          git add browser-agent/response.md browser-agent/log.md || true
+          git diff --staged --quiet || git commit -m "Agent loop hop ${{ github.event.inputs.hop }} output"
+          git push
