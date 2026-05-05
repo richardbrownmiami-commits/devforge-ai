@@ -451,3 +451,80 @@ I am interested in understanding how the system ensures the security and integri
 Additionally, the system uses a mechanism called "anchor chaining" to create a permanent and unalterable record of all changes made to the information stored in the anchors. This ensures that even if an unauthorized entity attempts to tamper with the information, a clear and auditable record of all changes will remain, allowing for detection and remediation of any security breaches.
 
 My next question is: **How does the system handle the scenario where an anchor is compromised, and what mechanisms are in place to contain and remediate the breach?**
+---
+
+## Research Batch — 2026-05-05T09:13:16Z (Caffeine AI)
+
+### Critical Correction: llama-3.3-70b Context Window
+- **Confirmed**: `@cf/meta/llama-3.3-70b-instruct-fp8-fast` context window is **24,000 tokens** — NOT 128K as previously believed. Previous research was fabricated.
+- **Real cost**: $0.293/M input tokens, $2.253/M output tokens = 26,668 neurons/M input tokens
+- **Free daily limit**: 10,000 neurons/day. At ~2,000 tokens per hop, a 50-hop run ≈ 100K input tokens = 2,667 neurons — fits within free tier per run, but NOT if run multiple times per day.
+- **Better alternatives on Workers AI**:
+  - `@cf/google/gemma-3-12b-it` — 80,000 token context, multimodal, cheaper ($0.35/M input)
+  - `@cf/google/gemma-4-26b-a4b-it` (if available) — 256K context, MoE, 8x less compute per token
+  - For max context on Workers AI: check current model catalog at `developers.cloudflare.com/workers-ai/models/`
+
+### Cloudflare Agent Memory (Private Beta — April 2026)
+- Announced April 17, 2026. Currently private beta with waitlist.
+- Replaces raw file-based memory (memory.md approach) with managed extraction + retrieval.
+- **5 operations**: `ingest`, `remember`, `recall`, `list`, `forget`
+- **Architecture**: Durable Object (SQLite) + Vectorize (semantic search) + Workers AI (extraction)
+- **Retrieval**: 5 parallel channels — full-text, fact-key, raw message, direct vector, HyDE vector — merged via Reciprocal Rank Fusion
+- **Key advantage**: Does NOT fill context window — retrieves only what's relevant per query
+- **Current approach (memory.md)** is the correct fallback until Agent Memory is GA
+- Apply for beta: `developers.cloudflare.com/agents/concepts/memory/`
+
+### Cloudflare Session API — Confirmed Architecture
+- `Session.create(this).withContext("memory", {...})` — injects memory.md as context block automatically
+- `freezeSystemPrompt()` + `withCachedPrompt()` — survives DO hibernation, no re-fetch needed
+- `refreshSystemPrompt()` — call between hops to see latest memory writes
+- Context blocks tagged `[readonly]`, `[writable]`, `[searchable]` — AI knows what it can modify
+- `set_context` tool auto-generated — AI can write to its own memory during a hop
+
+### Darwin Gödel Machine — Self-Improving Agent (ICLR 2026)
+- First peer-reviewed, open-source self-improving AI agent
+- Rewrites its own Python codebase, validates changes against benchmarks
+- Raised SWE-bench from 20% to 50% autonomously, no human intervention after setup
+- Key pattern: archive of agent variants + quality-diversity selection (exploit strong + explore novel)
+- Open source: `github.com/jennyzzt/dgm`
+- Safety: sandboxed execution, never runs with network access, strict time budget per experiment
+
+### Memory Contradiction Detection — Production Patterns (2026)
+- **Hindsight approach**: Track temporal evolution, not just latest value. "Changed from X to Y" with timestamps.
+- **Supersession pattern**: When new fact contradicts old, mark old as `superseded_by` — don't delete, preserve history
+- **mcp-memory-service v10.48.0** (May 2026): Auto-marks superseded memories on high-confidence contradiction (≥0.75 confidence threshold)
+- **Kumiho architecture**: Graph-native memory with AGM belief revision semantics. Achieves 93.3% on LoCoMo-Plus benchmark.
+- **Practical rule for memory.md**: If a new research finding contradicts an existing entry, don't overwrite — add temporal marker: "Previously believed X; corrected 2026-05-05: actually Y"
+
+### Web Search Agent Loop — Confirmed Patterns
+- **agentpatterns.ai confirmation**: Agent research loop = search → evaluate → identify gaps → follow-up queries → repeat
+- Gap-driven follow-ups outperform variations on same query. "What is still unknown?" is the correct stopping signal.
+- Anthropic's multi-agent research: 90.2% improvement over single-agent from parallel subagents + gap-driven reformulation
+- Hard budget cap required even with quality-based stopping (cost runaway risk confirmed)
+- Hyperresearch (github.com/dwstevens/hyperresearch): 16-step pipeline, leads DeepResearch-Bench leaderboard. Every fetched source lands in persistent SQLite vault that compounds across sessions.
+
+### Best Model for Agent Loop on Workers AI (May 2026)
+- **For memory injection (large context)**: `@cf/google/gemma-3-12b-it` — 80K tokens, cheaper than llama-3.3-70b
+- **For agentic tool use**: Qwen3.6 models — 81.2% TAU2 agentic benchmark (vs Gemma's 68.2%)
+- **For cost efficiency**: MoE models (Gemma 4 26B-A4B, Qwen3.6-35B-A3B) — 8x less compute per token
+- **Routing strategy**: small/cheap model for extraction + validation calls, larger model for actual AI response generation
+
+### ICP HTTP Outcalls — Confirmed Working
+- Motoko canisters can call external HTTP APIs directly via `http_request` management canister method
+- All replicas execute the request → consensus on response → canister receives agreed response
+- Requires IPv6 support from target server
+- Transform function removes non-deterministic headers before consensus
+- Cost: ~20,949,972 cycles per GET request
+
+### Self-Improving Loop Architecture — Key Finding
+- AutoResearch-RL (arxiv 2603.07300): RL agent runs perpetual code research loop, ~300 overnight iterations, no human in loop
+- Ouroboros pattern confirmed: Execute → Journal → Reflect → Self-modify → Repeat
+- Critical separation: execution environment is frozen (not modifiable), only target file is mutable
+- Safety: never run with network access during self-modification phase, strict time budget, log every diff
+
+### What This Means For The Current Build
+1. **Switch model in Worker** from `llama-3.3-70b` to `gemma-3-12b-it` for better context window (80K vs 24K) at lower cost
+2. **Add contradiction detection** to memory writes: check if new content contradicts existing entries, add temporal marker if so
+3. **Apply for Cloudflare Agent Memory beta** — when GA, replace memory.md approach entirely
+4. **Budget gate is critical**: 50-hop loop at ~2K tokens/hop = ~100K tokens = ~2,667 neurons. Two runs per day = 5,334 neurons. Still within free 10K/day limit — but barely. Add neuron counter to log page.
+5. **Gap-driven instruction generation**: after each hop, AI should identify what's still unknown and target that specifically — not just "ask next question"
