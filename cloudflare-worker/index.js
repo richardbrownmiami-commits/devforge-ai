@@ -1,9 +1,9 @@
 // BrainForge Agent Loop Worker - Upgraded Architecture
 // Applies all findings from 100 research loops
 
-const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
-const AI_MODEL_FALLBACK = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-const VALIDATION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const AI_MODEL = '@cf/moonshotai/kimi-k2.5';
+const AI_MODEL_FALLBACK = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'; // fallback if kimi unavailable
+const VALIDATION_MODEL = '@hf/nousresearch/hermes-2-pro-mistral-7b'; // supports function calling + JSON
 const GITHUB_OWNER = 'richardbrownmiami-commits';
 const GITHUB_REPO = 'devforge-ai';
 const MEMORY_FILE = 'memory.md';
@@ -66,15 +66,24 @@ async function writeGitHubFile(filename, content, sha, commitMessage, pat) {
 // MEMORY TRUNCATION
 // =====================================================================
 
-function truncateMemory(content) {
+function truncateMemory(content, emergency = false) {
   const lines = content.split('\n');
   const total = lines.length;
+  
+  if (emergency) {
+    // Emergency: keep only last 40 lines
+    const tail = lines.slice(-40);
+    const truncated = ['[...emergency truncation: only last 40 lines retained...]', '', ...tail].join('\n');
+    return { truncated, lineCount: total };
+  }
+  
   if (total <= MAX_MEMORY_LINES) return { truncated: content, lineCount: total };
   
-  const headCount = Math.floor(total * 0.30);
-  const tailCount = Math.floor(total * 0.40);
+  // Keep first 30 lines (foundational identity) + last 60 lines (most recent research)
+  const headCount = 30;
+  const tailCount = 60;
   const head = lines.slice(0, headCount);
-  const tail = lines.slice(total - tailCount);
+  const tail = lines.slice(-tailCount);
   const truncated = [...head, '', '[...middle entries omitted for context budget...]', '', ...tail].join('\n');
   return { truncated, lineCount: total };
 }
@@ -458,30 +467,65 @@ export class AgentLoop {
     let inputTokens = 0;
     let outputTokens = 0;
     
+    // Helper to detect context window overflow (error 5021)
+    const isContextOverflow = (errMsg) => {
+      const msg = String(errMsg).toLowerCase();
+      return msg.includes('5021') || (msg.includes('exceeded') && msg.includes('context'));
+    };
+
     try {
       st.logs = this.addLog(st.logs, `Calling ${AI_MODEL}...`);
-      let aiResult = await this.env.AI.run(AI_MODEL, {
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: instruction }
-        ],
-        max_tokens: 1000
-      });
-      aiResponse = aiResult.response || '';
-      if (!aiResponse.trim()) {
-        st.logs = this.addLog(st.logs, 'Primary model returned empty, trying fallback...');
-        aiResult = await this.env.AI.run(AI_MODEL_FALLBACK, {
+      let callSystemPrompt = systemPrompt;
+      
+      let aiResult;
+      try {
+        aiResult = await this.env.AI.run(AI_MODEL, {
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: callSystemPrompt },
             { role: 'user', content: instruction }
           ],
           max_tokens: 1000
         });
-        aiResponse = aiResult.response || '';
+      } catch (innerErr) {
+        // Check for context overflow (5021) — do NOT retry with same input
+        if (isContextOverflow(innerErr.message)) {
+          st.logs = this.addLog(st.logs, `Context overflow detected (5021). Applying emergency truncation and retrying once.`, 'error');
+          const { truncated: emergencyMem } = truncateMemory(memResult.content || '', true);
+          callSystemPrompt = `${soulContent}\n\n${sensorium}\n\n## Current Memory Context (emergency truncated)\n${emergencyMem}`;
+          try {
+            aiResult = await this.env.AI.run(AI_MODEL, {
+              messages: [
+                { role: 'system', content: callSystemPrompt },
+                { role: 'user', content: instruction }
+              ],
+              max_tokens: 1000
+            });
+          } catch (retryErr) {
+            st.logs = this.addLog(st.logs, `Context overflow even after truncation — aborting hop`, 'error');
+            await this.saveState({ logs: st.logs, loopState: 'error' });
+            return;
+          }
+        } else {
+          throw innerErr;
+        }
+      }
+      
+      aiResponse = aiResult.response || '';
+      if (!aiResponse.trim()) {
+        st.logs = this.addLog(st.logs, 'Primary model returned empty, trying fallback...');
+        const fallbackResult = await this.env.AI.run(AI_MODEL_FALLBACK, {
+          messages: [
+            { role: 'system', content: callSystemPrompt },
+            { role: 'user', content: instruction }
+          ],
+          max_tokens: 1000
+        });
+        aiResponse = fallbackResult.response || '';
       }
       if (!aiResponse.trim()) {
-        throw new Error('Both AI models returned empty response');      }
-      inputTokens = Math.round(systemPrompt.length / 4);
+        throw new Error('Both AI models returned empty response');
+      }
+      inputTokens = Math.round(callSystemPrompt.length / 4);
       outputTokens = Math.round(aiResponse.length / 4);
       st.logs = this.addLog(st.logs, `AI response received (${aiResponse.length} chars)`);
     } catch (e) {
