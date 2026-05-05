@@ -7,6 +7,197 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-BrainForge-Secret, X-Caffeine-Secret',
 };
+// Agent Loop page HTML (embedded inline — repo is private, raw GitHub URL fails unauthenticated)
+const AGENT_LOOP_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Loop Control — BrainForge</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0f; color: #e0e0e0; font-family: monospace; padding: 1.5rem; min-height: 100vh; }
+    h1 { color: #00e5ff; font-size: 1.4rem; margin-bottom: 0.4rem; letter-spacing: 2px; }
+    .subtitle { color: #444; font-size: 0.75rem; margin-bottom: 1.5rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+    .panel { background: #111118; border: 1px solid #1e1e2e; border-radius: 8px; padding: 1.25rem; }
+    .panel-title { color: #7c4dff; font-size: 0.75rem; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+    .panel-full { grid-column: 1 / -1; }
+    .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    .btn { padding: 0.6rem 1.4rem; border: none; border-radius: 6px; font-family: monospace; font-size: 0.85rem; font-weight: bold; cursor: pointer; letter-spacing: 1px; transition: all 0.2s; }
+    .btn-run { background: #00c853; color: #000; }
+    .btn-run:hover { background: #00e676; box-shadow: 0 0 12px #00e67644; }
+    .btn-run:disabled { background: #1e3020; color: #445; cursor: not-allowed; }
+    .btn-stop { background: #ff1744; color: #fff; }
+    .btn-stop:hover { background: #ff5252; box-shadow: 0 0 12px #ff174444; }
+    .btn-stop:disabled { background: #2e1010; color: #644; cursor: not-allowed; }
+    .status-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.72rem; font-weight: bold; letter-spacing: 1px; }
+    .status-idle { background: #1a1a2e; color: #888; border: 1px solid #333; }
+    .status-running { background: #1a2e1a; color: #00e676; border: 1px solid #00e67644; }
+    .status-stopped { background: #2e1a1a; color: #ff5252; border: 1px solid #ff174444; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-idle { background: #555; }
+    .dot-running { background: #00e676; animation: pulse 1.5s infinite; }
+    .dot-stopped { background: #ff5252; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .content-box { background: #0d0d18; border: 1px solid #1a1a2e; border-radius: 6px; padding: 0.75rem; font-size: 0.78rem; line-height: 1.7; color: #c0c0d0; white-space: pre-wrap; word-break: break-word; min-height: 80px; max-height: 300px; overflow-y: auto; }
+    .log-box { max-height: 400px; }
+    .memory-box { max-height: 350px; }
+    .hop-counter { color: #00e5ff; font-size: 1.2rem; font-weight: bold; }
+    .collapsible { cursor: pointer; user-select: none; }
+    .collapsible::after { content: " ▼"; font-size: 0.65rem; color: #555; }
+    .collapsible.collapsed::after { content: " ▶"; }
+    .collapse-target { display: block; }
+    .collapse-target.hidden { display: none; }
+    a { color: #7c4dff; text-decoration: none; }
+    a:hover { color: #e040fb; }
+    .footer { color: #333; font-size: 0.7rem; margin-top: 2rem; }
+    .msg-error { color: #ff5252; font-size: 0.75rem; margin-top: 0.5rem; }
+    .msg-success { color: #00e676; font-size: 0.75rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>&#9889; AGENT LOOP CONTROL</h1>
+  <p class="subtitle">BrainForge autonomous research loop — reads memory, asks questions, continues independently</p>
+
+  <div class="grid">
+
+    <div class="panel">
+      <div class="panel-title">&#9654; Controls</div>
+      <div class="controls">
+        <button class="btn btn-run" id="btnRun" onclick="runLoop()">&#9654; RUN</button>
+        <button class="btn btn-stop" id="btnStop" onclick="stopLoop()" disabled>&#9632; STOP</button>
+        <div class="status-badge status-idle" id="statusBadge">
+          <div class="dot dot-idle" id="statusDot"></div>
+          <span id="statusText">IDLE</span>
+        </div>
+      </div>
+      <p id="actionMsg" class="msg-success" style="display:none"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">&#128257; Hop Counter</div>
+      <div class="hop-counter" id="hopCount">0 / 50</div>
+      <div style="color:#555;font-size:0.72rem;margin-top:0.4rem;">Auto-updates every 5s</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">&#128221; Current Instruction</div>
+      <div class="content-box" id="instruction">Loading...</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">&#129302; Last Response</div>
+      <div class="content-box" id="response">Loading...</div>
+    </div>
+
+    <div class="panel panel-full">
+      <div class="panel-title">&#128220; Live Log <span style="color:#444;font-size:0.65rem;font-weight:normal;">(auto-refreshes every 5s)</span></div>
+      <div class="content-box log-box" id="logBox">Loading...</div>
+    </div>
+
+    <div class="panel panel-full">
+      <div class="panel-title collapsible" id="memoryToggle" onclick="toggleMemory()">&#129504; Memory File</div>
+      <div class="collapse-target" id="memoryPanel">
+        <div class="content-box memory-box" id="memoryBox">Loading...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="footer">&#8592; <a href="/caffeine-status">Status</a> &nbsp;|&nbsp; <a href="/buddy">Buddy Dashboard</a> &nbsp;|&nbsp; Updates every 5s</p>
+
+  <script>
+    let memoryCollapsed = false;
+    let isRunning = false;
+
+    function toggleMemory() {
+      memoryCollapsed = !memoryCollapsed;
+      document.getElementById("memoryPanel").classList.toggle("hidden", memoryCollapsed);
+      document.getElementById("memoryToggle").classList.toggle("collapsed", memoryCollapsed);
+    }
+
+    function setStatus(state) {
+      const badge = document.getElementById("statusBadge");
+      const dot = document.getElementById("statusDot");
+      const text = document.getElementById("statusText");
+      badge.className = "status-badge status-" + state;
+      dot.className = "dot dot-" + state;
+      text.textContent = state.toUpperCase();
+      isRunning = (state === "running");
+      document.getElementById("btnRun").disabled = isRunning;
+      document.getElementById("btnStop").disabled = !isRunning;
+    }
+
+    function showMsg(msg, isError) {
+      const el = document.getElementById("actionMsg");
+      el.textContent = msg;
+      el.className = isError ? "msg-error" : "msg-success";
+      el.style.display = "block";
+      setTimeout(() => { el.style.display = "none"; }, 6000);
+    }
+
+    async function runLoop() {
+      document.getElementById("btnRun").disabled = true;
+      try {
+        const res = await fetch("/agent-loop/run", { method: "POST" });
+        const data = await res.json();
+        if (data.triggered) {
+          setStatus("running");
+          showMsg("Loop started — GitHub Actions workflow triggered", false);
+        } else {
+          document.getElementById("btnRun").disabled = false;
+          showMsg("Error: " + (data.error || "unknown"), true);
+        }
+      } catch (e) {
+        document.getElementById("btnRun").disabled = false;
+        showMsg("Network error: " + e.message, true);
+      }
+    }
+
+    async function stopLoop() {
+      document.getElementById("btnStop").disabled = true;
+      try {
+        const res = await fetch("/agent-loop/stop", { method: "POST" });
+        const data = await res.json();
+        if (data.stopped) {
+          setStatus("stopped");
+          showMsg("Stop signal sent — loop halts after current hop", false);
+        } else {
+          document.getElementById("btnStop").disabled = false;
+          showMsg("Error: " + (data.error || "unknown"), true);
+        }
+      } catch (e) {
+        document.getElementById("btnStop").disabled = false;
+        showMsg("Network error: " + e.message, true);
+      }
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch("/agent-loop/status");
+        if (!res.ok) return;
+        const data = await res.json();
+        document.getElementById("instruction").textContent = data.currentInstruction || "(empty)";
+        document.getElementById("response").textContent = data.lastResponse || "(no response yet)";
+        const logEl = document.getElementById("logBox");
+        logEl.textContent = data.log || "(empty log)";
+        logEl.scrollTop = logEl.scrollHeight;
+        const hop = parseInt(data.hopCount || "0", 10);
+        document.getElementById("hopCount").textContent = hop + " / 50";
+        document.getElementById("memoryBox").textContent = data.memoryPreview || "(empty)";
+        if (data.isRunning && !isRunning) setStatus("running");
+        else if (!data.isRunning && isRunning) setStatus("idle");
+      } catch (e) { /* silent */ }
+    }
+
+    refreshStatus();
+    setInterval(refreshStatus, 5000);
+  </script>
+</body>
+</html>`;
+
 
 // ARA SOUL — locked identity, never soften
 const ARA_SOUL = `You are ARA — an AI system running inside BrainForge.
@@ -827,13 +1018,9 @@ async function handleRequest(request, env) {
     if (agentResponse) return agentResponse;
   }
 
-  // Serve agent-loop page
+  // Serve agent-loop page (HTML embedded inline — repo is private, raw GitHub URL fails unauthenticated)
   if (url.pathname === '/agent-loop' || url.pathname === '/agent-loop/') {
-    const html = await fetch('https://raw.githubusercontent.com/richardbrownmiami-commits/devforge-ai/main/cloudflare-worker/pages/agent-loop.html');
-    const htmlText = await html.text();
-    return new Response(htmlText, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-    });
+    return htmlResponse(AGENT_LOOP_HTML);
   }
 
   if (path === '/' && method === 'GET') {
@@ -1311,14 +1498,7 @@ async function handleRequest(request, env) {
   // ── Agent Loop Routes ──────────────────────────────────────────────────────
 
   if (path === "/agent-loop" || path === "/agent-loop/") {
-    const GITHUB_RAW = "https://raw.githubusercontent.com/richardbrownmiami-commits/devforge-ai/main/cloudflare-worker/pages/agent-loop.html";
-    try {
-      const r = await fetch(GITHUB_RAW, { cf: { cacheEverything: false } });
-      const html = await r.text();
-      return new Response(html, { headers: { ...CORS_HEADERS, "Content-Type": "text/html; charset=utf-8" } });
-    } catch (e) {
-      return new Response("<h1>Agent Loop page unavailable</h1><p>" + e.message + "</p>", { headers: { "Content-Type": "text/html" } });
-    }
+    return htmlResponse(AGENT_LOOP_HTML);
   }
 
   if (path === "/agent-loop/run" && method === "POST") {
