@@ -23,7 +23,7 @@ import { toast } from "sonner";
 
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 const WORKER_URL = "https://brainforge-api.richard-brown-miami.workers.dev";
-const WORKER_SECRET = "2200";
+function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_settings") || "{}").workerSecret || ""; }
 
 // ARA SOUL — XML identity blocks (research-proven: identity > rules)
 const MASTER_AI_SOUL = `
@@ -240,7 +240,7 @@ async function callModel(
 async function loadMemory(category: string): Promise<string> {
   try {
     const res = await fetch(`${WORKER_URL}/api/caffeine/memory?category=${encodeURIComponent(category)}`, {
-      headers: { "X-BrainForge-Secret": WORKER_SECRET },
+      headers: { "X-BrainForge-Secret": getWorkerSecret() },
     });
     if (!res.ok) return "";
     const data = await res.json();
@@ -255,7 +255,7 @@ async function saveMemory(category: string, content: string): Promise<void> {
     await fetch(`${WORKER_URL}/api/caffeine/memory`, {
       method: "POST",
       headers: {
-        "X-BrainForge-Secret": WORKER_SECRET,
+        "X-BrainForge-Secret": getWorkerSecret(),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ category, content, timestamp: new Date().toISOString() }),
@@ -599,7 +599,7 @@ export function MasterAIAdminPage() {
       const res = await fetch(`${WORKER_URL}/api/admin/sync-keys`, {
         method: "POST",
         headers: {
-          "X-BrainForge-Secret": WORKER_SECRET,
+          "X-BrainForge-Secret": getWorkerSecret(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -1240,4 +1240,3 @@ export function MasterAIAdminPage() {
     </div>
   );
 }
-
