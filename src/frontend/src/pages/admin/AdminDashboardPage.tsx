@@ -15,7 +15,7 @@ import { toast } from "sonner";
 
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 const CF_WORKER = "https://brainforge-api.richard-brown-miami.workers.dev";
-const WORKER_SECRET = "2200";
+function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_settings") || "{}").workerSecret || ""; }
 
 function getGHToken(): string {
   const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
@@ -78,7 +78,7 @@ export function AdminDashboardPage() {
         fetch("https://brainforge-7xn.pages.dev")
           .then((r) => (r.ok ? "online" : "offline"))
           .catch(() => "offline"),
-        fetch(`${CF_WORKER}/api/stats`, { headers: { "X-BrainForge-Secret": WORKER_SECRET } })
+        fetch(`${CF_WORKER}/api/stats`, { headers: { "X-BrainForge-Secret": getWorkerSecret() } })
           .then((r) => (r.ok ? "online" : "offline"))
           .catch(() => "offline"),
         fetch(`https://api.github.com/repos/${GH_REPO}/commits?per_page=5`, {
@@ -164,7 +164,7 @@ export function AdminDashboardPage() {
   const backupNow = async () => {
     const res = await fetch(`${CF_WORKER}/backup`, {
       method: "POST",
-      headers: { "x-secret": WORKER_SECRET },
+      headers: { "x-secret": getWorkerSecret() },
     });
     if (res.ok) toast.success("Backup triggered!");
     else toast.error("Backup failed");
