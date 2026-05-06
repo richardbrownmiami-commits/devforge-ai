@@ -1,2 +1,16 @@
 # Browser agent saved session — contains login cookies, never commit
 browser-agent/user-data/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+.cache/
+
+# Environment secrets
+.env
+.env.local
+.dev.vars
+
