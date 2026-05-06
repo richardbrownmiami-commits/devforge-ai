@@ -16,7 +16,7 @@ const WORKER_SECRET = "2200";
 function getGHToken() {
   return (
     JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken ||
-    "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"
+    """"
   );
 }
 
