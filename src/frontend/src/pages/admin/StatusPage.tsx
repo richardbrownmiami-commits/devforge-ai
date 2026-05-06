@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 const CF_WORKER = "https://brainforge-api.richard-brown-miami.workers.dev";
-const WORKER_SECRET = "2200";
+function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_settings") || "{}").workerSecret || ""; }
 
 function getGHToken() {
   return (
@@ -78,7 +78,7 @@ export function StatusPage() {
       (async () => {
         const t = Date.now();
         const r = await fetch(`${CF_WORKER}/api/projects`, {
-          headers: { "X-BrainForge-Secret": WORKER_SECRET },
+          headers: { "X-BrainForge-Secret": getWorkerSecret() },
         });
         return { ok: r.ok, ms: Date.now() - t };
       })(),
