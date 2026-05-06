@@ -6,9 +6,6 @@ compatibility_flags = ["nodejs_compat"]
 [placement]
 mode = "smart"
 
-[ai]
-binding = "AI"
-
 [[durable_objects.bindings]]
 name = "AGENT_LOOP"
 class_name = "AgentLoop"
@@ -23,3 +20,7 @@ crons = ["0 3 * * *"]
 [vars]
 GITHUB_OWNER = "richardbrownmiami-commits"
 GITHUB_REPO = "devforge-ai"
+GEMINI_API_KEY = ""
+GITHUB_PAT = ""
+WORKER_SECRET = ""
+
