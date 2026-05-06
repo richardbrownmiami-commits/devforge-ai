@@ -11,7 +11,7 @@ import { toast } from "sonner";
 
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 const CF_WORKER = "https://brainforge-api.richard-brown-miami.workers.dev";
-const WORKER_SECRET = "2200";
+function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_settings") || "{}").workerSecret || ""; }
 
 function getGHToken() {
   return (
@@ -109,7 +109,7 @@ export function BackupPage() {
     try {
       const res = await fetch(`${CF_WORKER}/backup`, {
         method: "POST",
-        headers: { "x-secret": WORKER_SECRET },
+        headers: { "x-secret": getWorkerSecret() },
       });
       if (res.ok) {
         toast.success("Backup triggered! Refreshing...");
