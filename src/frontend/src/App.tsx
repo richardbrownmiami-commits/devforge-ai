@@ -10,9 +10,6 @@ import {
 import { useEffect, useState } from "react";
 import { OnboardingWizard, useOnboarding } from "./components/OnboardingWizard";
 import { Sidebar } from "./components/Sidebar";
-import { EditorPage } from "./pages/EditorPage";
-import { PolicyPage } from "./pages/PolicyPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
 import { ApkBuilderPage } from "./pages/ApkBuilderPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
@@ -131,12 +128,9 @@ const adminRootRoute = createRootRoute({
   component: () => (<><Outlet /><Toaster /></>),
 });
 
-const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/projects" }); }, component: () => null });
-const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/projects", component: ProjectsPage });
-const editorRoute = createRoute({ getParentRoute: () => rootRoute, path: "/editor/$projectName", component: EditorPage });
+const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/apk-builder" }); }, component: () => null });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 const apkBuilderRoute = createRoute({ getParentRoute: () => rootRoute, path: "/apk-builder", component: ApkBuilderPage });
-const policyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/policy", component: PolicyPage });
 
 const adminLayoutRoute = createRoute({ getParentRoute: () => adminRootRoute, path: "/admin", component: AdminLayout });
 const adminIndexRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/", component: AdminDashboardPage });
@@ -164,7 +158,7 @@ adminLayoutRoute.addChildren([
   adminBroadcastRoute, adminAPIMonitorRoute, adminAnalyticsRoute, adminSystemRoute,
 ]);
 
-const mainRouteTree = rootRoute.addChildren([indexRoute, projectsRoute, editorRoute, settingsRoute, policyRoute, apkBuilderRoute]);
+const mainRouteTree = rootRoute.addChildren([indexRoute, settingsRoute, apkBuilderRoute]);
 const adminRouteTree = adminRootRoute.addChildren([adminLayoutRoute]);
 
 const isAdminPath = window.location.pathname.startsWith("/admin") || window.location.hash.startsWith("#/admin");
@@ -186,3 +180,4 @@ export default function App() {
     </>
   );
 }
+
