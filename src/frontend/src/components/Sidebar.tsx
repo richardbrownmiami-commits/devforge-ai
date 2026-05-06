@@ -1,7 +1,7 @@
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import { FolderOpen, LogOut, Menu, MessageSquare, Moon, Settings, Sun, Zap } from "lucide-react";
+import { FolderOpen, LogOut, Menu, MessageSquare, Moon, Settings, Smartphone, Sun, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getCurrentUser, logoutUser } from "../lib/userUtils";
 
@@ -21,6 +21,7 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
   const matchRoute = useMatchRoute();
   const isProjects = !!matchRoute({ to: "/projects" });
   const isSettings = !!matchRoute({ to: "/settings" });
+  const isApkBuilder = !!matchRoute({ to: "/apk-builder" });
   const [user, setUser] = useState<string | null>(null);
 
   const [dark, setDark] = useState(
@@ -72,6 +73,16 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
           <FolderOpen className="w-4 h-4" />
           Projects
         </Link>
+        <Link to="/apk-builder" data-ocid="nav.apk_builder_link" onClick={onClose}
+          className={cn(
+            "nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all",
+            isApkBuilder
+              ? "nav-item-active text-foreground font-medium"
+              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground",
+          )}>
+          <Smartphone className="w-4 h-4" />
+          APK Builder
+        </Link>
         <Link to="/settings" data-ocid="nav.settings.link" onClick={onClose}
           className={cn(
             "nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all",
@@ -97,7 +108,7 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
             type="button"
             onClick={handleLogout}
             data-ocid="nav.logout.button"
-            className="nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all w-full text-left text-sidebar-foreground hover:bg-sidebar-accent hover:text-destructive"
+            className="nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all w-full text-left text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
             title="Logout from your account"
           >
             <LogOut className="w-4 h-4" />
