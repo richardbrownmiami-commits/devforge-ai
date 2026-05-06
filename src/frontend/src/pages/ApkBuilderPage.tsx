@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Clock,
   Download,
+  ExternalLink,
   Eye,
   Hammer,
   Loader2,
@@ -16,6 +17,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+
+const GH_APK_REPO = "richardbrownmiami-commits/MyAI-Android-Build";
+const GH_WORKFLOW = "build-apk.yml";
 
 const LANGUAGES = [
   { id: "kotlin", label: "Kotlin", desc: "Android native — Google standard (2025)", recommended: true },
@@ -47,13 +51,23 @@ const FEATURES = [
 
 type NetworkMode = "online" | "offline" | "hybrid";
 
-interface BuildRecord {
-  id: string;
+interface GHRun {
+  id: number;
   name: string;
-  language: string;
-  status: "building" | "success" | "failed";
-  createdAt: string;
-  downloadUrl?: string;
+  display_title: string;
+  status: "queued" | "in_progress" | "completed" | "waiting";
+  conclusion: "success" | "failure" | "cancelled" | "skipped" | null;
+  created_at: string;
+  html_url: string;
+}
+
+function getGHToken(): string {
+  try {
+    const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
+    return s.githubToken || "";
+  } catch {
+    return "";
+  }
 }
 
 function PhoneMockup({ appName, appType, features }: { appName: string; appType: string; features: string[] }) {
@@ -103,6 +117,23 @@ function PhoneMockup({ appName, appType, features }: { appName: string; appType:
   );
 }
 
+function statusColor(status: GHRun["status"], conclusion: GHRun["conclusion"]): string {
+  if (status === "completed") {
+    if (conclusion === "success") return "text-green-400";
+    if (conclusion === "failure") return "text-red-400";
+    if (conclusion === "cancelled") return "text-yellow-500";
+    return "text-muted-foreground";
+  }
+  if (status === "in_progress") return "text-yellow-400";
+  if (status === "queued") return "text-blue-400";
+  return "text-muted-foreground";
+}
+
+function statusLabel(status: GHRun["status"], conclusion: GHRun["conclusion"]): string {
+  if (status === "completed") return conclusion ?? "done";
+  return status.replace("_", " ");
+}
+
 export function ApkBuilderPage() {
   const [description, setDescription] = useState("");
   const [language, setLanguage] = useState<string>("kotlin");
@@ -111,7 +142,8 @@ export function ApkBuilderPage() {
   const [features, setFeatures] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [building, setBuilding] = useState(false);
-  const [buildHistory, setBuildHistory] = useState<BuildRecord[]>([]);
+  const [buildMsg, setBuildMsg] = useState<{ type: "success" | "error" | "warn"; text: string; url?: string } | null>(null);
+  const [runs, setRuns] = useState<GHRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -123,13 +155,19 @@ export function ApkBuilderPage() {
   const fetchHistory = async () => {
     setHistoryLoading(true);
     try {
-      const r = await fetch("https://brainforge-api.richard-brown-miami.workers.dev/api/apk/history");
+      const token = getGHToken();
+      const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const r = await fetch(
+        `https://api.github.com/repos/${GH_APK_REPO}/actions/runs?per_page=10`,
+        { headers }
+      );
       if (r.ok) {
         const data = await r.json();
-        setBuildHistory(Array.isArray(data) ? data : []);
+        setRuns(Array.isArray(data.workflow_runs) ? data.workflow_runs : []);
       }
     } catch {
-      // ignore — backend may not have this endpoint yet
+      // network error — leave existing list intact
     } finally {
       setHistoryLoading(false);
     }
@@ -144,15 +182,60 @@ export function ApkBuilderPage() {
   const handleBuild = async () => {
     if (!description.trim()) return;
     setBuilding(true);
-    try {
-      await fetch("https://brainforge-api.richard-brown-miami.workers.dev/api/apk/build", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description, language, appType, networkMode, features }),
+    setBuildMsg(null);
+
+    const token = getGHToken();
+    if (!token) {
+      setBuildMsg({
+        type: "warn",
+        text: "No GitHub token configured. Go to Settings → GitHub & Deploy to add your token, then try again.",
       });
-      await fetchHistory();
-    } catch {
-      // ignore — show optimistic state
+      setBuilding(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${GH_APK_REPO}/actions/workflows/${GH_WORKFLOW}/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ref: "main" }),
+        }
+      );
+
+      if (res.status === 204) {
+        setBuildMsg({
+          type: "success",
+          text: "Build triggered! Check GitHub Actions for progress.",
+          url: `https://github.com/${GH_APK_REPO}/actions`,
+        });
+        // Give GitHub a moment then refresh history
+        setTimeout(fetchHistory, 3000);
+      } else if (res.status === 404) {
+        setBuildMsg({
+          type: "error",
+          text: `Build workflow not found in ${GH_APK_REPO} repo. Please add a .github/workflows/${GH_WORKFLOW} file first.`,
+        });
+      } else if (res.status === 401 || res.status === 403) {
+        setBuildMsg({
+          type: "error",
+          text: `GitHub token error (${res.status}). Check your token has repo and workflow permissions.`,
+        });
+      } else {
+        let errMsg = `GitHub API error: ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData.message) errMsg = errData.message;
+        } catch { /* ignore */ }
+        setBuildMsg({ type: "error", text: errMsg });
+      }
+    } catch (e: unknown) {
+      setBuildMsg({ type: "error", text: (e as Error).message || "Network error — check your connection." });
     } finally {
       setBuilding(false);
     }
@@ -170,7 +253,7 @@ export function ApkBuilderPage() {
             APK Builder
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Describe your app — AI generates the code and builds the APK
+            Describe your app — AI generates the code and builds the APK via GitHub Actions
           </p>
         </div>
       </div>
@@ -372,6 +455,43 @@ export function ApkBuilderPage() {
               )}
           </div>
 
+          {/* Build status message */}
+          {buildMsg && (
+            <div
+              className="rounded-xl px-4 py-3 text-xs border"
+              style={{
+                background: buildMsg.type === "success"
+                  ? "oklch(0.76 0.16 158 / 0.08)"
+                  : buildMsg.type === "warn"
+                  ? "oklch(0.75 0.18 60 / 0.08)"
+                  : "oklch(0.55 0.22 25 / 0.08)",
+                borderColor: buildMsg.type === "success"
+                  ? "oklch(0.76 0.16 158 / 0.3)"
+                  : buildMsg.type === "warn"
+                  ? "oklch(0.75 0.18 60 / 0.3)"
+                  : "oklch(0.55 0.22 25 / 0.3)",
+                color: buildMsg.type === "success"
+                  ? "oklch(0.76 0.16 158)"
+                  : buildMsg.type === "warn"
+                  ? "oklch(0.80 0.18 60)"
+                  : "oklch(0.70 0.22 25)",
+              }}
+              data-ocid="apk_builder.build.status"
+            >
+              {buildMsg.text}
+              {buildMsg.url && (
+                <a
+                  href={buildMsg.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 mt-1.5 underline"
+                >
+                  <ExternalLink className="w-3 h-3" /> View on GitHub Actions
+                </a>
+              )}
+            </div>
+          )}
+
           {/* Build */}
           <button
             type="button"
@@ -388,7 +508,7 @@ export function ApkBuilderPage() {
             {building
               ? <Loader2 className="w-4 h-4 animate-spin" />
               : <Hammer className="w-4 h-4" />}
-            {building ? "Building APK…" : "Build APK"}
+            {building ? "Triggering Build…" : "Build APK via GitHub Actions"}
           </button>
 
           {/* Selected summary */}
@@ -413,6 +533,17 @@ export function ApkBuilderPage() {
               <span className="text-muted-foreground">Features</span>
               <span className="text-foreground font-medium">{features.length} selected</span>
             </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Repo</span>
+              <a
+                href={`https://github.com/${GH_APK_REPO}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline flex items-center gap-0.5 font-medium"
+              >
+                MyAI-Android-Build <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -427,6 +558,7 @@ export function ApkBuilderPage() {
             <span className="text-sm font-medium text-foreground flex items-center gap-2">
               <Clock className="w-4 h-4 text-muted-foreground" />
               Build History
+              <span className="text-[10px] text-muted-foreground">(from GitHub Actions)</span>
             </span>
             <button
               type="button"
@@ -437,7 +569,11 @@ export function ApkBuilderPage() {
               <RefreshCw className={cn("w-3.5 h-3.5", historyLoading && "animate-spin")} />
             </button>
           </div>
-          {buildHistory.length === 0 ? (
+          {historyLoading && runs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2" style={{ background: "oklch(0.09 0.005 280)" }}>
+              <Loader2 className="w-5 h-5 text-muted-foreground/40 animate-spin" />
+            </div>
+          ) : runs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 gap-2" style={{ background: "oklch(0.09 0.005 280)" }}>
               <Hammer className="w-7 h-7 text-muted-foreground/20" />
               <p className="text-xs text-muted-foreground/50">No builds yet — trigger your first APK build above</p>
@@ -447,34 +583,36 @@ export function ApkBuilderPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-muted-foreground" style={{ borderColor: "oklch(0.20 0.02 280)" }}>
-                    <th className="text-left px-5 py-2.5 font-medium">App</th>
-                    <th className="text-left px-5 py-2.5 font-medium">Language</th>
+                    <th className="text-left px-5 py-2.5 font-medium">Build</th>
                     <th className="text-left px-5 py-2.5 font-medium">Status</th>
                     <th className="text-left px-5 py-2.5 font-medium">Date</th>
-                    <th className="text-right px-5 py-2.5 font-medium">Download</th>
+                    <th className="text-right px-5 py-2.5 font-medium">Link</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {buildHistory.map(record => (
-                    <tr key={record.id} className="border-b last:border-0 hover:bg-white/3 transition-colors" style={{ borderColor: "oklch(0.18 0.02 280)" }}>
-                      <td className="px-5 py-3 text-foreground truncate max-w-[160px]">{record.name}</td>
-                      <td className="px-5 py-3 text-muted-foreground capitalize">{record.language}</td>
+                  {runs.map(run => (
+                    <tr key={run.id} className="border-b last:border-0 hover:bg-white/3 transition-colors" style={{ borderColor: "oklch(0.18 0.02 280)" }}>
+                      <td className="px-5 py-3 text-foreground truncate max-w-[200px]">{run.display_title || run.name}</td>
                       <td className="px-5 py-3">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full font-medium",
-                          record.status === "success" && "text-green-400",
-                          record.status === "building" && "text-yellow-400",
-                          record.status === "failed" && "text-destructive"
-                        )}>
-                          {record.status === "building" && <Loader2 className="w-3 h-3 inline mr-1 animate-spin" />}
-                          {record.status}
+                        <span className={cn("font-medium capitalize flex items-center gap-1.5", statusColor(run.status, run.conclusion))}>
+                          {(run.status === "in_progress" || run.status === "queued") && (
+                            <Loader2 className="w-3 h-3 animate-spin inline" />
+                          )}
+                          {statusLabel(run.status, run.conclusion)}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-muted-foreground">{record.createdAt}</td>
+                      <td className="px-5 py-3 text-muted-foreground">
+                        {new Date(run.created_at).toLocaleString()}
+                      </td>
                       <td className="px-5 py-3 text-right">
-                        {record.downloadUrl
-                          ? <a href={record.downloadUrl} className="inline-flex items-center gap-1 text-primary hover:underline" download><Download className="w-3 h-3" /> APK</a>
-                          : <span className="text-muted-foreground/40">—</span>}
+                        <a
+                          href={run.html_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          <Download className="w-3 h-3" /> View
+                        </a>
                       </td>
                     </tr>
                   ))}
