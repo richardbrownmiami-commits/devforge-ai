@@ -7,7 +7,7 @@ const WORKER_SECRET = "2200";
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 
 function getGHToken() {
-  return JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken || "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";
+  return JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken || """";
 }
 
 function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
