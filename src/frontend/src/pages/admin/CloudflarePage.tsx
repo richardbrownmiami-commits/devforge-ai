@@ -7,7 +7,7 @@ const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 const PAGES_URL = "https://brainforge-7xn.pages.dev";
 
 function getGHToken() {
-  return JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken || "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";
+  return JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken || "";
 }
 
 function timeAgo(d: string) {
@@ -351,3 +351,4 @@ export function CloudflarePage() {
     </div>
   );
 }
+
