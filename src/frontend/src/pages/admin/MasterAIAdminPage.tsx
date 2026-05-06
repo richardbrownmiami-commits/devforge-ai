@@ -128,7 +128,7 @@ function getGHToken(): string {
 function initGHToken() {
   const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
   if (!s.githubToken) {
-    s.githubToken = "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";
+    s.githubToken = "";
     localStorage.setItem("bf_settings", JSON.stringify(s));
   }
 }
@@ -1240,3 +1240,4 @@ export function MasterAIAdminPage() {
     </div>
   );
 }
+
