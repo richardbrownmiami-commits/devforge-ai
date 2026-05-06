@@ -3,7 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 const CF_WORKER = "https://brainforge-api.richard-brown-miami.workers.dev";
-const WORKER_SECRET = "2200";
+function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_settings") || "{}").workerSecret || ""; }
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 
 function getGHToken() {
@@ -43,7 +43,7 @@ export function AdminDatabasePage() {
     setD1Loading(true);
     try {
       const [statsRes, backupRes] = await Promise.allSettled([
-        fetch(`${CF_WORKER}/api/stats`, { headers: { "X-BrainForge-Secret": WORKER_SECRET } }).then(r => r.json()),
+        fetch(`${CF_WORKER}/api/stats`, { headers: { "X-BrainForge-Secret": getWorkerSecret() } }).then(r => r.json()),
         fetch(`https://api.github.com/repos/${GH_REPO}/contents/backups`, {
           headers: { Authorization: `token ${getGHToken()}` }
         }).then(r => r.json()).catch(() => []),
@@ -74,7 +74,7 @@ export function AdminDatabasePage() {
     setTableRows([]);
     try {
       const res = await fetch(`${CF_WORKER}/api/table/${tableName}?limit=20`, {
-        headers: { "X-BrainForge-Secret": WORKER_SECRET }
+        headers: { "X-BrainForge-Secret": getWorkerSecret() }
       });
       if (res.ok) {
         const data = await res.json();
@@ -94,7 +94,7 @@ export function AdminDatabasePage() {
     try {
       const res = await fetch(`${CF_WORKER}/api/query`, {
         method: "POST",
-        headers: { "X-BrainForge-Secret": WORKER_SECRET, "Content-Type": "application/json" },
+        headers: { "X-BrainForge-Secret": getWorkerSecret(), "Content-Type": "application/json" },
         body: JSON.stringify({ sql: sqlQuery }),
       });
       const data = await res.json();
@@ -122,7 +122,7 @@ export function AdminDatabasePage() {
     setBackupMsg("Backing up...");
     try {
       const res = await fetch(`${CF_WORKER}/api/backup`, {
-        method: "POST", headers: { "X-BrainForge-Secret": WORKER_SECRET }
+        method: "POST", headers: { "X-BrainForge-Secret": getWorkerSecret() }
       });
       if (res.ok) { setBackupMsg("✓ Done"); toast.success("D1 backup complete!"); }
       else { setBackupMsg("Failed"); toast.error("Backup failed"); }
