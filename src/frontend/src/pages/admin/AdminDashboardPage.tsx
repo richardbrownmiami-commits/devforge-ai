@@ -19,7 +19,7 @@ const WORKER_SECRET = "2200";
 
 function getGHToken(): string {
   const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
-  return s.githubToken || "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";
+  return s.githubToken || """";
 }
 
 function timeAgo(dateStr: string): string {
