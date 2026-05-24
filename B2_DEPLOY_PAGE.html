@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevForge AI - B2 Deployment Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        header p { font-size: 1.1em; opacity: 0.9; }
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 40px;
+        }
+        @media (max-width: 900px) {
+            .content { grid-template-columns: 1fr; }
+        }
+        .section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 25px;
+            border-left: 4px solid #667eea;
+        }
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .status-item:last-child { border-bottom: none; }
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.85em;
+        }
+        .badge-active { background: #d4edda; color: #155724; }
+        .badge-pending { background: #fff3cd; color: #856404; }
+        .badge-offline { background: #f8d7da; color: #721c24; }
+        .feature-list {
+            list-style: none;
+        }
+        .feature-list li {
+            padding: 10px 0;
+            padding-left: 30px;
+            position: relative;
+            border-bottom: 1px solid #ddd;
+        }
+        .feature-list li:last-child { border-bottom: none; }
+        .feature-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #28a745;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            color: #667eea;
+            font-weight: bold;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .api-endpoints {
+            background: #f1f3f5;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+        }
+        .endpoint {
+            margin: 10px 0;
+            padding: 8px;
+            background: white;
+            border-left: 3px solid #667eea;
+            padding-left: 12px;
+        }
+        .method {
+            display: inline-block;
+            font-weight: bold;
+            color: #667eea;
+            margin-right: 8px;
+            min-width: 60px;
+        }
+        .method.get { color: #28a745; }
+        .method.post { color: #ffc107; }
+        .method.put { color: #17a2b8; }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-top: 15px;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        button:active { transform: translateY(0); }
+        .footer {
+            background: #f8f9fa;
+            padding: 20px 40px;
+            text-align: center;
+            border-top: 1px solid #ddd;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .refresh-btn { width: 100%; margin-top: 10px; }
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error { color: #721c24; }
+        .success { color: #155724; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 DevForge AI - B2 Deployment</h1>
+            <p>Real-time Status & Working Features</p>
+        </header>
+
+        <div class="content">
+            <!-- LEFT COLUMN: System Status -->
+            <div>
+                <div class="section">
+                    <h2>⚙️ System Status</h2>
+                    <div class="status-item">
+                        <span>Cloudflare Worker</span>
+                        <span class="status-badge badge-active">✓ ACTIVE</span>
+                    </div>
+                    <div class="status-item">
+                        <span>D1 Database (Projects)</span>
+                        <span class="status-badge badge-active">✓ READY</span>
+                    </div>
+                    <div class="status-item">
+                        <span>KV Storage (Apps)</span>
+                        <span class="status-badge badge-active">✓ READY</span>
+                    </div>
+                    <div class="status-item">
+                        <span>ICP Deployment</span>
+                        <span class="status-badge badge-pending">⏳ SETUP</span>
+                    </div>
+                    <div class="status-item">
+                        <span>Brain Server (Termux)</span>
+                        <span class="status-badge badge-pending">⏳ OPTIONAL</span>
+                    </div>
+                </div>
+
+                <div class="section" style="margin-top: 20px;">
+                    <h2>📊 Live Database Stats</h2>
+                    <div class="stats-grid" id="statsGrid">
+                        <div class="stat-card">
+                            <div class="stat-number" id="projectCount">-</div>
+                            <div class="stat-label">Projects</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="messageCount">-</div>
+                            <div class="stat-label">Messages</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="memoryCount">-</div>
+                            <div class="stat-label">Memories</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" id="snapshotCount">-</div>
+                            <div class="stat-label">Snapshots</div>
+                        </div>
+                    </div>
+                    <button class="refresh-btn" onclick="fetchStats()">
+                        🔄 Refresh Stats
+                    </button>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: Features & API -->
+            <div>
+                <div class="section">
+                    <h2>✅ Working Features</h2>
+                    <ul class="feature-list">
+                        <li><strong>Project Management</strong> - Create, list, delete projects</li>
+                        <li><strong>Chat History</strong> - Store & retrieve conversations per project</li>
+                        <li><strong>Per-Project Memory</strong> - Custom AI model assignment</li>
+                        <li><strong>Master AI Model</strong> - Global model configuration</li>
+                        <li><strong>App Publishing</strong> - Publish apps to KV storage</li>
+                        <li><strong>Internet Search</strong> - DuckDuckGo integration</li>
+                        <li><strong>Database Backup</strong> - Export D1 data as JSON</li>
+                        <li><strong>HTTP Outcalls</strong> - GET/POST external APIs</li>
+                        <li><strong>GitHub Integration</strong> - Automated commits & updates</li>
+                        <li><strong>Image Optimization</strong> - Auto resize & compress</li>
+                    </ul>
+                </div>
+
+                <div class="section" style="margin-top: 20px;">
+                    <h2>🔗 API Endpoints</h2>
+                    <div class="api-endpoints">
+                        <div class="endpoint">
+                            <span class="method get">GET</span>/api/stats
+                        </div>
+                        <div class="endpoint">
+                            <span class="method get">GET</span>/api/projects
+                        </div>
+                        <div class="endpoint">
+                            <span class="method post">POST</span>/api/projects
+                        </div>
+                        <div class="endpoint">
+                            <span class="method get">GET</span>/api/projects/{id}/messages
+                        </div>
+                        <div class="endpoint">
+                            <span class="method post">POST</span>/api/projects/{id}/messages
+                        </div>
+                        <div class="endpoint">
+                            <span class="method post">POST</span>/api/search
+                        </div>
+                        <div class="endpoint">
+                            <span class="method get">GET</span>/api/backup-export
+                        </div>
+                        <div class="endpoint">
+                            <span class="method get">GET</span>/p/{slug}
+                        </div>
+                    </div>
+                    <p style="margin-top: 15px; font-size: 0.85em; color: #666;">
+                        <strong>Auth Header:</strong> X-BrainForge-Secret: 2200
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <strong>Repository:</strong> richardbrownmiami-commits/devforge-ai
+            <br/>
+            <strong>Worker:</strong> brainforge-api.richard-brown-miami.workers.dev
+            <br/>
+            <strong>Last Updated:</strong> <span id="updateTime">-</span>
+            <br/>
+            ✨ <span id="statusMsg">Ready for deployment...</span>
+        </div>
+    </div>
+
+    <script>
+        const WORKER_URL = "https://brainforge-api.richard-brown-miami.workers.dev";
+        const SECRET_HEADER = "2200";
+
+        async function fetchStats() {
+            const statusMsg = document.getElementById("statusMsg");
+            statusMsg.innerHTML = 'Fetching data<span class="loading"></span>';
+            
+            try {
+                const response = await fetch(`${WORKER_URL}/api/stats`, {
+                    method: "GET",
+                    headers: {
+                        "X-BrainForge-Secret": SECRET_HEADER,
+                        "Content-Type": "application/json"
+                    }
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                
+                document.getElementById("projectCount").textContent = data.projects || 0;
+                document.getElementById("messageCount").textContent = data.messages || 0;
+                document.getElementById("memoryCount").textContent = data.memories || 0;
+                document.getElementById("snapshotCount").textContent = data.snapshots || 0;
+                
+                document.getElementById("updateTime").textContent = new Date().toLocaleTimeString();
+                statusMsg.innerHTML = '<span class="success">✓ Connected to Worker API</span>';
+                
+                console.log("Stats updated:", data);
+            } catch (error) {
+                console.error("Error fetching stats:", error);
+                statusMsg.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
+                document.getElementById("updateTime").textContent = new Date().toLocaleTimeString();
+            }
+        }
+
+        // Load stats on page load
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchStats();
+            // Refresh every 30 seconds
+            setInterval(fetchStats, 30000);
+        });
+    </script>
+</body>
+</html>
