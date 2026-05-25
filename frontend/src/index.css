@@ -1,0 +1,18 @@
+@import "tailwindcss";
+:root {
+  --bg: #0a0a0a;
+  --bg2: #111;
+  --bg3: #1a1a1a;
+  --text: #e0e0e0;
+  --text2: #888;
+  --accent: #4ade80;
+  --border: #222;
+}
+body {
+  margin: 0;
+  font-family: "Courier New", monospace;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+* { box-sizing: border-box; }
