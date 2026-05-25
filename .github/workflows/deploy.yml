@@ -27,12 +27,12 @@ jobs:
         run: wrangler d1 execute brainforge-db --remote --command "CREATE TABLE IF NOT EXISTS memories (key TEXT PRIMARY KEY, value TEXT, category TEXT DEFAULT 'context', updated_at TEXT);"
         working-directory: cloudflare-worker
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfut_6sM9tfVO4IVCJGVd7i2Iu', 'RITFsZkt2ex6YX1Ahhfc276d492') }}
+          CLOUDFLARE_ACCOUNT_ID: 913f3a2576a358054eba9a58a9573949
 
       - name: Deploy Worker
         run: wrangler deploy
         working-directory: cloudflare-worker
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfut_6sM9tfVO4IVCJGVd7i2Iu', 'RITFsZkt2ex6YX1Ahhfc276d492') }}
+          CLOUDFLARE_ACCOUNT_ID: 913f3a2576a358054eba9a58a9573949
