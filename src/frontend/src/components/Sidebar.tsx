@@ -84,6 +84,16 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
           <Smartphone className="w-4 h-4" />
           APK Builder
         </Link>
+        <Link to="/chat" data-ocid="nav.chat.link" onClick={onClose}
+          className={cn(
+            "nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all",
+            isChat
+              ? "nav-item-active text-foreground font-medium"
+              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground",
+          )}>
+          <Bot className="w-4 h-4" />
+          AI Chat
+        </Link>
         <Link to="/settings" data-ocid="nav.settings.link" onClick={onClose}
           className={cn(
             "nav-item flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all",
