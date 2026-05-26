@@ -7,7 +7,7 @@ function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_
 const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 
 function getGHToken() {
-  return JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken || """";
+  return JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken || "";
 }
 
 function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
