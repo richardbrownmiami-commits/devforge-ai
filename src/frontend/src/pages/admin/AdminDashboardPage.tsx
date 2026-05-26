@@ -19,7 +19,7 @@ function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_
 
 function getGHToken(): string {
   const s = JSON.parse(localStorage.getItem("bf_settings") || "{}");
-  return s.githubToken || """";
+  return s.githubToken || "";
 }
 
 function timeAgo(dateStr: string): string {
