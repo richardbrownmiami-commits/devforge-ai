@@ -2,9 +2,8 @@
 // Applies all findings from 100 research loops
 
 const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
-const KIMI_MODEL = 'moonshot-v1-128k';
-const KIMI_API_BASE = 'https://api.moonshot.cn/v1';
-// Primary: Workers AI (env.AI) | Fallback: Kimi K2.5 via Moonshot API
+const FALLBACK_MODEL = '@cf/moonshotai/kimi-k2.5';
+// Primary: Workers AI (Llama 3.1 8B) | Fallback: Kimi K2.5
 const GITHUB_OWNER = 'richardbrownmiami-commits';
 const GITHUB_REPO = 'devforge-ai';
 const MEMORY_FILE = 'memory.md';
@@ -1335,13 +1334,15 @@ Rules: reusable=true if insights apply across future sessions (not just this con
 
   // -- AI helper (Workers AI primary, Kimi K2.5 fallback) ----------------
   async callAI(systemPrompt, userMessage, maxTokens = 1000) {
-    // Try Workers AI first
-    if (this.env.AI) {
+    const models = [AI_MODEL, FALLBACK_MODEL];
+    if (!this.env.AI) throw new Error('Workers AI binding not configured');
+    
+    for (const model of models) {
       try {
         const messages = [];
         if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
         messages.push({ role: 'user', content: userMessage });
-        const response = await this.env.AI.run(AI_MODEL, {
+        const response = await this.env.AI.run(model, {
           messages,
           max_tokens: maxTokens,
           temperature: 0.7
@@ -1349,34 +1350,10 @@ Rules: reusable=true if insights apply across future sessions (not just this con
         const text = response?.response || '';
         if (text) return { text, tokens: (response.usage?.total_tokens || 0) };
       } catch (e) {
-        // Fall through to Kimi
-        console.log(`Workers AI failed, falling back to Kimi: ${e.message}`);
+        console.log(`Model ${model} failed: ${e.message}`);
       }
     }
-    
-    // Fallback: Kimi K2.5 via Moonshot API
-    const apiKey = this.env.KIMI_API_KEY;
-    if (!apiKey) throw new Error('KIMI_API_KEY not configured and Workers AI unavailable');
-    
-    const messages = [];
-    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: userMessage });
-    
-    const res = await fetch(`${KIMI_API_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: KIMI_MODEL, messages, max_tokens: maxTokens, temperature: 0.7 })
-    });
-    
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Kimi API error ${res.status}: ${err.slice(0, 200)}`);
-    }
-    
-    const data = await res.json();
-    const text = data?.choices?.[0]?.message?.content || '';
-    if (!text) throw new Error('Kimi returned empty response');
-    return { text, tokens: (data.usage?.total_tokens || 0) };
+    throw new Error('All AI models failed');
   }
   // --------------------------------------------------------------------
 
@@ -1423,7 +1400,7 @@ Rules: reusable=true if insights apply across future sessions (not just this con
     // -- Worker authentication for protected endpoints -----------------
     const PROTECTED_PATHS = ['/api/run', '/api/stop', '/api/approve'];
     if (PROTECTED_PATHS.includes(path) && request.method === 'POST') {
-      const expectedSecret = env.WORKER_SECRET || this.env.WORKER_SECRET;
+      const expectedSecret = this.env.WORKER_SECRET;
       if (expectedSecret) {
         const providedSecret = request.headers.get('X-BrainForge-Secret');
         if (providedSecret !== expectedSecret) {
@@ -1752,13 +1729,15 @@ function appErrorResponse(message, status = 500) {
 }
 
 async function callAI(env, systemPrompt, userMessage, maxTokens = 4096) {
-  // Try Workers AI first
-  if (env.AI) {
+  const models = [AI_MODEL, FALLBACK_MODEL];
+  if (!env.AI) throw new Error('Workers AI binding not available');
+  
+  for (const model of models) {
     try {
       const messages = [];
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
       messages.push({ role: 'user', content: userMessage });
-      const response = await env.AI.run(AI_MODEL, {
+      const response = await env.AI.run(model, {
         messages,
         max_tokens: maxTokens,
         temperature: 0.7
@@ -1766,33 +1745,10 @@ async function callAI(env, systemPrompt, userMessage, maxTokens = 4096) {
       const text = response?.response || '';
       if (text) return text;
     } catch (e) {
-      // Fall through
+      // Try next model
     }
   }
-  
-  // Fallback: Kimi K2.5
-  const apiKey = env.KIMI_API_KEY;
-  if (!apiKey) throw new Error('No AI available: Workers AI missing and KIMI_API_KEY not configured');
-  
-  const messages = [];
-  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-  messages.push({ role: 'user', content: userMessage });
-  
-  const res = await fetch(`${KIMI_API_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: KIMI_MODEL, messages, max_tokens: maxTokens, temperature: 0.7 })
-  });
-  
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Kimi API error ${res.status}: ${err.slice(0, 200)}`);
-  }
-  
-  const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content || '';
-  if (!text) throw new Error('Kimi returned empty response');
-  return text;
+  throw new Error('All AI models failed');
 }
 
 async function ensureRepoExists(repoFull, pat) {
