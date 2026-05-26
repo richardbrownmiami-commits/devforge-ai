@@ -1,7 +1,7 @@
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import { FolderOpen, LogOut, Menu, MessageSquare, Moon, Settings, Smartphone, Sun, Zap } from "lucide-react";
+import { Bot, FolderOpen, LogOut, Menu, MessageSquare, Moon, Settings, Smartphone, Sun, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getCurrentUser, logoutUser } from "../lib/userUtils";
 
@@ -22,6 +22,7 @@ function SidebarInner({ onClose }: { onClose?: () => void }) {
   const isProjects = !!matchRoute({ to: "/projects" });
   const isSettings = !!matchRoute({ to: "/settings" });
   const isApkBuilder = !!matchRoute({ to: "/apk-builder" });
+  const isChat = !!matchRoute({ to: "/chat" });
   const [user, setUser] = useState<string | null>(null);
 
   const [dark, setDark] = useState(
