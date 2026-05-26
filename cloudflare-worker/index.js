@@ -15,9 +15,7 @@ const GATE_INTERVAL = 10;
 const GATE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const HOP_DELAY_MS = 3000; // 3 seconds between hops
 
-// Build output repos for each app type
-const WEBAPP_BUILD_REPO = 'richardbrownmiami-commits/MyAI-WebApp-Build';
-const WEBSITE_BUILD_REPO = 'richardbrownmiami-commits/MyAI-Website-Build';
+// APK build repo (pre-existing)
 const APK_BUILD_REPO = 'richardbrownmiami-commits/MyAI-Android-Build';
 
 // =====================================================================
@@ -1822,7 +1820,24 @@ async function callGemini(systemPrompt, userMessage, apiKey) {
   return text;
 }
 
+async function ensureRepoExists(repoFull, pat) {
+  const url = `https://api.github.com/repos/${repoFull}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'BrainForge-App-Builder' },
+  });
+  if (res.ok) return;
+  const repoName = repoFull.split('/')[1];
+  const createRes = await fetch('https://api.github.com/user/repos', {
+    method: 'POST',
+    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json', 'User-Agent': 'BrainForge-App-Builder' },
+    body: JSON.stringify({ name: repoName, description: 'AI-generated app by BrainForge', auto_init: true, private: false }),
+  });
+  if (!createRes.ok) throw new Error(`Failed to create repo ${repoName}: ${await createRes.text()}`);
+  await new Promise(r => setTimeout(r, 2000));
+}
+
 async function commitToRepo(repo, filePath, content, message, pat) {
+  await ensureRepoExists(repo, pat);
   const url = `https://api.github.com/repos/${repo}/contents/${filePath}`;
   let sha = undefined;
   try {
@@ -1895,19 +1910,18 @@ async function handleWebappBuild(appName, description, buildId, timestamp, pat, 
   const systemPrompt = 'You are a senior web developer. Generate a complete, production-quality single-page web application based on the user description. Output ONLY the code files separated by "---FILENAME: filename.ext---" markers. Include: index.html, style.css, app.js. Use modern ES6+ JavaScript, CSS3 with responsive design, and semantic HTML5. Make it visually impressive with gradients, animations, and a polished UI.';
   const userMessage = `App Name: ${appName}\nDescription: ${description}\n\nGenerate: index.html, style.css, app.js`;
   const generatedCode = await callGemini(systemPrompt, userMessage, apiKey);
-  const filePath = `builds/${buildId}/`;
-  const repo = WEBAPP_BUILD_REPO;
+  const repo = `${GITHUB_OWNER}/webapp-${buildId}`;
   const indexHtml = extractFile(generatedCode, 'index.html') || `<!DOCTYPE html><html><head><title>${appName}</title><link rel="stylesheet" href="style.css"></head><body><div id="app"></div><script src="app.js"></script></body></html>`;
   const styleCss = extractFile(generatedCode, 'style.css') || 'body { font-family: sans-serif; margin: 0; padding: 20px; background: #0f0f1a; color: #e2e8f0; }';
   const appJs = extractFile(generatedCode, 'app.js') || 'console.log("BrainForge Web App");';
-  await commitToRepo(repo, `${filePath}index.html`, indexHtml, `Build ${buildId}: ${appName}`, pat);
-  await commitToRepo(repo, `${filePath}style.css`, styleCss, `Build ${buildId}: ${appName}`, pat);
-  await commitToRepo(repo, `${filePath}app.js`, appJs, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, 'index.html', indexHtml, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, 'style.css', styleCss, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, 'app.js', appJs, `Build ${buildId}: ${appName}`, pat);
   return appJsonResponse({
     success: true, buildId, appType: 'webapp',
-    message: `Web app "${appName}" generated and committed to ${repo}! Connect to Cloudflare Pages for auto-deploy.`,
-    repoUrl: `https://github.com/${repo}/tree/main/${filePath}`,
-    url: `https://github.com/${repo}/tree/main/${filePath}`,
+    message: `Web app "${appName}" built!`,
+    repoUrl: `https://github.com/${repo}`,
+    url: `https://github.com/${repo}`,
   });
 }
 
@@ -1915,17 +1929,16 @@ async function handleWebsiteBuild(appName, description, buildId, timestamp, pat,
   const systemPrompt = 'You are a senior web designer. Generate a complete, beautiful static website based on the user description. Output ONLY the code files separated by "---FILENAME: filename.ext---" markers. Include: index.html, style.css. Use modern CSS3 with responsive design, gradients, smooth scrolling, and a polished professional look. Make it impressive.';
   const userMessage = `Site Name: ${appName}\nDescription: ${description}\n\nGenerate: index.html, style.css`;
   const generatedCode = await callGemini(systemPrompt, userMessage, apiKey);
-  const filePath = `builds/${buildId}/`;
-  const repo = WEBSITE_BUILD_REPO;
+  const repo = `${GITHUB_OWNER}/website-${buildId}`;
   const indexHtml = extractFile(generatedCode, 'index.html') || `<!DOCTYPE html><html><head><title>${appName}</title><link rel="stylesheet" href="style.css"></head><body><h1>${appName}</h1></body></html>`;
   const styleCss = extractFile(generatedCode, 'style.css') || 'body { font-family: sans-serif; margin: 0; padding: 20px; background: #0f0f1a; color: #e2e8f0; }';
-  await commitToRepo(repo, `${filePath}index.html`, indexHtml, `Build ${buildId}: ${appName}`, pat);
-  await commitToRepo(repo, `${filePath}style.css`, styleCss, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, 'index.html', indexHtml, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, 'style.css', styleCss, `Build ${buildId}: ${appName}`, pat);
   return appJsonResponse({
     success: true, buildId, appType: 'website',
-    message: `Website "${appName}" generated and committed to ${repo}! Connect to Cloudflare Pages for auto-deploy.`,
-    repoUrl: `https://github.com/${repo}/tree/main/${filePath}`,
-    url: `https://github.com/${repo}/tree/main/${filePath}`,
+    message: `Website "${appName}" built!`,
+    repoUrl: `https://github.com/${repo}`,
+    url: `https://github.com/${repo}`,
   });
 }
 
