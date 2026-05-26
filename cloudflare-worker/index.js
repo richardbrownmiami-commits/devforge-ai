@@ -1474,6 +1474,142 @@ Rules: reusable=true if insights apply across future sessions (not just this con
 }
 
 // =====================================================================
+// CHAT PAGE HTML (standalone)
+// =====================================================================
+
+const CHAT_PAGE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Chat - BrainForge</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --bg: #0f0f1a; --bg2: #16162a; --accent: #7c3aed; --accent2: #06b6d4; --text: #e2e8f0; --text2: #94a3b8; --border: #1e293b; }
+  body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+  header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 1.1rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  header span { font-size: 0.75rem; color: var(--text2); }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 0.9rem; line-height: 1.5; }
+  .msg.user { align-self: flex-end; background: linear-gradient(135deg, var(--accent), #6d28d9); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.ai { align-self: flex-start; background: var(--bg2); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
+  .msg.system { align-self: center; font-size: 0.75rem; color: var(--text2); font-style: italic; }
+  #input-area { border-top: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 8px; background: var(--bg2); }
+  #input { flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.9rem; outline: none; }
+  #input:focus { border-color: var(--accent); }
+  #send-btn { padding: 10px 20px; border-radius: 8px; border: none; background: linear-gradient(135deg, var(--accent), #6d28d9); color: #fff; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+  #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #send-btn:hover:not(:disabled) { opacity: 0.9; }
+  .welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text2); }
+  .welcome h2 { font-size: 1.2rem; font-weight: 600; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .welcome p { font-size: 0.85rem; color: var(--text2); max-width: 400px; text-align: center; }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--text2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .clear-btn { background: none; border: 1px solid var(--border); color: var(--text2); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; margin-left: auto; }
+  .clear-btn:hover { background: rgba(255,255,255,0.05); }
+  @media (max-width: 600px) { .msg { max-width: 90%; } header { padding: 12px 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>BrainForge AI</h1>
+  <span>Chat with Workers AI (Llama 3.1 8B)</span>
+  <button class="clear-btn" onclick="clearChat()">Clear</button>
+</header>
+<div id="messages">
+  <div class="welcome" id="welcome">
+    <h2>AI Chat</h2>
+    <p>Ask me anything about your project, architecture, code, or planning. I can help you build apps, debug issues, and discuss ideas.</p>
+  </div>
+</div>
+<div id="input-area">
+  <input type="text" id="input" placeholder="Type your message..." autofocus>
+  <button id="send-btn" onclick="send()">Send</button>
+</div>
+<script>
+const API = '/api/chat';
+let history = [];
+
+async function send() {
+  const input = document.getElementById('input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  input.disabled = true;
+  document.getElementById('send-btn').disabled = true;
+
+  addMessage(msg, 'user');
+  history.push({ role: 'user', content: msg });
+
+  const loadingId = addLoading();
+
+  try {
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, history: history.slice(0, -1) })
+    });
+    const data = await res.json();
+    removeLoading(loadingId);
+    if (data.reply) {
+      addMessage(data.reply, 'ai');
+      history.push({ role: 'assistant', content: data.reply });
+    } else {
+      addMessage('Error: ' + (data.error || 'Unknown error'), 'system');
+    }
+  } catch (e) {
+    removeLoading(loadingId);
+    addMessage('Network error. Check your connection.', 'system');
+  }
+  input.disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  input.focus();
+}
+
+function addMessage(text, role) {
+  hideWelcome();
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  document.getElementById('messages').appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth' });
+}
+
+function addLoading() {
+  hideWelcome();
+  const div = document.createElement('div');
+  div.className = 'msg ai';
+  div.innerHTML = '<span class="spinner"></span>';
+  div.id = 'loading-msg';
+  document.getElementById('messages').appendChild(div);
+  div.scrollIntoView({ behavior: 'smooth' });
+  return div.id;
+}
+
+function removeLoading(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function hideWelcome() {
+  const w = document.getElementById('welcome');
+  if (w) { w.style.display = 'none'; }
+}
+
+function clearChat() {
+  document.getElementById('messages').innerHTML = '<div class="welcome" id="welcome"><h2>AI Chat</h2><p>Ask me anything about your project, architecture, code, or planning.</p></div>';
+  history = [];
+}
+
+document.getElementById('input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+</script>
+</body>
+</html>`;
+
+// =====================================================================
 // WORKER ENTRY POINT
 // =====================================================================
 
@@ -1500,6 +1636,12 @@ export default {
     // APK Builder routes ï¿½ handled directly, not via Durable Object
     if (path === '/apk-builder' || path.startsWith('/api/apk/')) {
       return handleApkRoute(request, env, APK_BUILDER_HTML);
+    }
+
+    // Chat standalone page
+    if (path === '/chat' || path === '/chat/') {
+      const html = CHAT_PAGE_HTML;
+      return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', ...corsHeaders } });
     }
 
     // Chat API ï¿½ conversational AI, not via Durable Object
