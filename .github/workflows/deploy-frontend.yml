@@ -26,7 +26,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
         working-directory: src/frontend
 
       - name: Build frontend
