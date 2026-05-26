@@ -1,4 +1,4 @@
-﻿name: Deploy BrainForge Frontend
+name: Deploy BrainForge Frontend
 
 on:
   workflow_dispatch:
