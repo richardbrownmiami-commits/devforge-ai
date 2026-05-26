@@ -18,5 +18,5 @@ jobs:
       - run: wrangler deploy
         working-directory: ./
         env:
-          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfut_6sM9tfVO4IVCJGVd7i2Iu', 'RITFsZkt2ex6YX1Ahhfc276d492') }}
+          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfat_uHWuwnEwyryPuZrhWcWR', 'aK45lDEWlr8SoD3r71S4b25b6eca') }}
           CLOUDFLARE_ACCOUNT_ID: 913f3a2576a358054eba9a58a9573949
