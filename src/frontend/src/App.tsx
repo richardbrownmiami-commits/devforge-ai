@@ -31,6 +31,7 @@ import { NotesPage } from "./pages/admin/NotesPage";
 import { TermuxAdminPage } from "./pages/admin/TermuxAdminPage";
 import { UsersAdminPage } from "./pages/admin/UsersAdminPage";
 import { FeedbackWidget } from "./components/FeedbackWidget";
+import { ChatPage } from "./pages/ChatPage";
 import { UserLoginGate } from "./components/UserLoginGate";
 
 function PinLock({ children }: { children: React.ReactNode }) {
@@ -131,6 +132,7 @@ const adminRootRoute = createRootRoute({
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/apk-builder" }); }, component: () => null });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 const apkBuilderRoute = createRoute({ getParentRoute: () => rootRoute, path: "/apk-builder", component: ApkBuilderPage });
+const chatRoute = createRoute({ getParentRoute: () => rootRoute, path: "/chat", component: ChatPage });
 
 const adminLayoutRoute = createRoute({ getParentRoute: () => adminRootRoute, path: "/admin", component: AdminLayout });
 const adminIndexRoute = createRoute({ getParentRoute: () => adminLayoutRoute, path: "/", component: AdminDashboardPage });
@@ -158,7 +160,7 @@ adminLayoutRoute.addChildren([
   adminBroadcastRoute, adminAPIMonitorRoute, adminAnalyticsRoute, adminSystemRoute,
 ]);
 
-const mainRouteTree = rootRoute.addChildren([indexRoute, settingsRoute, apkBuilderRoute]);
+const mainRouteTree = rootRoute.addChildren([indexRoute, settingsRoute, apkBuilderRoute, chatRoute]);
 const adminRouteTree = adminRootRoute.addChildren([adminLayoutRoute]);
 
 const isAdminPath = window.location.pathname.startsWith("/admin") || window.location.hash.startsWith("#/admin");
