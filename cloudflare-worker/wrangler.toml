@@ -20,7 +20,7 @@ crons = ["0 3 * * *"]
 [vars]
 GITHUB_OWNER = "richardbrownmiami-commits"
 GITHUB_REPO = "devforge-ai"
-GEMINI_API_KEY = ""
+KIMI_API_KEY = ""
 GITHUB_PAT = ""
 WORKER_SECRET = ""
 
