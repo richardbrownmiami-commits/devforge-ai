@@ -15,6 +15,11 @@ const GATE_INTERVAL = 10;
 const GATE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const HOP_DELAY_MS = 3000; // 3 seconds between hops
 
+// Build output repos for each app type
+const WEBAPP_BUILD_REPO = 'richardbrownmiami-commits/MyAI-WebApp-Build';
+const WEBSITE_BUILD_REPO = 'richardbrownmiami-commits/MyAI-Website-Build';
+const APK_BUILD_REPO = 'richardbrownmiami-commits/MyAI-Android-Build';
+
 // =====================================================================
 // APK BUILDER HTML (inlined from apk-builder.html)
 // =====================================================================
@@ -529,6 +534,189 @@ document.querySelectorAll('.feature-item input:checked').forEach(cb => {
 </body>
 </html>
 `;
+
+// =====================================================================
+// APP BUILDER HTML (multi-type: webapp, website, apk)
+// =====================================================================
+
+const APP_BUILDER_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>App Builder — BrainForge</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f1a; --bg2: #16162a; --bg3: #1e1e35;
+    --accent: #7c3aed; --accent-light: #9f67ff;
+    --accent-dim: rgba(124,58,237,0.18);
+    --border: rgba(255,255,255,0.08);
+    --text: #e2e8f0; --muted: #94a3b8;
+    --green: #22c55e; --red: #ef4444; --yellow: #eab308;
+    --radius: 12px;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+  .container { max-width: 900px; margin: 0 auto; padding: 24px 16px 80px; }
+  .hero { text-align: center; padding: 48px 0 36px; }
+  .hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; background: linear-gradient(135deg, #fff 0%, var(--accent-light) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 12px; }
+  .hero p { color: var(--muted); font-size: 1.1rem; }
+  .section { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
+  .section-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; color: var(--accent-light); text-transform: uppercase; margin-bottom: 14px; }
+  textarea, input[type=text] { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.97rem; padding: 14px; resize: vertical; transition: border-color 0.2s; outline: none; font-family: inherit; }
+  textarea:focus, input[type=text]:focus { border-color: var(--accent); }
+  textarea { min-height: 110px; }
+  .type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .type-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 20px 16px; cursor: pointer; text-align: center; transition: all 0.18s; user-select: none; }
+  .type-card:hover { border-color: var(--accent); background: var(--accent-dim); }
+  .type-card.selected { border-color: var(--accent); background: var(--accent-dim); box-shadow: 0 0 0 2px rgba(124,58,237,0.3); }
+  .type-card .icon { font-size: 2rem; margin-bottom: 8px; }
+  .type-card .label { font-size: 0.9rem; font-weight: 600; }
+  .type-card .desc { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; font-size: 0.95rem; font-weight: 700; cursor: pointer; transition: all 0.18s; border: none; outline: none; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-light); transform: translateY(-1px); box-shadow: 0 4px 20px rgba(124,58,237,0.4); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-outline { background: transparent; border: 1px solid var(--accent); color: var(--accent-light); }
+  .btn-outline:hover { background: var(--accent-dim); }
+  .result-box { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-top: 20px; display: none; }
+  .result-box.visible { display: block; }
+  .result-box .url { color: var(--accent-light); word-break: break-all; }
+  .result-box .status { color: var(--green); }
+  .result-box .error { color: var(--red); }
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--muted); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .nav { text-align: center; padding: 12px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .nav a { color: var(--muted); text-decoration: none; font-size: 0.85rem; margin: 0 10px; }
+  .nav a:hover { color: var(--accent-light); }
+</style>
+</head>
+<body>
+<div class="nav">
+  <a href="/agent-loop">Agent Loop</a>
+  <a href="/app-builder">App Builder</a>
+  <a href="/apk-builder">APK Builder</a>
+</div>
+<div class="container">
+  <div class="hero">
+    <h1>BrainForge App Builder</h1>
+    <p>Describe what you want and AI will build it</p>
+  </div>
+
+  <div class="section">
+    <div class="section-label">1. What are you building?</div>
+    <div class="type-grid" id="appTypeGrid">
+      <div class="type-card" data-type="webapp" onclick="selectType(this)">
+        <div class="icon">🌐</div>
+        <div class="label">Web App</div>
+        <div class="desc">Interactive app with HTML/CSS/JS</div>
+      </div>
+      <div class="type-card" data-type="website" onclick="selectType(this)">
+        <div class="icon">📄</div>
+        <div class="label">Website</div>
+        <div class="desc">Static site, blog, landing page</div>
+      </div>
+      <div class="type-card selected" data-type="apk" onclick="selectType(this)">
+        <div class="icon">📱</div>
+        <div class="label">Android APK</div>
+        <div class="desc">Native Android app</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">2. App Details</div>
+    <input type="text" id="appName" placeholder="App name (e.g. My Todo App)" style="margin-bottom:12px">
+    <textarea id="appDesc" placeholder="Describe your app... e.g. A todo app with reminders, dark mode, and Hindi language support"></textarea>
+  </div>
+
+  <div class="section" id="apkOptions" style="display:block">
+    <div class="section-label">3. APK Options</div>
+    <select id="appLanguage" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:12px;font-size:0.95rem;margin-bottom:12px;outline:none">
+      <option value="kotlin">Kotlin (Recommended)</option>
+      <option value="flutter">Flutter (Dart)</option>
+      <option value="reactnative">React Native</option>
+      <option value="java">Java</option>
+    </select>
+    <input type="text" id="appFeatures" placeholder="Features (comma-separated): notifications, dark mode, multi-language" style="margin-bottom:8px">
+  </div>
+
+  <div style="text-align:center;margin-top:24px">
+    <button class="btn btn-primary" id="buildBtn" onclick="buildApp()">
+      <span id="buildBtnText">Build App</span>
+    </button>
+  </div>
+
+  <div class="result-box" id="resultBox">
+    <h3 style="margin-bottom:12px;color:var(--accent-light)" id="resultTitle">Build Complete</h3>
+    <div id="resultContent"></div>
+  </div>
+</div>
+
+<script>
+let selectedType = 'apk';
+
+function selectType(el) {
+  document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedType = el.dataset.type;
+  document.getElementById('apkOptions').style.display = selectedType === 'apk' ? 'block' : 'none';
+}
+
+async function buildApp() {
+  const name = document.getElementById('appName').value.trim();
+  const desc = document.getElementById('appDesc').value.trim();
+  if (!name || !desc) { alert('Please enter app name and description'); return; }
+
+  const btn = document.getElementById('buildBtn');
+  const btnText = document.getElementById('buildBtnText');
+  btn.disabled = true; btnText.innerHTML = '<span class="spinner"></span> Building...';
+
+  const resultBox = document.getElementById('resultBox');
+  const resultTitle = document.getElementById('resultTitle');
+  const resultContent = document.getElementById('resultContent');
+  resultBox.classList.remove('visible');
+
+  try {
+    const body = {
+      appName: name,
+      description: desc,
+      appType: selectedType,
+      language: selectedType === 'apk' ? document.getElementById('appLanguage').value : '',
+      features: selectedType === 'apk' ? document.getElementById('appFeatures').value.split(',').map(function(f) { return f.trim(); }).filter(function(f) { return f; }) : []
+    };
+
+    const res = await fetch('/api/apps/build', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+    resultBox.classList.add('visible');
+
+    if (data.success) {
+      resultTitle.textContent = '✅ Build Successful!';
+      var html = '<p class="status">' + data.message + '</p>';
+      if (data.url) html += '<p style="margin-top:12px"><strong>URL:</strong> <span class="url"><a href="' + data.url + '" target="_blank">' + data.url + '</a></span></p>';
+      if (data.buildId) html += '<p style="margin-top:8px;color:var(--muted);font-size:0.85rem">Build ID: ' + data.buildId + '</p>';
+      if (data.repoUrl) html += '<p style="margin-top:8px"><a href="' + data.repoUrl + '" target="_blank" style="color:var(--accent-light)">View on GitHub →</a></p>';
+      resultContent.innerHTML = html;
+    } else {
+      resultTitle.textContent = '❌ Build Failed';
+      resultContent.innerHTML = '<p class="error">' + (data.error || 'Unknown error') + '</p>';
+    }
+  } catch (e) {
+    resultBox.classList.add('visible');
+    resultTitle.textContent = '❌ Error';
+    resultContent.innerHTML = '<p class="error">' + e.message + '</p>';
+  }
+
+  btn.disabled = false; btnText.textContent = 'Build App';
+}
+</script>
+</body>
+</html>`;
 
 // =====================================================================
 // GITHUB UTILITIES
@@ -1316,12 +1504,17 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // App Builder routes (webapp, website, apk)
+    if (path === '/app-builder' || path.startsWith('/api/apps/')) {
+      return handleAppRoute(request, env, APP_BUILDER_HTML);
+    }
+
     // APK Builder routes — handled directly, not via Durable Object
     if (path === '/apk-builder' || path.startsWith('/api/apk/')) {
       return handleApkRoute(request, env, APK_BUILDER_HTML);
     }
 
-    // Route agent-loop and API paths to the Durable Object
+    // Route agent-loop and other /api/* paths to the Durable Object
     if (path.startsWith('/agent-loop') || path.startsWith('/api/')) {
       const id = env.AGENT_LOOP.idFromName('main');
       const stub = env.AGENT_LOOP.get(id);
@@ -1592,4 +1785,156 @@ function buddyHTML() {
 h1{color:#4ade80;margin-bottom:8px}p{color:#888;font-size:0.9rem}a{color:#4ade80;text-decoration:none}</style></head>
 <body><div><h1>BrainForge Buddy</h1><p>Buddy functionality has moved.</p><p><a href="/agent-loop">&#8594; Go to Agent Loop</a></p></div></body>
 </html>`;
+}
+
+// =====================================================================
+// APP BUILDER HANDLERS (multi-type: webapp, website, apk)
+// =====================================================================
+
+function appJsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' },
+  });
+}
+
+function appErrorResponse(message, status = 500) {
+  return appJsonResponse({ success: false, error: message }, status);
+}
+
+async function callGemini(systemPrompt, userMessage, apiKey) {
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
+  const url = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        { role: 'user', parts: [{ text: systemPrompt + '\n\n' + userMessage }] }
+      ],
+      generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) throw new Error('Gemini returned empty response');
+  return text;
+}
+
+async function commitToRepo(repo, filePath, content, message, pat) {
+  const url = `https://api.github.com/repos/${repo}/contents/${filePath}`;
+  let sha = undefined;
+  try {
+    const check = await fetch(url, {
+      headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'BrainForge-App-Builder' },
+    });
+    if (check.ok) {
+      const existing = await check.json();
+      sha = existing.sha;
+    }
+  } catch (_) {}
+  const body = { message, content: btoa(unescape(encodeURIComponent(content))) };
+  if (sha) body.sha = sha;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json', 'User-Agent': 'BrainForge-App-Builder' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`GitHub commit failed: ${err}`);
+  }
+  return res.json();
+}
+
+async function handleAppRoute(request, env, inlineHtml) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' } });
+  }
+  if ((path === '/app-builder' || path === '/app-builder/') && request.method === 'GET') {
+    const html = inlineHtml || '<!DOCTYPE html><html><body><h1>App Builder</h1></body></html>';
+    return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' } });
+  }
+  if (path === '/api/apps/build' && request.method === 'POST') {
+    return handleAppBuild(request, env);
+  }
+  if (path === '/api/apps/list' && request.method === 'GET') {
+    return handleAppsList(request, env);
+  }
+  return null;
+}
+
+async function handleAppBuild(request, env) {
+  let body;
+  try { body = await request.json(); } catch (e) { return appErrorResponse('Invalid JSON body', 400); }
+  const { appName, description, appType, language, features } = body;
+  if (!appName || !description) return appErrorResponse('appName and description are required', 400);
+  const pat = env.GITHUB_PAT || '';
+  if (!pat) return appErrorResponse('GitHub PAT not configured', 500);
+  const apiKey = env.GEMINI_API_KEY || '';
+  if (!apiKey) return appErrorResponse('GEMINI_API_KEY not configured', 500);
+  const buildId = Date.now().toString();
+  const timestamp = new Date().toISOString();
+  try {
+    if (appType === 'webapp') {
+      return await handleWebappBuild(appName, description, buildId, timestamp, pat, apiKey);
+    } else if (appType === 'website') {
+      return await handleWebsiteBuild(appName, description, buildId, timestamp, pat, apiKey);
+    } else {
+      return await handleApkBuild(request, env);
+    }
+  } catch (e) {
+    return appErrorResponse(e.message, 500);
+  }
+}
+
+async function handleWebappBuild(appName, description, buildId, timestamp, pat, apiKey) {
+  const systemPrompt = 'You are a senior web developer. Generate a complete, production-quality single-page web application based on the user description. Output ONLY the code files separated by "---FILENAME: filename.ext---" markers. Include: index.html, style.css, app.js. Use modern ES6+ JavaScript, CSS3 with responsive design, and semantic HTML5. Make it visually impressive with gradients, animations, and a polished UI.';
+  const userMessage = `App Name: ${appName}\nDescription: ${description}\n\nGenerate: index.html, style.css, app.js`;
+  const generatedCode = await callGemini(systemPrompt, userMessage, apiKey);
+  const filePath = `builds/${buildId}/`;
+  const repo = WEBAPP_BUILD_REPO;
+  const indexHtml = extractFile(generatedCode, 'index.html') || `<!DOCTYPE html><html><head><title>${appName}</title><link rel="stylesheet" href="style.css"></head><body><div id="app"></div><script src="app.js"></script></body></html>`;
+  const styleCss = extractFile(generatedCode, 'style.css') || 'body { font-family: sans-serif; margin: 0; padding: 20px; background: #0f0f1a; color: #e2e8f0; }';
+  const appJs = extractFile(generatedCode, 'app.js') || 'console.log("BrainForge Web App");';
+  await commitToRepo(repo, `${filePath}index.html`, indexHtml, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, `${filePath}style.css`, styleCss, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, `${filePath}app.js`, appJs, `Build ${buildId}: ${appName}`, pat);
+  return appJsonResponse({
+    success: true, buildId, appType: 'webapp',
+    message: `Web app "${appName}" generated and committed to ${repo}! Connect to Cloudflare Pages for auto-deploy.`,
+    repoUrl: `https://github.com/${repo}/tree/main/${filePath}`,
+    url: `https://github.com/${repo}/tree/main/${filePath}`,
+  });
+}
+
+async function handleWebsiteBuild(appName, description, buildId, timestamp, pat, apiKey) {
+  const systemPrompt = 'You are a senior web designer. Generate a complete, beautiful static website based on the user description. Output ONLY the code files separated by "---FILENAME: filename.ext---" markers. Include: index.html, style.css. Use modern CSS3 with responsive design, gradients, smooth scrolling, and a polished professional look. Make it impressive.';
+  const userMessage = `Site Name: ${appName}\nDescription: ${description}\n\nGenerate: index.html, style.css`;
+  const generatedCode = await callGemini(systemPrompt, userMessage, apiKey);
+  const filePath = `builds/${buildId}/`;
+  const repo = WEBSITE_BUILD_REPO;
+  const indexHtml = extractFile(generatedCode, 'index.html') || `<!DOCTYPE html><html><head><title>${appName}</title><link rel="stylesheet" href="style.css"></head><body><h1>${appName}</h1></body></html>`;
+  const styleCss = extractFile(generatedCode, 'style.css') || 'body { font-family: sans-serif; margin: 0; padding: 20px; background: #0f0f1a; color: #e2e8f0; }';
+  await commitToRepo(repo, `${filePath}index.html`, indexHtml, `Build ${buildId}: ${appName}`, pat);
+  await commitToRepo(repo, `${filePath}style.css`, styleCss, `Build ${buildId}: ${appName}`, pat);
+  return appJsonResponse({
+    success: true, buildId, appType: 'website',
+    message: `Website "${appName}" generated and committed to ${repo}! Connect to Cloudflare Pages for auto-deploy.`,
+    repoUrl: `https://github.com/${repo}/tree/main/${filePath}`,
+    url: `https://github.com/${repo}/tree/main/${filePath}`,
+  });
+}
+
+async function handleAppsList(request, env) {
+  return appJsonResponse({ apps: [], message: 'Check individual repos for build outputs' });
+}
+
+function extractFile(code, filename) {
+  const regex = new RegExp(`---FILENAME:${filename}---([\\s\\S]*?)(?=---FILENAME:|$)`);
+  const match = code.match(regex);
+  return match ? match[1].trim() : null;
 }
