@@ -16,7 +16,7 @@ const GH_REPO = "richardbrownmiami-commits/devforge-ai";
 function getGHToken() {
   return (
     JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken ||
-    """"
+    ""
   );
 }
 
