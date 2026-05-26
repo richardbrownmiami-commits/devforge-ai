@@ -21,6 +21,5 @@ crons = ["0 3 * * *"]
 GITHUB_OWNER = "richardbrownmiami-commits"
 GITHUB_REPO = "devforge-ai"
 GITHUB_PAT = ""
-GITHUB_PAT = ""
 WORKER_SECRET = ""
 
