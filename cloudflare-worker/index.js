@@ -1502,6 +1502,11 @@ export default {
       return handleApkRoute(request, env, APK_BUILDER_HTML);
     }
 
+    // Chat API ï¿½ conversational AI, not via Durable Object
+    if (path === '/api/chat' && request.method === 'POST') {
+      return handleChat(request, env);
+    }
+
     // Route agent-loop and other /api/* paths to the Durable Object
     if (path.startsWith('/agent-loop') || path.startsWith('/api/')) {
       const id = env.AGENT_LOOP.idFromName('main');
@@ -1749,6 +1754,37 @@ async function callAI(env, systemPrompt, userMessage, maxTokens = 4096) {
     }
   }
   throw new Error('All AI models failed');
+}
+
+async function handleChat(request, env) {
+  let body;
+  try { body = await request.json(); } catch (e) { return appJsonResponse({ error: 'Invalid JSON body' }, 400); }
+  const { message, history } = body;
+  if (!message) return appJsonResponse({ error: 'message is required' }, 400);
+
+  const systemPrompt = 'You are BrainForge AI, an autonomous agent assistant. You help users discuss plans, build apps, and manage the BrainForge platform. You have access to Workers AI (Llama 3.1 8B). Be concise, practical, and helpful. You can assist with coding, architecture, deployment, and general technical discussion.';
+  const messages = history || [];
+  messages.push({ role: 'user', content: message });
+
+  try {
+    const models = [AI_MODEL, FALLBACK_MODEL];
+    let reply = '';
+    for (const model of models) {
+      try {
+        const response = await env.AI.run(model, {
+          messages: [{ role: 'system', content: systemPrompt }, ...messages],
+          max_tokens: 2000,
+          temperature: 0.7
+        });
+        reply = response?.response || '';
+        if (reply) break;
+      } catch (e) { /* try next model */ }
+    }
+    if (!reply) return appJsonResponse({ error: 'AI service unavailable' }, 503);
+    return appJsonResponse({ reply });
+  } catch (e) {
+    return appJsonResponse({ error: e.message }, 500);
+  }
 }
 
 async function ensureRepoExists(repoFull, pat) {
