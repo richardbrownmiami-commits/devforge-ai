@@ -16,7 +16,7 @@ function getWorkerSecret(): string { return JSON.parse(localStorage.getItem("bf_
 function getGHToken() {
   return (
     JSON.parse(localStorage.getItem("bf_settings") || "{}").githubToken ||
-    """"
+    ""
   );
 }
 
