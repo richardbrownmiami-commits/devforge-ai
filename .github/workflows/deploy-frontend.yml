@@ -1,8 +1,12 @@
-name: Deploy Frontend
+﻿name: Deploy BrainForge Frontend
+
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-    paths: ["frontend/**"]
+    paths:
+      - 'src/frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
 
 jobs:
   deploy:
@@ -12,16 +16,25 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
-        working-directory: frontend
-      - run: npm run build
-        working-directory: frontend
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy frontend/dist --project-name=devforge-ai
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: src/frontend
+
+      - name: Build frontend
+        run: pnpm run build
+        working-directory: src/frontend
+
+      - name: Deploy to Cloudflare Pages (brainforge)
+        run: npx wrangler pages deploy src/frontend/dist --project-name=brainforge --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfut_6sM9tfVO4IVCJGVd7i2Iu', 'RITFsZkt2ex6YX1Ahhfc276d492') }}
+          CLOUDFLARE_ACCOUNT_ID: '913f3a2576a358054eba9a58a9573949'
