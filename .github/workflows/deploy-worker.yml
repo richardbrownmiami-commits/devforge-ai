@@ -16,7 +16,7 @@ jobs:
           node-version: '20'
       - run: npm install -g wrangler
       - run: wrangler deploy
-        working-directory: ./
+        working-directory: cloudflare-worker/
         env:
           CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfat_uHWuwnEwyryPuZrhWcWR', 'aK45lDEWlr8SoD3r71S4b25b6eca') }}
           CLOUDFLARE_ACCOUNT_ID: 913f3a2576a358054eba9a58a9573949
