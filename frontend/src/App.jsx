@@ -1,12 +1,10 @@
-import { useState, useEffect } from "react"
-
 const API = "https://brainforge-api.richard-brown-miami.workers.dev"
 
-export default function App() {
-  const [status, setStatus] = useState(null)
-  const [tab, setTab] = useState("status")
+function App() {
+  const [status, setStatus] = React.useState(null)
+  const [tab, setTab] = React.useState("status")
 
-  useEffect(() => {
+  React.useEffect(() => {
     const fetchStatus = () => {
       fetch(API + "/api/status")
         .then((r) => r.json())
@@ -18,14 +16,33 @@ export default function App() {
     return () => clearInterval(i)
   }, [])
 
+  const btnStyle = (active) => ({
+    padding: "6px 16px",
+    background: active ? "var(--accent)" : "var(--bg3)",
+    color: active ? "#000" : "var(--text)",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: "0.8rem",
+    fontWeight: 600,
+  })
+
+  const cardStyle = {
+    background: "var(--bg2)",
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    padding: 24,
+  }
+
+  const gridItemStyle = {
+    background: "var(--bg3)",
+    borderRadius: 8,
+    padding: 16,
+    textAlign: "center",
+  }
+
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <header
         style={{
           borderBottom: "1px solid var(--border)",
@@ -45,34 +62,10 @@ export default function App() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={() => setTab("status")}
-            style={{
-              padding: "6px 16px",
-              background: tab === "status" ? "var(--accent)" : "var(--bg3)",
-              color: tab === "status" ? "#000" : "var(--text)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              cursor: "pointer",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-            }}
-          >
+          <button onClick={() => setTab("status")} style={btnStyle(tab === "status")}>
             Agent Loop
           </button>
-          <button
-            onClick={() => setTab("apk")}
-            style={{
-              padding: "6px 16px",
-              background: tab === "apk" ? "var(--accent)" : "var(--bg3)",
-              color: tab === "apk" ? "#000" : "var(--text)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              cursor: "pointer",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-            }}
-          >
+          <button onClick={() => setTab("apk")} style={btnStyle(tab === "apk")}>
             APK Builder
           </button>
         </div>
@@ -87,40 +80,19 @@ export default function App() {
         }}
       >
         {tab === "status" ? (
-          <div
-            style={{
-              background: "var(--bg2)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              padding: 24,
-            }}
-          >
+          <div style={cardStyle}>
             <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: 16 }}>
               Agent Loop Status
             </h2>
             {status ? (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div
-                  style={{
-                    background: "var(--bg3)",
-                    borderRadius: 8,
-                    padding: 16,
-                    textAlign: "center",
-                  }}
-                >
+                <div style={gridItemStyle}>
                   <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent)" }}>
                     {status.hopCount || 0}
                   </div>
                   <div style={{ fontSize: "0.75rem", color: "var(--text2)" }}>Hops</div>
                 </div>
-                <div
-                  style={{
-                    background: "var(--bg3)",
-                    borderRadius: 8,
-                    padding: 16,
-                    textAlign: "center",
-                  }}
-                >
+                <div style={gridItemStyle}>
                   <div
                     style={{
                       fontSize: "1.2rem",
@@ -132,25 +104,13 @@ export default function App() {
                   </div>
                   <div style={{ fontSize: "0.75rem", color: "var(--text2)" }}>State</div>
                 </div>
-                <div
-                  style={{
-                    background: "var(--bg3)",
-                    borderRadius: 8,
-                    padding: 16,
-                  }}
-                >
+                <div style={{ ...gridItemStyle, textAlign: "left" }}>
                   <div style={{ fontSize: "0.8rem", color: "var(--text2)" }}>Neurons</div>
                   <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>
                     {(status.totalNeuronsUsed || 0).toLocaleString()}
                   </div>
                 </div>
-                <div
-                  style={{
-                    background: "var(--bg3)",
-                    borderRadius: 8,
-                    padding: 16,
-                  }}
-                >
+                <div style={{ ...gridItemStyle, textAlign: "left" }}>
                   <div style={{ fontSize: "0.8rem", color: "var(--text2)" }}>Memory Lines</div>
                   <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>
                     {status.memoryLineCount || 0}
@@ -171,14 +131,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div
-            style={{
-              background: "var(--bg2)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              padding: 24,
-            }}
-          >
+          <div style={cardStyle}>
             <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: 16 }}>APK Builder</h2>
             <p style={{ color: "var(--text2)", fontSize: "0.85rem", marginBottom: 16 }}>
               Build Android APKs from the DevForge agent.
