@@ -161,7 +161,7 @@ export default {
       if (path === '/admin/login') {
         if (request.method === 'POST') {
           const form = await request.formData();
-          if (form.get('password') === env.ADMIN_PASSWORD) return adminSession(json({ ok: true }), env.ADMIN_PASSWORD);
+          if (form.get('password') === env.ADMIN_PASSWORD) return adminSession(Response.redirect('/', 302), env.ADMIN_PASSWORD);
           return json({ error: 'Wrong password' }, 401);
         }
         return new Response(LOGIN_HTML, { headers: { ...CORS, 'Content-Type': 'text/html;charset=utf-8' } });
