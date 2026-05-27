@@ -191,3 +191,41 @@ async function refreshAll(){await Promise.all([loadProviders(),loadKeys(),loadSt
 setInterval(refreshAll,15000);refreshAll();
 </script>
 </body></html>`}
+export default {
+  async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+    const path = url.pathname;
+
+    if (path === "/admin/login" && req.method === "POST") {
+      const form = await req.formData();
+      const pass = form.get("password");
+      if (pass === ADMIN_PASSWORD) {
+        return new Response(JSON.stringify({ok:true}), {
+          status: 200,
+          headers: {"Set-Cookie": "bfadmin=" + ADMIN_PASSWORD + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400", "content-type":"application/json"}
+        });
+      }
+      return new Response(JSON.stringify({error:"invalid password"}), {status:401, headers:{"content-type":"application/json"}});
+    }
+
+    if (path.startsWith("/admin/api/")) {
+      return await handleAdminApi(req, path, env);
+    }
+
+    if (path === "/v1/chat/completions" && req.method === "POST") {
+      return await handleProxy(req, env);
+    }
+
+    if ((path === "/v1/models" || path === "/v1/models") && req.method === "GET") {
+      return await handleModels();
+    }
+
+    return new Response(JSON.stringify({service:"bifrost", status:"ok", docs:"https://github.com/richardbrownmiami-commits/devforge-ai/tree/main/bifrost"}), {
+      headers: {"content-type":"application/json", "access-control-allow-origin":"*"}
+    });
+  },
+
+  async scheduled(event: any, env: Env, ctx: any) {
+    await handleCron(env);
+  },
+};
