@@ -13,47 +13,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Wrangler
+        run: npm install -g wrangler@latest
+
       - name: Deploy to Cloudflare Workers
+        working-directory: buddhi-dwar
+        run: wrangler deploy
         env:
-          CF_TOKEN: ${{ format('{0}{1}', 'cfat_uHWuwnEwyryPuZrhWcWR', 'aK45lDEWlr8SoD3r71S4b25b6eca') }}
-          CF_ACCOUNT: '913f3a2576a358054eba9a58a9573949'
-          KV_ID: 'b0b9c45d98d8407d93b1f3d9a7bf2665'
-        run: |
-          METADATA=$(cat << 'EOF'
-          {"main_module":"worker.js","bindings":[{"namespace_id":"'"$KV_ID"'","name":"KV","type":"kv_namespace"}]}
-          EOF
-          )
-          METADATA_B64=$(echo -n "$METADATA" | base64 -w0)
-          MIME_BOUNDARY="----BOUNDARY$(date +%s)"
-          BODY_FILE=$(mktemp)
+          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfat_uHWuwnEwyryPuZrhWcWR', 'aK45lDEWlr8SoD3r71S4b25b6eca') }}
+          CLOUDFLARE_ACCOUNT_ID: '913f3a2576a358054eba9a58a9573949'
 
-          cat > "$BODY_FILE" << BODYEOF
-          --$MIME_BOUNDARY
-          Content-Disposition: form-data; name="metadata"
-          Content-Type: application/json
-
-          $METADATA
-          --$MIME_BOUNDARY
-          Content-Disposition: form-data; name="worker.js"; filename="worker.js"
-          Content-Type: application/javascript
-
-          BODYEOF
-
-          cat buddhi-dwar/dist/worker.js >> "$BODY_FILE"
-          echo "" >> "$BODY_FILE"
-          echo "--$MIME_BOUNDARY--" >> "$BODY_FILE"
-
-          HTTP_CODE=$(curl -s -S -o /tmp/cf_response.json -w "%{http_code}" \
-            -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/buddhi-dwar" \
-            -H "Authorization: Bearer $CF_TOKEN" \
-            -H "Content-Type: multipart/form-data; boundary=$MIME_BOUNDARY" \
-            --data-binary "@$BODY_FILE")
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "DEPLOYED SUCCESSFULLY"
-            cat /tmp/cf_response.json
-          else
-            echo "HTTP: $HTTP_CODE"
-            cat /tmp/cf_response.json
-            exit 1
-          fi
+      - name: Set ADMIN_PASSWORD secret
+        working-directory: buddhi-dwar
+        run: echo "2200" | wrangler secret put ADMIN_PASSWORD
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfat_uHWuwnEwyryPuZrhWcWR', 'aK45lDEWlr8SoD3r71S4b25b6eca') }}
+          CLOUDFLARE_ACCOUNT_ID: '913f3a2576a358054eba9a58a9573949'
