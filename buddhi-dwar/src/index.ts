@@ -64,9 +64,9 @@ async function gatewayAuth(request: Request, env: Env): Promise<string | null> {
 }
 
 function adminSession(resp: Response, password: string): Response {
-  const r = new Response(resp.body, resp);
-  r.headers.append('Set-Cookie', `session=${password}; HttpOnly; Path=/admin; Max-Age=86400`);
-  return r;
+  const h = new Headers(resp.headers);
+  h.set('Set-Cookie', `session=${password}; HttpOnly; Path=/; Max-Age=86400`);
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h });
 }
 
 async function updateStatus(env: Env, name: string, healthy: boolean, error: string): Promise<void> {
