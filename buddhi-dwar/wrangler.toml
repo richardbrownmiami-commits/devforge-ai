@@ -1,0 +1,13 @@
+name = "buddhi-dwar"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+
+kv_namespaces = [
+  { binding = "KV", id = "YOUR_KV_ID_HERE" }
+]
+
+[vars]
+ADMIN_PASSWORD = "2200"
+
+[triggers]
+crons = ["0 */6 * * *"]
