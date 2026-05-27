@@ -1,6 +1,7 @@
 name = "bifrost"
 main = "src/index.ts"
 compatibility_date = "2026-05-27"
+compatibility_flags = ["nodejs_compat"]
 
 kv_namespaces = [
   { binding = "BF", id = "b0b9c45d98d8407d93b1f3d9a7bf2665" }
@@ -8,6 +9,3 @@ kv_namespaces = [
 
 [triggers]
 crons = ["0 */6 * * *"]
-
-[compatibility_flags]
-nodejs_compat = true
