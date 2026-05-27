@@ -63,10 +63,8 @@ async function gatewayAuth(request: Request, env: Env): Promise<string | null> {
   return data.label || word;
 }
 
-function adminSession(resp: Response, password: string): Response {
-  const h = new Headers(resp.headers);
-  h.set('Set-Cookie', `session=${password}; HttpOnly; Path=/; Max-Age=86400`);
-  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h });
+function adminCookie(password: string): string {
+  return `session=${password}; HttpOnly; Path=/; Max-Age=86400`;
 }
 
 async function updateStatus(env: Env, name: string, healthy: boolean, error: string): Promise<void> {
@@ -161,7 +159,7 @@ export default {
       if (path === '/admin/login') {
         if (request.method === 'POST') {
           const form = await request.formData();
-          if (form.get('password') === env.ADMIN_PASSWORD) return adminSession(Response.redirect('/', 302), env.ADMIN_PASSWORD);
+          if (form.get('password') === env.ADMIN_PASSWORD) return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': adminCookie(env.ADMIN_PASSWORD) } });
           return json({ error: 'Wrong password' }, 401);
         }
         return new Response(LOGIN_HTML, { headers: { ...CORS, 'Content-Type': 'text/html;charset=utf-8' } });
