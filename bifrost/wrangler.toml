@@ -1,0 +1,10 @@
+name = "bifrost"
+main = "src/index.ts"
+compatibility_date = "2026-05-27"
+
+kv_namespaces = [
+  { binding = "BF", id = "b0b9c45d98d8407d93b1f3d9a7bf2665" }
+]
+
+[triggers]
+crons = ["0 */6 * * *"]
