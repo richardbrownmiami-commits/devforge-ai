@@ -2,7 +2,7 @@ const ADMIN_PASSWORD = "2200";const MASTER_KEY = "bf-master-kun-2026";const DAY_
 
 interface KeyEntry { id: string; apiKey: string; label: string; addedAt: number; }
 interface HealthEntry { status: "active" | "warming" | "dead" | "expired"; lastCheck: number; consecutiveFailDays: number; lastError: string; lastUsed: number; successCount: number; failCount: number; }
-interface GatewayKey { word: string; provider: string; model: string; label: string; createdAt: number; enabled: boolean; usage: number; interface EvictionLog { id: string; provider: string; keyId: string; reason: string; evictedAt: number; }
+interface GatewayKey { word: string; provider: string; model: string; label: string; createdAt: number; enabled: boolean; usage: number; } interface EvictionLog { id: string; provider: string; keyId: string; reason: string; evictedAt: number; }
 
 async function getKeys(provider: string): Promise<KeyEntry[]> {
   const raw = await BF.get("prov:" + provider + ":keys", "json");
