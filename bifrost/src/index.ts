@@ -89,4 +89,54 @@ if(path==="/admin/api/logs"){const logs=await getRecentLogs();return new Respons
 
 if(path==="/admin/api/test-key"){const body=await req.json() as any;const{pname,id}=body;if(!pname||!id)return new Response(JSON.stringify({error:"provider and id required"}),{status:400,headers:{"content-type":"application/json"}});const keys=await getKeys(pname);const ke=keys.find((k:any)=>k.id===id);if(!ke)return new Response(JSON.stringify({error:"key not found"}),{status:404,headers:{"content-type":"application/json"}});const p=PROVIDERS.find((pr:any)=>pr.name===pname);if(!p)return new Response(JSON.stringify({error:"provider not found"}),{status:404,headers:{"content-type":"application/json"}});try{const hdrs:any={"Content-Type":"application/json"};if(p.type==="openai")hdrs["Authorization"]="Bearer "+ke.apiKey;const testBody={model:p.models[0],messages:[{role:"user",content:"ping"}],max_tokens:1};const resp=await fetch(p.baseUrl+"/chat/completions",{method:"POST",headers:hdrs,body:JSON.stringify(testBody)});const h=await getHealth(pname,ke.id);if(resp.ok){h.status="active";h.lastCheck=Date.now();h.consecutiveFailDays=0;h.lastError="";await setHealth(pname,ke.id,h);return new Response(JSON.stringify({ok:true,status:resp.status}),{headers:{"content-type":"application/json"}});}else{const txt=await resp.text();h.lastError=resp.status+": "+txt.slice(0,200);h.lastCheck=Date.now();if(resp.status===401||resp.status===403)h.consecutiveFailDays++;await setHealth(pname,ke.id,h);return new Response(JSON.stringify({ok:false,status:resp.status,error:txt.slice(0,200)}),{headers:{"content-type":"application/json"}});}}catch(e:any){return new Response(JSON.stringify({ok:false,error:e.message}),{headers:{"content-type":"application/json"}});}}
 
-return new Response(JSON.stringify({error:"not found"}),{status:404,headers:{"content-type":"application/json"}});}async function handleCron() {const{PROVIDERS}=await import("config.ts");for(const p of PROVIDERS){const keys=await getKeys(p.name);for(const ke of keys){const h=await getHealth(p.name,ke.id);if(h.status==="dead"||h.status==="expired")continue;try{const hdrs:any={"Content-Type":"application/json"};if(p.type==="openai")hdrs["Authorization"]="Bearer "+ke.apiKey;const testBody={model:p.models[0],messages:[{role:"user",content:"ping"}],max_tokens:1};const resp=await fetch(p.baseUrl+"/chat/completions",{method:"POST",headers:hdrs,body:JSON.stringify(testBody)});if(resp.ok){h.status="active";h.lastCheck=Date.now();h.consecutiveFailDays=0;h.lastError="";}else{h.failCount++;if(resp.status===401||resp.status===403){h.consecutiveFailDays++;h.lastError=resp.status+": auth failed";}else{h.lastError=resp.status+": upstream error";}if(h.consecutiveFailDays>=EVICT_DAYS){h.status="expired";await logEviction(p.name,ke.id,"5_day_eviction: "+h.lastError);}}await setHealth(p.name,ke.id,h);}catch(e:any){h.failCount++;h.lastError="network: "+e.message;h.consecutiveFailDays++;if(h.consecutiveFailDays>=EVICT_DAYS){h.status="expired";await logEviction(p.name,ke.id,"5_day_eviction: "+h.lastError);}await setHealth(p.name,ke.id,h);}}}}
+return new Response(JSON.stringify({error:"not found"}),{status:404,headers:{"content-type":"application/json"}});}async function handleCron() {const{PROVIDERS}=await import("config.ts");for(const p of PROVIDERS){const keys=await getKeys(p.name);for(const ke of keys){const h=await getHealth(p.name,ke.id);if(h.status==="dead"||h.status==="expired")continue;try{const hdrs:any={"Content-Type":"application/json"};if(p.type==="openai")hdrs["Authorization"]="Bearer "+ke.apiKey;const testBody={model:p.models[0],messages:[{role:"user",content:"ping"}],max_tokens:1};const resp=await fetch(p.baseUrl+"/chat/completions",{method:"POST",headers:hdrs,body:JSON.stringify(testBody)});if(resp.ok){h.status="active";h.lastCheck=Date.now();h.consecutiveFailDays=0;h.lastError="";}else{h.failCount++;if(resp.status===401||resp.status===403){h.consecutiveFailDays++;h.lastError=resp.status+": auth failed";}else{h.lastError=resp.status+": upstream error";}if(h.consecutiveFailDays>=EVICT_DAYS){h.status="expired";await logEviction(p.name,ke.id,"5_day_eviction: "+h.lastError);}}await setHealth(p.name,ke.id,h);}catch(e:any){h.failCount++;h.lastError="network: "+e.message;h.consecutiveFailDays++;if(h.consecutiveFailDays>=EVICT_DAYS){h.status="expired";await logEviction(p.name,ke.id,"5_day_eviction: "+h.lastError);}await setHealth(p.name,ke.id,h);}}}}export default <ExportedHandler>{
+  async fetch(req, env, ctx) {
+    const url = new URL(req.url);
+    const path = url.pathname;
+
+    if (path === "/" || path === "/admin" || (path.startsWith("/admin") && !path.startsWith("/admin/api/"))) {
+      if (!checkAdmin(req) && path !== "/admin/login") {
+        return new Response(renderLogin(), { status: 200, headers: { "content-type": "text/html;charset=utf-8" } });
+      }
+      return new Response(renderDashboard(), { status: 200, headers: { "content-type": "text/html;charset=utf-8" } });
+    }
+
+    if (path === "/admin/login" && req.method === "POST") {
+      const form = await req.formData();
+      const pass = form.get("password");
+      if (pass === ADMIN_PASSWORD) {
+        const redirect = form.get("redirect")?.toString() || "/admin";
+        return new Response("", {
+          status: 302,
+          headers: { Location: redirect, "Set-Cookie": "bfadmin=" + ADMIN_PASSWORD + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400" },
+        });
+      }
+      return new Response(renderLogin("Invalid password"), { status: 200, headers: { "content-type": "text/html;charset=utf-8" } });
+    }
+
+    if (path.startsWith("/admin/api/")) {
+      return await handleAdminApi(req, path);
+    }
+
+    if (path === "/v1/chat/completions" && req.method === "POST") {
+      return await handleProxy(req);
+    }
+
+    if (path === "/v1/models" && req.method === "GET") {
+      return await handleModels();
+    }
+
+    return new Response(renderDashboard(), { status: 200, headers: { "content-type": "text/html;charset=utf-8" } });
+  },
+
+  async scheduled(event, env, ctx) {
+    await handleCron();
+  },
+};
+
+function renderLogin(error?: string) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Bifrost Admin</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh}.login-box{background:#1e293b;padding:2rem;border-radius:12px;width:360px;box-shadow:0 25px 50px rgba(0,0,0,.4)}h1{text-align:center;margin-bottom:1.5rem;color:#38bdf8;font-size:1.5rem}input{width:100%;padding:10px 14px;margin-bottom:12px;border:1px solid #334155;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:14px}input:focus{outline:none;border-color:#38bdf8}button{width:100%;padding:10px;background:#38bdf8;color:#0f172a;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}button:hover{background:#7dd3fc}.error{color:#f87171;text-align:center;margin-bottom:12px;font-size:13px}</style></head>
+<body><div class="login-box"><h1>Bifrost Bridge</h1>${error?`<p class="error">${error}</p>`:""}<form method="post" action="/admin/login"><input type="password" name="password" placeholder="Admin password" required><button type="submit">Enter</button></form></div></body></html>`}
