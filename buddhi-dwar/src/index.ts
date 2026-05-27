@@ -43,14 +43,6 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-async function adminAuth(request: Request, env: Env): Promise<boolean> {
-  if (!env.ADMIN_PASSWORD) return true;
-  const auth = request.headers.get('Authorization') || '';
-  const cookie = request.headers.get('Cookie') || '';
-  const token = auth.replace('Bearer ', '') || cookie.replace('session=', '');
-  return token === env.ADMIN_PASSWORD;
-}
-
 async function gatewayAuth(request: Request, env: Env): Promise<string | null> {
   const auth = request.headers.get('Authorization') || '';
   if (!auth.startsWith('Bearer ')) return null;
@@ -61,10 +53,6 @@ async function gatewayAuth(request: Request, env: Env): Promise<string | null> {
   data.lastUsed = Date.now();
   await env.KV.put(`gateway_key:${word}`, JSON.stringify(data));
   return data.label || word;
-}
-
-function adminCookie(password: string): string {
-  return `session=${password}; Path=/; Max-Age=86400`;
 }
 
 async function updateStatus(env: Env, name: string, healthy: boolean, error: string): Promise<void> {
@@ -156,16 +144,6 @@ export default {
 
     // Admin routes
     if (path === '/' || path.startsWith('/admin')) {
-      if (path === '/admin/login') {
-        if (request.method === 'POST') {
-          const form = await request.formData();
-          if (form.get('password') === env.ADMIN_PASSWORD) return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': adminCookie(env.ADMIN_PASSWORD) } });
-          return json({ error: 'Wrong password' }, 401);
-        }
-        return new Response(LOGIN_HTML, { headers: { ...CORS, 'Content-Type': 'text/html;charset=utf-8' } });
-      }
-      if (!await adminAuth(request, env)) return new Response(LOGIN_HTML, { headers: { ...CORS, 'Content-Type': 'text/html;charset=utf-8' } });
-
       if (path === '/admin/keys' || path.startsWith('/admin/keys/')) return handleProviderKeys(request, env, path);
       if (path === '/admin/gateway-keys') return handleGatewayKeys(request, env);
       if (path === '/admin/logs') return handleLogs(request, env);
@@ -435,14 +413,6 @@ main{padding:24px;max-width:1200px;margin:0 auto}
 .sc{background:#1e1e2a;border:1px solid #2a2a3a;border-radius:8px;padding:16px;text-align:center}
 .sc .v{font-size:28px;font-weight:700;color:#7c3aed}
 .sc .l{font-size:12px;color:#888;margin-top:4px}
-#loginO{position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0a0f;display:flex;align-items:center;justify-content:center;z-index:999}
-#loginB{background:#16161f;border:1px solid #2a2a3a;border-radius:12px;padding:40px;width:360px;text-align:center}
-#loginB h2{color:#7c3aed;margin-bottom:8px}
-#loginB p{color:#888;font-size:14px;margin-bottom:24px}
-#loginB input{width:100%;padding:12px;background:#0a0a0f;border:1px solid #2a2a3a;border-radius:6px;color:#e0e0e0;font-size:16px;margin-bottom:16px}
-#loginB input:focus{border-color:#7c3aed;outline:none}
-#loginB button{width:100%;padding:12px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer}
-#lErr{color:#fca5a5;display:none;margin-top:8px;font-size:13px}
 .gk-box{background:#0a0a0f;border:1px solid #2a2a3a;border-radius:6px;padding:12px;font-family:monospace;font-size:14px;margin-top:8px;word-break:break-all}
 pre{background:#0a0a0f;padding:12px;border-radius:6px;font-size:13px;overflow-x:auto;margin-top:8px;color:#93c5fd}
 .gw-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#1e1e2a;border:1px solid #2a2a3a;border-radius:6px;margin-bottom:8px}
@@ -456,7 +426,7 @@ pre{background:#0a0a0f;padding:12px;border-radius:6px;font-size:13px;overflow-x:
 .msg-err{background:#7f1d1d;color:#fca5a5;display:block}
 </style></head>
 <body>
-<div id="loginO"><div id="loginB"><h2>Buddhi-Dwar</h2><p>Admin Login</p><input type="password" id="ap" placeholder="Password" onkeydown="if(event.key==='Enter')login()"><button onclick="login()">Login</button><div id="lErr">Wrong password</div></div></div>
+
 <header><h1>Buddhi-<span>Dwar</span></h1><span style="font-size:13px;color:#888" id="hs"></span></header>
 <nav><button class="active" onclick="showTab('ov')">Overview</button><button onclick="showTab('prov')">Providers</button><button onclick="showTab('keys')">चाबियां</button><button onclick="showTab('logs')">Logs</button><button onclick="showTab('set')">Setup</button></nav>
 <main>
@@ -485,11 +455,9 @@ r = client.chat.completions.create(
 <div class="card"><h2>Supported Providers</h2><div id="provList" style="font-size:13px;color:#888">Loading...</div></div></div>
 </main>
 <script>
-let tok=document.cookie.replace(/(?:^|.*;\\s*)session\\s*=\\s*([^;]*).*$/,'$1')
-if(tok)document.getElementById('loginO').style.display='none'
-async function login(){const p=document.getElementById('ap').value;const f=new FormData();f.append('password',p);const r=await fetch('/admin/login',{method:'POST',body:f});if(r.ok){document.getElementById('loginO').style.display='none';tok=p;loadAll()}else document.getElementById('lErr').style.display='block'}
+
 function showTab(n){document.querySelectorAll('.s').forEach(s=>s.classList.remove('active'));document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));document.getElementById('s-'+n).classList.add('active');document.querySelectorAll('nav button')[{ov:0,prov:1,keys:2,logs:3,set:4}[n]].classList.add('active');if(n==='prov')loadProv();if(n==='keys')loadGW();if(n==='logs')loadLogs();if(n==='ov')loadStats()}
-async function api(path,opts={}){opts.headers={...opts.headers,Authorization:'Bearer '+tok};const r=await fetch(path,opts);if(r.status===401){document.getElementById('loginO').style.display='flex';return null}return r.json()}
+async function api(path,opts={}){const r=await fetch(path,opts);return r.json()}
 async function loadAll(){loadStats();loadProv();loadGW();loadLogs();document.getElementById('bu').textContent=window.location.origin;loadProvList()}
 async function loadProvList(){const d=await api('/admin/stats');if(!d)return;let h='';for(const n of Object.keys(d.providers||{}))h+=n+', ';document.getElementById('provList').textContent=h.replace(/,\s*$/,'')}
 async function loadStats(){const d=await api('/admin/stats');if(!d)return;document.getElementById('sr').textContent=d.totalRequests||0;const ks=Object.values(d.providers||{}).filter(p=>p.hasKey).length;document.getElementById('sk').textContent=ks;document.getElementById('sgk').textContent=d.gatewayKeys||0;const hh=Object.values(d.providers||{}).filter(p=>p.status?.healthy).length;document.getElementById('sh').textContent=hh;document.getElementById('hs').textContent=ks+' provider keys | '+hh+' healthy';let h='';for(const[n,p]of Object.entries(d.providers||{})){const s=p.status;const c=s?.healthy?'sok':'sdead';const t=s?.healthy?'OK':(s?.lastError||'No key');h+='<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a2a;font-size:13px"><span>'+n+'</span><span><span class="st '+c+'">'+t+'</span></span></div>'}document.getElementById('ovd').innerHTML=h}
@@ -501,11 +469,7 @@ async function rmPK(n){if(!confirm('Remove key for '+n+'?'))return;const r=await
 async function testPK(n){await api('/admin/health',{method:'POST',body:JSON.stringify({provider:n})});loadProv();loadStats()}
 async function createGWKey(){const w=document.getElementById('gwWord').value.trim();const l=document.getElementById('gwLabel').value.trim();if(!w){document.getElementById('gwMsg').innerHTML='<div class="msg msg-err">Enter a word</div>';return}const r=await api('/admin/gateway-keys',{method:'POST',body:JSON.stringify({word:w,label:l||w})});if(r?.ok){document.getElementById('gwMsg').innerHTML='<div class="msg msg-ok">Key "'+w+'" created! Give this word to your app.</div>';document.getElementById('gwWord').value='';document.getElementById('gwLabel').value='';loadGW();loadStats()}else{document.getElementById('gwMsg').innerHTML='<div class="msg msg-err">'+(r?.error||'Error')+'</div>'}}
 async function rmGW(w){if(!confirm('Revoke key "'+w+'"?'))return;const r=await api('/admin/gateway-keys',{method:'DELETE',body:JSON.stringify({word:w})});if(r?.ok){loadGW();loadStats()}}
-if(tok)loadAll()
+loadAll()
 </script></body></html>`;
 
-const LOGIN_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Buddhi-Dwar</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0f;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh}#lb{background:#16161f;border:1px solid #2a2a3a;border-radius:12px;padding:40px;width:360px;text-align:center}#lb h2{color:#7c3aed;margin-bottom:8px}#lb p{color:#888;font-size:14px;margin-bottom:24px}#lb input{width:100%;padding:12px;background:#0a0a0f;border:1px solid #2a2a3a;border-radius:6px;color:#e0e0e0;font-size:16px;margin-bottom:16px;outline:none}#lb input:focus{border-color:#7c3aed}#lb button{width:100%;padding:12px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer}</style></head>
-<body>
-<div id="lb"><h2>Buddhi-Dwar</h2><p>बुद्धि-द्वार — Admin Login</p><input type="password" id="lp" placeholder="Password" onkeydown="if(event.key===String.fromCharCode(13))loginBd()"><button onclick="loginBd()">Login</button><div id="lEr" style="color:#fca5a5;display:none;margin-top:8px;font-size:13px">Wrong password</div><script>function loginBd(){fetch("/admin/login",{method:"POST",body:new URLSearchParams({password:document.getElementById("lp").value})}).then(function(r){if(r.ok)window.location="/";else document.getElementById("lEr").style.display="block"})}</script></div></body></html>`;
+;
