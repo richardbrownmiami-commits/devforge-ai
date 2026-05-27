@@ -1,9 +1,4 @@
 const PROVIDERS = {
-  baseUrl: string;
-  type: 'openai' | 'anthropic' | 'builtin';
-  models: string[];
-  notes?: string;
-}
 
   openai: {
     baseUrl: 'https://api.openai.com/v1',
@@ -97,35 +92,9 @@ const MODEL_PREFIX_MAP = [["gpt-","openai"],["o1-","openai"],["o3-","openai"],["
 
 
 
-interface Env {
-  KV;
-  ADMIN_PASSWORD;
-}
 
-interface ChatRequest {
-  model;
-  messages: { role; content }[];
-  stream?;
-  max_tokens?;
-  temperature?;
-  [key];
-}
 
-interface ProviderStatus {
-  healthy;
-  lastCheck;
-  lastError;
-  errorCount;
-  consecutiveFailures;
-  firstDeadTime;
-}
 
-interface GatewayKey {
-  label;
-  created;
-  lastUsed;
-  active;
-}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -216,7 +185,7 @@ async function cleanupDead(env) {
   const fiveDays = 432000000;
   const list = await env.KV.list({ prefix: 'dead:' });
   for (const key of list.keys) {
-    const data = await env.KV.get(key.name, 'json') as { firstDeadTime } | null;
+    const data = await env.KV.get(key.name, 'json');
     if (data && now - data.firstDeadTime > fiveDays) {
       const pname = key.name.replace('dead:', '');
       await env.KV.delete(key.name);
@@ -271,7 +240,7 @@ export default {
       if (path === '/admin/stats') return handleStats(env);
       if (path === '/admin/health') {
         if (request.method === 'POST') {
-          const body = await request.json() as { provider };
+          const body = await request.json();
           const config = PROVIDERS[body.provider];
           if (!config) return json({ error: 'Unknown' }, 400);
           const key = await env.KV.get(`key:${body.provider}`);
@@ -296,7 +265,7 @@ export default {
     return json({ error: 'Not found' }, 404);
   },
 
-  async scheduled(_ctrl: _, env) {
+  async scheduled(_ctrl, env) {
     for (const [name, config] of Object.entries(PROVIDERS)) {
       if (config.type === 'builtin') { await updateStatus(env, name, true, ''); continue; }
       const key = await env.KV.get(`key:${name}`);
@@ -311,12 +280,12 @@ async function handleProviderKeys(request, env, path) {
   const provider = path.replace('/admin/keys/', '');
   if (request.method === 'GET') {
     if (provider) return json({ provider, hasKey: !!(await env.KV.get(`key:${provider}`)) });
-    const keys<string, boolean> = {};
+    const keys = {};
     for (const name of Object.keys(PROVIDERS)) keys[name] = !!(await env.KV.get(`key:${name}`));
     return json(keys);
   }
   if (request.method === 'PUT' && provider) {
-    const body = await request.json() as { key?; clear? };
+    const body = await request.json();
     if (body.clear) { await env.KV.delete(`key:${provider}`); return json({ ok }); }
     if (!body.key) return json({ error: 'Key required' }, 400);
     await env.KV.put(`key:${provider}`, body.key);
@@ -333,7 +302,7 @@ async function handleProviderKeys(request, env, path) {
 async function handleGatewayKeys(request, env) {
   if (request.method === 'GET') {
     const list = await env.KV.list({ prefix: 'gateway_key:' });
-    const keys<string, GatewayKey> = {};
+    const keys = {};
     for (const k of list.keys) {
       const val = await env.KV.get(k.name, 'json') ;
       if (val) keys[k.name.replace('gateway_key:', '')] = val;
@@ -341,7 +310,7 @@ async function handleGatewayKeys(request, env) {
     return json(keys);
   }
   if (request.method === 'POST') {
-    const body = await request.json() as { word; label };
+    const body = await request.json();
     if (!body.word) return json({ error: 'Word required' }, 400);
     if (!body.word || body.word.length > 50) return json({ error: 'Word must be 1-50 characters' }, 400);
     const existing = await env.KV.get(`gateway_key:${body.word}`, 'json');
@@ -351,7 +320,7 @@ async function handleGatewayKeys(request, env) {
     return json({ ok, word.word, ...entry });
   }
   if (request.method === 'DELETE') {
-    const body = await request.json() as { word };
+    const body = await request.json();
     if (!body.word) return json({ error: 'Word required' }, 400);
     await env.KV.delete(`gateway_key:${body.word}`);
     return json({ ok });
@@ -372,7 +341,7 @@ async function handleLogs(request, env) {
 
 async function handleStats(env) {
   const count = (await env.KV.get('stats:requests', 'json') ) || 0;
-  const providers<string, unknown> = {};
+  const providers = {};
   for (const name of Object.keys(PROVIDERS)) {
     const status = await env.KV.get(`health:${name}`, 'json');
     const key = await env.KV.get(`key:${name}`);
@@ -432,7 +401,7 @@ async function proxyOpenAI(body, apiKey, baseUrl) {
 async function proxyAnthropic(body, apiKey, baseUrl) {
   const systemMsg = body.messages.find(m => m.role === 'system');
   const userMessages = body.messages.filter(m => m.role !== 'system');
-  const ab<string, unknown> = {
+  const ab = {
     model.model, max_tokens.max_tokens || 4096,
     messages.map(m => ({ role.role === 'assistant' ? 'assistant' : 'user', content.content })),
   };
@@ -487,7 +456,7 @@ function transformStream(upstream, writable) {
 }
 
 async function handleBuiltin(body, env) {
-  const ai = new (env ).AI as { run: (m, i<string, unknown>) => Promise<ReadableStream | Record<string, unknown>> };
+  const ai = new (env ).AI;
   const model = body.model || '@cf/meta/llama-3.1-8b-instruct';
   if (body.stream) {
     const stream = await ai.run(model, { messages.messages, stream });
