@@ -27,10 +27,3 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfat_uHWuwnEwyryPuZrhWcWR', 'aK45lDEWlr8SoD3r71S4b25b6eca') }}
           CLOUDFLARE_ACCOUNT_ID: '913f3a2576a358054eba9a58a9573949'
-
-      - name: Set ADMIN_PASSWORD secret
-        working-directory: buddhi-dwar
-        run: echo "2200" | wrangler secret put ADMIN_PASSWORD
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ format('{0}{1}', 'cfat_uHWuwnEwyryPuZrhWcWR', 'aK45lDEWlr8SoD3r71S4b25b6eca') }}
-          CLOUDFLARE_ACCOUNT_ID: '913f3a2576a358054eba9a58a9573949'
