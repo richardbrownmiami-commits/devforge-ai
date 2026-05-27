@@ -64,7 +64,7 @@ async function gatewayAuth(request: Request, env: Env): Promise<string | null> {
 }
 
 function adminCookie(password: string): string {
-  return `session=${password}; HttpOnly; Path=/; Max-Age=86400`;
+  return `session=${password}; Path=/; Max-Age=86400`;
 }
 
 async function updateStatus(env: Env, name: string, healthy: boolean, error: string): Promise<void> {
