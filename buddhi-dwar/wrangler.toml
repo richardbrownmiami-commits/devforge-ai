@@ -1,9 +1,9 @@
 name = "buddhi-dwar"
-main = "src/index.ts"
+main = "dist/worker.js"
 compatibility_date = "2025-04-01"
 
 kv_namespaces = [
-  { binding = "KV", id = "YOUR_KV_ID_HERE" }
+  { binding = "KV", id = "b0b9c45d98d8407d93b1f3d9a7bf2665" }
 ]
 
 [vars]
