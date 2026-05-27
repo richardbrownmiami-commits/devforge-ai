@@ -506,18 +506,6 @@ async function rmGW(w){if(!confirm('Revoke key "'+w+'"?'))return;const r=await a
 if(tok)loadAll()
 </script></body></html>`;
 
-const LOGIN_HTML = `<!DOCTYPE html>
+const LOGIN_HTML = `function redirectLogin(){var p=document.getElementById('lp').value;fetch('/admin/login',{method:'POST',body:new URLSearchParams({password:p})}).then(function(r){if(r.ok)window.location='/';else alert('Wrong password')})} `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Buddhi-Dwar</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0f;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh}
-#lb{background:#16161f;border:1px solid #2a2a3a;border-radius:12px;padding:40px;width:360px;text-align:center}
-#lb h2{color:#7c3aed;margin-bottom:8px}
-#lb p{color:#888;font-size:14px;margin-bottom:24px}
-#lb input{width:100%;padding:12px;background:#0a0a0f;border:1px solid #2a2a3a;border-radius:6px;color:#e0e0e0;font-size:16px;margin-bottom:16px;outline:none}
-#lb input:focus{border-color:#7c3aed}
-#lb button{width:100%;padding:12px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer}
-</style></head>
-<body>
-<div id="lb"><h2>Buddhi-Dwar</h2><p>बुद्धि-द्वार — Admin Login</p><form action="/admin/login" method="POST"><input type="password" name="password" placeholder="Password"><button type="submit">Login</button></form></div></body></html>`;
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Buddhi-Dwar</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0f;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh}#lb{background:#16161f;border:1px solid #2a2a3a;border-radius:12px;padding:40px;width:360px;text-align:center}#lb h2{color:#7c3aed;margin-bottom:8px}#lb p{color:#888;font-size:14px;margin-bottom:24px}#lb input{width:100%;padding:12px;background:#0a0a0f;border:1px solid #2a2a3a;border-radius:6px;color:#e0e0e0;font-size:16px;margin-bottom:16px;outline:none}#lb input:focus{border-color:#7c3aed}#lb button{width:100%;padding:12px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer}</style></head><body><div id="lb"><h2>Buddhi-Dwar</h2><p>बुद्धि-द्वार — Admin Login</p><input type="password" id="lp" placeholder="Password" onkeydown="if(event.keyCode===13)redirectLogin()"><button onclick="redirectLogin()">Login</button><script>function redirectLogin(){var p=document.getElementById("lp").value;fetch("/admin/login",{method:"POST",body:new URLSearchParams({password:p})}).then(function(r){if(r.ok)window.location="/";else alert("Wrong password")})}</script></div></body></html>`;
